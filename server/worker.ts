@@ -36,6 +36,19 @@ export function redact(text: string) {
       '$1[redacted]',
     )
 }
+export function redactPayload(value: unknown): unknown {
+  if (typeof value === 'string')
+    return redact(value)
+  if (Array.isArray(value))
+    return value.map(redactPayload)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      /^(?:access_token|refresh_token|id_token|OPENAI_API_KEY|CODEX_API_KEY)$/i.test(key) ? '[redacted]' : redactPayload(item),
+    ]))
+  }
+  return value
+}
 export function codexArgs(run: Run, output: string) {
   const a = run.snapshot.agent
   return [
@@ -219,6 +232,7 @@ export class Worker {
             run.id,
             event.type ?? 'output',
             redact(typeof text === 'string' ? text : JSON.stringify(text)),
+            redactPayload(event) as Record<string, unknown>,
           )
         }
         catch {

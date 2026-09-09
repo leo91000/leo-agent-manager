@@ -39,6 +39,7 @@ describe('real worker subprocess lifecycle', () => {
     )
     expect(JSON.stringify(events)).not.toContain('test-token-value')
     expect(JSON.stringify(events)).toContain('[redacted]')
+    expect(events.find(event => event.type === 'thread.started')?.payload).toMatchObject({ type: 'thread.started', thread_id: 'fixture-session' })
     const lastId = events[0].id
     expect(
       ctx.service.store

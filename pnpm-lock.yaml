@@ -196,6 +196,9 @@ importers:
       fastify:
         specifier: 5.12.3
         version: 5.12.3
+      highlight.js:
+        specifier: 11.12.0
+        version: 11.12.0
       marked:
         specifier: 18.0.12
         version: 18.0.12
@@ -4360,6 +4363,10 @@ packages:
         integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==,
       }
 
+  highlight.js@11.12.0:
+    resolution: {integrity: sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg==}
+    engines: {node: '>=12.0.0'}
+
 snapshots:
   "@antfu/eslint-config@9.5.1(@typescript-eslint/typescript-estree@8.70.0(supports-color@10.2.2)(typescript@6.0.3))(@typescript-eslint/utils@8.70.0(eslint@10.10.0(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3))(@vue/compiler-sfc@3.5.42)(eslint@10.10.0(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)(vitest@5.0.0(@types/node@24.12.0)(vite@8.2.2(@types/node@24.12.0)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0)))":
     dependencies:
@@ -6859,3 +6866,5 @@ snapshots:
   zod@4.5.4: {}
 
   zwitch@2.0.4: {}
+
+  highlight.js@11.12.0: {}

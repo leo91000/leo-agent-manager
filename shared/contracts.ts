@@ -84,4 +84,5 @@ export interface RunEvent {
   createdAt: number
   type: string
   text: string
+  payload?: Record<string, unknown>
 }

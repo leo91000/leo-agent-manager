@@ -1,0 +1,9 @@
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section { color: #865998; }
+.hljs-string, .hljs-attribute, .hljs-addition { color: #427739; }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: #a16527; }
+.hljs-comment, .hljs-quote { color: #7c8874; font-style: italic; }
+.hljs-title, .hljs-built_in, .hljs-type { color: #3b7590; }
+.hljs-variable, .hljs-template-variable, .hljs-attr { color: #926749; }
+.hljs-deletion { color: #af574d; background: #faebe5; }
+.hljs-addition { background: #e8f2df; }
+.hljs-meta { color: #6d7b59; }

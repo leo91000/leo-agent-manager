@@ -7,6 +7,32 @@ import { Store } from '../server/store.ts'
 import { fixture } from './helpers.ts'
 
 describe('durable storage and API boundaries', () => {
+  it('upgrades version 1 event history without losing records and persists structured payloads', async () => {
+    const ctx = await fixture()
+    try {
+      const run = await ctx.service.enqueue(ctx.task.id)
+      ctx.service.store.event(run.id, 'output', 'Historical output')
+      ctx.service.store.db.exec('ALTER TABLE events DROP COLUMN payload; PRAGMA user_version=1')
+      await ctx.app.close()
+      const upgraded = new Store(path.join(ctx.directory, 'data'))
+      try {
+        expect(upgraded.events(run.id).at(-1)?.text).toBe('Historical output')
+        expect(upgraded.events(run.id).at(-1)?.payload).toBeUndefined()
+        upgraded.event(run.id, 'item.completed', 'Done', { item: { type: 'agent_message', text: 'Done' } })
+        expect(upgraded.events(run.id).at(-1)?.payload).toEqual({ item: { type: 'agent_message', text: 'Done' } })
+        expect(upgraded.db.prepare('PRAGMA user_version').get()!.user_version).toBe(2)
+      }
+      finally {
+        upgraded.close()
+      }
+      const reopened = new Store(path.join(ctx.directory, 'data'))
+      expect(reopened.events(run.id).at(-1)?.payload?.item).toEqual({ type: 'agent_message', text: 'Done' })
+      reopened.close()
+    }
+    finally {
+      await ctx.dispose()
+    }
+  })
   it('persists sessions, rolls back transactions, expires credentials, and refuses database downgrade', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'leo-store-'))
     const store = new Store(dir)

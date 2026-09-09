@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { writeFileSync } from 'node:fs'
 import process from 'node:process'
+import activityEvents from './activity-events.json' with { type: 'json' }
 
 async function main() {
   const args = process.argv.slice(2)
@@ -25,6 +26,10 @@ async function main() {
     emit({ type: 'thread.started', thread_id: 'fixture-session' })
     process.stdout.write('non-JSON diagnostic\n')
     emit({ type: 'item.completed', item: { text: 'Checking the project' } })
+    if (prompt.includes('fixture:activity')) {
+      for (const event of activityEvents)
+        emit(event)
+    }
     if (prompt.includes('fixture:hang')) {
       setInterval(emit, 100, {
         type: 'progress',

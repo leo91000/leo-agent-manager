@@ -1212,43 +1212,6 @@ td small {
   line-height: 1.9;
   color: #6b7d57;
 }
-.event-log {
-  background: #182821;
-  color: #c6d3bc;
-  height: min(480px, 65dvh);
-  overflow: auto;
-  padding: 24px;
-}
-.event-row {
-  display: flex;
-  gap: 22px;
-  margin-bottom: 20px;
-}
-.event-row time {
-  font-size: 11px;
-  color: #637e64;
-  min-width: 65px;
-  padding-top: 3px;
-}
-.event-row > div {
-  min-width: 0;
-}
-.event-type {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: #8da376;
-}
-.event-row pre {
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.8;
-  margin: 7px 0;
-}
-.event-row[data-event-type="error"] pre {
-  color: #e9a696;
-}
 .run-id {
   font-size: 11px;
   margin-top: 17px;
@@ -2228,21 +2191,6 @@ legend small {
   }
   .result-content {
     padding: 22px;
-  }
-  .event-log {
-    padding: 16px;
-    height: min(420px, 65dvh);
-  }
-  .event-row {
-    flex-direction: column;
-    gap: 4px;
-  }
-  .event-row time {
-    font-size: 11px;
-    min-width: 48px;
-  }
-  .event-row pre {
-    font-size: 12px;
   }
   .run-title-meta {
     flex-wrap: wrap;

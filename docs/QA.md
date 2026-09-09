@@ -1,13 +1,13 @@
 # Validation record
 
-Validation performed on 2026-09-09. Screenshots use an isolated fixture workspace,
+Validation performed on 2026-09-09 and 2026-09-10. Screenshots use an isolated fixture workspace,
 not production projects or credentials. Browser journeys exercise a real Fastify
 service, SQLite database, filesystem, and subprocess; their model runner is a
 small explicit fixture. Actual Codex/GitHub checks are recorded separately below.
 
 ## Automated coverage
 
-`pnpm check` runs Antfu ESLint, TypeScript checks, 31 unit/integration tests, and the
+`pnpm check` runs Antfu ESLint, TypeScript checks, 36 unit/integration tests, and the
 production Vue build. `pnpm test:e2e` runs three complete Chromium journeys plus
 mobile layout/navigation passes in Chromium and WebKit.
 
@@ -87,6 +87,29 @@ current navigation destination now closes the mobile drawer as well.
 Reviewed WebKit captures: [Tasks](screenshots/mobile-tasks.png),
 [Activity](screenshots/mobile-activity.png), [Runs](screenshots/mobile-runs.png),
 and [scrolled short-screen drawer](screenshots/mobile-drawer-scrolled.png).
+
+## Conversation activity in v0.1.2
+
+Activity renders assistant Markdown between collapsible groups of terminal,
+file-change, search, MCP tool, plan, and session cards. Syntax highlighting is
+bundled locally for code fences, commands, JSON, and diffs; unrecognized languages
+remain escaped plain text. Raw event details and copy controls remain available.
+Tool lifecycle updates replace the existing card in its original position.
+
+The worker now saves redacted structured event payloads alongside the existing
+text. The additive version 2 SQLite upgrade preserves old event history and is
+covered by an upgrade/reopen test. Old records use the text and lifecycle events
+available at the time; metadata discarded by earlier versions cannot be restored.
+
+The Chromium/WebKit mobile matrix opens grouped file and command cards, verifies
+highlighted diffs, enters fullscreen at all four viewport sizes, then checks
+Escape, focus restoration, and preserved expanded content. The fullscreen dialog
+uses dynamic viewport height, safe-area padding, and its own scroll container.
+
+Reviewed screenshots: [mobile conversation](screenshots/activity-conversation-mobile.png),
+[fullscreen on mobile](screenshots/activity-fullscreen-mobile.png),
+[file changes on mobile](screenshots/activity-files-mobile.png), and
+[desktop details](screenshots/activity-details-desktop.png).
 
 ## Actual provider and container execution
 

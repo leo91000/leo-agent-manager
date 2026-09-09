@@ -8,9 +8,10 @@ import {
   Square,
   Terminal,
 } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, date, duration, notify } from '../api'
+import ActivityFeed from '../components/ActivityFeed.vue'
 import Markdown from '../components/Markdown.vue'
 import Modal from '../components/Modal.vue'
 import Status from '../components/Status.vue'
@@ -25,8 +26,7 @@ const error = ref('')
 const tab = ref('result')
 const confirm = ref(false)
 const confirmCleanup = ref(false)
-const follow = ref(true)
-const log = ref<HTMLElement>()
+const trimmedEvents = ref(0)
 const active = computed(
   () => run.value && ['running', 'queued'].includes(run.value.status),
 )
@@ -42,11 +42,9 @@ async function load() {
     )
     events.value.push(...items)
     moreEvents.value = items.length === 100
-    if (events.value.length > 2000)
+    if (events.value.length > 2000) {
+      trimmedEvents.value += events.value.length - 2000
       events.value = events.value.slice(-2000)
-    if (follow.value) {
-      await nextTick()
-      log.value?.scrollTo({ top: log.value.scrollHeight })
     }
   }
   catch (e) {
@@ -165,7 +163,7 @@ async function copy() {
           </button>
         </div>
       </header>
-      <div v-if="(tab === 'result' && run.summary) || tab === 'events'" class="run-panel-actions">
+      <div v-if="tab === 'result' && run.summary" class="run-panel-actions">
         <button
           v-if="tab === 'result' && run.summary"
           class="button small"
@@ -173,7 +171,7 @@ async function copy() {
           @click="copy"
         >
           <Copy :size="16" />Copy result
-        </button><label v-if="tab === 'events'" class="checkbox"><input v-model="follow" type="checkbox">Follow output</label>
+        </button>
       </div>
       <div v-if="tab === 'result'" class="result-content">
         <Markdown v-if="run.summary" :content="run.summary" />
@@ -186,33 +184,7 @@ async function copy() {
           </p>
         </div>
       </div>
-      <div v-else-if="tab === 'events'" ref="log" class="event-log">
-        <button
-          v-if="moreEvents"
-          class="button"
-          :disabled="loading"
-          @click="load"
-        >
-          Load more activity
-        </button>
-        <div
-          v-for="event in events"
-          :key="event.id"
-          class="event-row"
-          :data-event-type="event.type"
-        >
-          <time>{{ new Date(event.createdAt).toLocaleTimeString() }}</time>
-          <div>
-            <span class="event-type">{{
-              event.type.replaceAll(".", " · ")
-            }}</span>
-            <pre>{{ event.text }}</pre>
-          </div>
-        </div>
-        <p v-if="!events.length" class="muted">
-          Waiting for the worker to pick up this run…
-        </p>
-      </div>
+      <ActivityFeed v-else-if="tab === 'events'" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="moreEvents" :loading="loading" :trimmed="trimmedEvents" @load="load" />
       <div v-else class="result-content">
         <h3>Original instructions</h3>
         <pre class="brief-text">{{ run.snapshot.task.prompt }}</pre>

@@ -31,7 +31,7 @@ export class Store {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     this.db = new DatabaseSync(path.join(directory, 'manager.db'))
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 1) {
+    if (version > 2) {
       this.db.close()
       throw new Error(
         'This database belongs to a newer application version. Restore a compatible backup or upgrade the application.',
@@ -50,7 +50,12 @@ export class Store {
       CREATE INDEX IF NOT EXISTS events_run ON events(run_id,id);
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY,data TEXT NOT NULL,expires INTEGER);
       CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at INTEGER NOT NULL,action TEXT NOT NULL,detail TEXT NOT NULL);
-      PRAGMA user_version=1;`)
+      `)
+    if (version < 2) {
+      this.transaction(() => {
+        this.db.exec('ALTER TABLE events ADD COLUMN payload TEXT; PRAGMA user_version=2;')
+      })
+    }
   }
 
   list<K extends keyof Records>(kind: K): Records[K][] {
@@ -173,17 +178,21 @@ export class Store {
   events(runId: string, after = 0, limit = 100): RunEvent[] {
     return this.db
       .prepare(
-        'SELECT id,run_id AS runId,created_at AS createdAt,type,text FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?',
+        'SELECT id,run_id AS runId,created_at AS createdAt,type,text,payload FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?',
       )
-      .all(runId, after, limit) as unknown as RunEvent[]
+      .all(runId, after, limit)
+      .map(({ payload, ...row }) => ({
+        ...row,
+        ...(payload ? { payload: JSON.parse(payload as string) } : {}),
+      })) as unknown as RunEvent[]
   }
 
-  event(runId: string, type: string, text: string) {
+  event(runId: string, type: string, text: string, payload?: Record<string, unknown>) {
     this.db
       .prepare(
-        'INSERT INTO events(run_id,created_at,type,text) VALUES(?,?,?,?)',
+        'INSERT INTO events(run_id,created_at,type,text,payload) VALUES(?,?,?,?,?)',
       )
-      .run(runId, Date.now(), type, text.slice(0, 16000))
+      .run(runId, Date.now(), type, text.slice(0, 16000), payload ? JSON.stringify(payload) : null)
     this.db
       .prepare(
         'DELETE FROM events WHERE run_id=? AND id < (SELECT COALESCE(MAX(id),0)-10000 FROM events WHERE run_id=?)',
