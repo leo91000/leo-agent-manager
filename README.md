@@ -7,6 +7,7 @@ Run it on a VPS so schedules keep working when your laptop is off.
 
 ## What it does
 
+- Choose Light, Dark, or System appearance, with a saved browser preference and automatic device changes.
 - Create agent profiles with model, reasoning, instructions and time limits.
 - Register project directories; run tasks in isolated Git worktrees or directly in a project.
 - Schedule daily, weekly, or custom cron tasks with timezone previews and overlap protection.
@@ -18,6 +19,9 @@ Run it on a VPS so schedules keep working when your laptop is off.
 The application serves one private owner workspace. The repository is public;
 your credentials, projects, task instructions, and run history stay on your server.
 There is no telemetry or external font/CDN dependency.
+
+Appearance is available from the top bar, the sign-in screen, and **Settings → Appearance**.
+[Theme implementation and browser QA](docs/THEMES.md) cover the palette and checks.
 
 ## Run with Docker
 

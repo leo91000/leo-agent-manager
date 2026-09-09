@@ -3,6 +3,7 @@ import { Copy, ExternalLink, KeyRound, Plus } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
 import { api, date, notify } from '../api'
 import Modal from '../components/Modal.vue'
+import ThemeControl from '../components/ThemeControl.vue'
 
 const settings = ref<any>()
 const grants = ref<any[]>([])
@@ -75,6 +76,15 @@ async function copy(value: string) {
     {{ error }}
   </p>
   <template v-if="settings">
+    <section class="panel settings-section appearance-section">
+      <div class="section-intro">
+        <div><h2>Appearance</h2><p>Make this workspace feel right, day or night.</p></div>
+      </div>
+      <ThemeControl />
+      <p class="appearance-hint">
+        Saved in this browser. System follows your device’s appearance automatically.
+      </p>
+    </section>
     <section class="panel settings-section">
       <div class="section-intro">
         <span class="resource-avatar"><ExternalLink :size="22" /></span>

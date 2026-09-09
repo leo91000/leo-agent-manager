@@ -418,7 +418,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
       prefix: '/',
       maxAge: '1h',
       setHeaders(response, filePath) {
-        if (path.basename(filePath) === 'index.html')
+        if (['index.html', 'theme.js'].includes(path.basename(filePath)))
           response.header('Cache-Control', 'no-cache')
       },
     })

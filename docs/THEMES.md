@@ -1,0 +1,72 @@
+# Appearance
+
+Leo defaults to the device's preferred color scheme. Choose **System**, **Light**,
+or **Dark** in the top bar, on the sign-in/setup screen, or in
+**Settings → Appearance**. The preference belongs to this browser and origin;
+it does not change another person's device or workspace settings.
+
+System mode responds immediately when the OS changes its appearance. An explicit
+Light or Dark choice survives reloads and stays selected across OS changes. Tabs
+on the same origin synchronize. Clearing the preference restores System. If
+browser privacy settings block storage, selection still works for the current page.
+
+## Implementation
+
+`public/theme.js` is a small, same-origin, blocking head script. It resolves the
+preference before Vue starts, sets the document's theme and native `color-scheme`,
+and updates the browser's theme-color metadata. The initial document also provides
+a matching background before the main styles arrive. The bootstrap is revalidated
+along with the HTML, so an old cached controller cannot outlive a new deployment.
+No inline JavaScript, additional dependency, or CSP relaxation is required.
+
+`src/theme.ts` connects that controller to Vue. `ThemeControl.vue` uses native radio
+semantics, a keyboard-accessible popover, focus restoration, and viewport bounds.
+The same control renders as three preview cards in Settings.
+
+The dark palette in `src/theme.css` defines canvas, panels, raised surfaces, inset
+code/inputs, borders, text, and semantic colors. Existing styles use explicit
+`light-dark()` pairs. Dark mode covers cards, tables, forms, validation, toasts,
+selects, overlays, authentication/consent, and all activity artifacts, Markdown,
+JSON, code highlighting, and diff additions/deletions. Native controls and
+scrollbars inherit the selected color scheme. The dark sidebar keeps its brand
+palette with adjusted secondary text. Theme previews intentionally depict both
+light and dark surfaces.
+
+When adding a component, use the existing semantic colors or an explicit
+`light-dark()` pair. Test both modes; avoid hard-coded white surfaces. Keep focus,
+selected, error, warning, and disabled states distinguishable.
+
+## Browser evidence
+
+`pnpm check` covers lint, TypeScript, unit tests, and the production build.
+`pnpm test:e2e` exercises the real production server and fixture worker.
+
+The screenshot matrix covers Overview, Tasks, Runs, Agents, Projects, Skills,
+Connections, Settings, and run Result/Activity/Brief. It opens all six editors,
+search, virtual selects, fullscreen activity, source/Markdown views, operation
+cards, structured data, and historical output. Chromium and WebKit both run dark
+mode at 1440×1000, 320×568, 390×664, 430×932, and 844×390. Their existing light
+mobile matrices remain enabled. Geometry checks reject page overflow, clipped
+dialogs/popovers, and unexpected bright surfaces in dark mode.
+
+Additional captures cover setup, sign-in, OAuth consent, validation feedback,
+empty tasks, pending/failed connection sign-in, and the appearance menu. Connection
+codes in these captures are synthetic. Preference tests verify persistence, OS
+changes, cross-tab synchronization, keyboard focus, and a dark background even
+when the application modules are blocked. Unit tests also cover invalid saved
+preferences and unavailable storage.
+
+Representative reviewed captures:
+
+- [Desktop screens](screenshots/dark-pages-desktop.jpg)
+- [Mobile screens](screenshots/dark-pages-mobile.jpg)
+- [Mobile editors and select](screenshots/dark-editors-mobile.jpg)
+- [Activity and search](screenshots/dark-activity-mobile.jpg)
+- [WebKit mobile screens](screenshots/dark-webkit-mobile.jpg)
+- [Empty and connection states](screenshots/dark-feedback.jpg)
+- [Settings](screenshots/dark-settings-desktop.png)
+- [Theme menu](screenshots/dark-theme-menu-mobile.png)
+
+The complete per-screen captures are retained in the `browser-evidence` CI artifact
+for 14 days. Screenshots and automated layout checks are review evidence, not a
+pixel-diff baseline or a claim to have tested every possible user-generated value.

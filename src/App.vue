@@ -20,6 +20,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, notify, refresh, session, state } from './api'
 import Modal from './components/Modal.vue'
+import ThemeControl from './components/ThemeControl.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -185,6 +186,9 @@ async function logout() {
       <span class="auth-foot">Your infrastructure. Your accounts. Your work.</span>
     </div>
     <div class="auth-form">
+      <div class="auth-appearance">
+        <ThemeControl compact />
+      </div>
       <div class="auth-card">
         <span class="eyebrow">YOUR CONTROL ROOM</span>
         <h2>
@@ -327,7 +331,7 @@ async function logout() {
             @click="searchOpen = true"
           >
             <Search :size="16" /><span>Find anything…</span><kbd>⌘ K</kbd>
-          </button><span class="top-avatar">L</span>
+          </button><ThemeControl compact />
         </div>
       </header>
       <main class="page">

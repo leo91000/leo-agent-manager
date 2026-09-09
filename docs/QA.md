@@ -192,6 +192,15 @@ Reviewed screenshots: [desktop operations](screenshots/artifacts-desktop.png),
 [terminal output](screenshots/artifacts-command-mobile.png), and
 [historical output](screenshots/artifacts-legacy-mobile.png).
 
+## Appearance in v0.1.5
+
+Light, Dark, and System modes now cover the full workspace, authentication,
+editors, selects, and activity artifacts. Both Chromium and WebKit exercise
+dark desktop/mobile matrices alongside existing light-mode coverage. Preference
+tests cover OS changes, persistence, cross-tab updates, storage restrictions,
+and the pre-application background. [Theme design and reviewed screenshots](THEMES.md)
+record the palette, behavior, and detailed coverage.
+
 ## Actual provider and container execution
 
 The application's connection checker detected local `codex-cli 0.153.4` logged in
