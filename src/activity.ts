@@ -1,4 +1,5 @@
 import type { RunEvent } from '../shared/contracts'
+import { describeCommand } from './activity-command'
 
 export interface ActivityCode {
   label: string
@@ -6,7 +7,7 @@ export interface ActivityCode {
   language: string
 }
 export interface ActivityArtifact {
-  kind: 'command' | 'files' | 'search' | 'tool' | 'plan' | 'thinking' | 'notice'
+  kind: 'command' | 'read' | 'browse' | 'output' | 'files' | 'search' | 'tool' | 'plan' | 'thinking' | 'notice'
   id: string
   time: number
   title: string
@@ -16,6 +17,11 @@ export interface ActivityArtifact {
   files: { path: string, kind: string }[]
   tasks: { text: string, completed: boolean }[]
   raw: string
+  command?: string
+  cwd?: string
+  exitCode?: number
+  durationMs?: number
+  historical?: boolean
 }
 export type ActivityEntry
   = | { kind: 'message', id: string, time: number, text: string }
@@ -34,7 +40,8 @@ function payload(event: RunEvent) {
   if (event.payload)
     return event.payload
   try {
-    return record(JSON.parse(event.text))
+    const data = record(JSON.parse(event.text))
+    return data.type === event.type || Object.hasOwn(data, 'item') ? data : {}
   }
   catch {
     return {}
@@ -75,7 +82,12 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
       continue
     }
     if (legacyTool && legacy && event.type === 'item.completed') {
-      legacyTool.status = 'done'
+      legacyTool.kind = 'output'
+      legacyTool.title = 'Recorded output'
+      legacyTool.subtitle = event.text.split('\n').find(line => line.trim())?.slice(0, 180) || 'No output recorded'
+      legacyTool.status = 'info'
+      legacyTool.historical = true
+      legacyTool.durationMs = Math.max(0, event.createdAt - legacyTool.time)
       legacyTool.blocks = [{ label: 'Output', code: event.text, language: 'plaintext' }]
       legacyTool.raw = event.text
       legacyTool = undefined
@@ -101,13 +113,17 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
         artifact.blocks.push({ label, code: pretty(value), language })
     }
     if (type === 'command_execution') {
-      artifact.kind = 'command'
-      artifact.title = 'Terminal command'
-      artifact.subtitle = text(item.command)
-      block('Command', item.command, 'bash')
-      block('Output', item.aggregated_output)
+      const command = describeCommand(text(item.command))
+      artifact.kind = command.kind
+      artifact.title = command.title
+      artifact.subtitle = command.subtitle
+      artifact.command = command.command
+      artifact.cwd = text(item.cwd) || text(item.working_directory)
+      artifact.files = command.paths.map(path => ({ path, kind: 'read' }))
+      block('Command', command.command, 'bash')
+      block(command.kind === 'read' ? 'File content' : command.kind === 'search' ? 'Matches' : command.kind === 'browse' ? 'Files found' : 'Output', item.aggregated_output, command.language)
       if (typeof item.exit_code === 'number')
-        artifact.title = item.exit_code === 0 ? 'Command completed' : `Command exited with code ${item.exit_code}`
+        artifact.exitCode = item.exit_code
     }
     else if (type === 'file_change') {
       artifact.kind = 'files'
@@ -117,7 +133,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
         artifact.files.push({ path: text(file.path), kind: text(file.kind) || 'update' })
         block(text(file.path) || 'Changes', file.diff ?? file.patch, 'diff')
       }
-      artifact.subtitle = `${artifact.files.length} ${artifact.files.length === 1 ? 'file' : 'files'}`
+      artifact.subtitle = artifact.files.map(file => file.path).join(' · ')
     }
     else if (type === 'mcp_tool_call' || type === 'web_search') {
       artifact.kind = type === 'web_search' ? 'search' : 'tool'
@@ -154,11 +170,11 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
         'diagnostic': 'Worker diagnostic',
         'output': 'Worker output',
         'error': 'Worker reported an error',
-        'item.started': 'Working',
+        'item.started': 'Tool activity',
         'item.completed': 'Work completed',
         'turn.failed': 'Turn failed',
       }
-      artifact.title = event.type === 'status' ? readable(event.text) : labels[event.type] || readable(type || event.type)
+      artifact.title = event.type === 'status' ? readable(event.text) : type ? readable(type) : labels[event.type] || readable(event.type)
       const message = text(item.message) || text(data.message) || text(record(data.error).message)
       if (message)
         block('Details', message)
@@ -172,7 +188,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
     }
     const previous = artifacts.get(id)
     if (previous) {
-      Object.assign(previous, artifact, { time: previous.time })
+      Object.assign(previous, artifact, { time: previous.time, durationMs: running ? undefined : Math.max(0, event.createdAt - previous.time) })
       continue
     }
     artifacts.set(id, artifact)
@@ -182,7 +198,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
     else
       entries.push({ kind: 'group', id: `group:${id}`, artifacts: [artifact] })
     if (legacy && event.type === 'item.started')
-      legacyTool = artifact
+      legacyTool = Object.assign(artifact, { kind: 'output' as const, title: 'Recorded step', historical: true })
   }
   return entries
 }

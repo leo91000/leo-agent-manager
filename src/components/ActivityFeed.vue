@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { RunEvent } from '../../shared/contracts'
 import type { ActivityArtifact } from '../activity'
-import { ArrowDown, Check, ChevronDown, CircleAlert, FileCode, Globe, Layers, Leaf, ListChecks, LoaderCircle, Maximize2, Minimize2, Sparkles, Terminal, Wrench } from '@lucide/vue'
+import { ArrowDown, ChevronDown, Layers, Leaf, LoaderCircle, Maximize2, Minimize2 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { activityEntries } from '../activity'
-import ActivityCode from './ActivityCode.vue'
+import ActivityArtifactCard from './ActivityArtifactCard.vue'
 import ActivityContent from './ActivityContent.vue'
 import '../activity.css'
 
@@ -19,8 +19,6 @@ const fullscreenButton = ref<HTMLButtonElement>()
 const scroller = ref<HTMLElement>()
 const opened = ref(new Set<string>())
 const expanded = ref(new Set<string>())
-const raw = ref(new Set<string>())
-const icons = { command: Terminal, files: FileCode, search: Globe, tool: Wrench, plan: ListChecks, thinking: Sparkles, notice: CircleAlert }
 function toggle(set: Set<string>, id: string) {
   if (set.has(id))
     set.delete(id)
@@ -31,7 +29,7 @@ function groupLabel(artifacts: ActivityArtifact[]) {
   const actions = artifacts.filter(item => item.kind !== 'notice')
   if (!actions.length)
     return artifacts.some(item => item.status === 'error') ? 'Session updates · needs attention' : 'Session updates'
-  const kinds = [...new Set(actions.map(item => ({ command: 'terminal', files: 'files', search: 'research', tool: 'tools', plan: 'plan', thinking: 'thinking', notice: 'updates' })[item.kind]))]
+  const kinds = [...new Set(actions.map(item => ({ command: 'terminal', read: 'reading', browse: 'workspace', output: 'output', files: 'files', search: 'research', tool: 'tools', plan: 'plan', thinking: 'thinking', notice: 'updates' })[item.kind]))]
   return kinds.map(value => value[0].toUpperCase() + value.slice(1)).join(' · ')
 }
 function jump() {
@@ -111,34 +109,7 @@ onBeforeUnmount(() => viewer.value?.close())
                   <ChevronDown class="activity-chevron" :size="17" />
                 </button>
                 <div v-if="opened.has(entry.id)" :id="`activity-${entry.id}`" class="activity-artifacts">
-                  <article v-for="artifact in entry.artifacts" :key="artifact.id" class="activity-artifact" :data-status="artifact.status">
-                    <button class="artifact-toggle" :aria-expanded="expanded.has(artifact.id)" @click="toggle(expanded, artifact.id)">
-                      <component :is="icons[artifact.kind]" class="artifact-kind-icon" :size="17" />
-                      <span class="artifact-heading"><strong>{{ artifact.title }}</strong><span v-if="artifact.subtitle" :class="{ 'artifact-command': artifact.kind === 'command' }">{{ artifact.subtitle }}</span></span>
-                      <span class="artifact-status" :aria-label="artifact.status"><LoaderCircle v-if="artifact.status === 'running' && active" class="activity-spinning" :size="14" /><CircleAlert v-else-if="artifact.status === 'error'" :size="14" /><Check v-else-if="artifact.status === 'done'" :size="14" /></span>
-                      <ChevronDown class="artifact-chevron" :class="{ rotated: expanded.has(artifact.id) }" :size="15" />
-                    </button>
-                    <div v-if="expanded.has(artifact.id)" class="artifact-body">
-                      <ul v-if="artifact.files.length" class="artifact-files">
-                        <li v-for="file in artifact.files" :key="file.path">
-                          <FileCode :size="16" /><code>{{ file.path }}</code><span :data-change="file.kind">{{ file.kind }}</span>
-                        </li>
-                      </ul>
-                      <ul v-if="artifact.tasks.length" class="artifact-plan">
-                        <li v-for="(taskItem, index) in artifact.tasks" :key="index" :class="{ completed: taskItem.completed }">
-                          <span><Check v-if="taskItem.completed" :size="13" /></span>{{ taskItem.text }}
-                        </li>
-                      </ul>
-                      <ActivityContent v-for="(block, index) in artifact.blocks" :key="index" :label="block.label" :content="block.code" :language="block.language" />
-                      <p v-if="!artifact.blocks.length && !artifact.files.length && !artifact.tasks.length" class="artifact-no-output">
-                        {{ artifact.status === 'running' && active ? 'Waiting for output…' : 'No additional output for this step.' }}
-                      </p>
-                      <button class="artifact-raw-toggle" :aria-expanded="raw.has(artifact.id)" @click="toggle(raw, artifact.id)">
-                        {{ raw.has(artifact.id) ? 'Hide' : 'View' }} event details
-                      </button>
-                      <ActivityCode v-if="raw.has(artifact.id)" label="Event details" :code="artifact.raw" language="json" />
-                    </div>
-                  </article>
+                  <ActivityArtifactCard v-for="artifact in entry.artifacts" :key="artifact.id" :artifact="artifact" :active="active" :expanded="expanded.has(artifact.id)" @toggle="toggle(expanded, artifact.id)" />
                 </div>
               </section>
             </template>

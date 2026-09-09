@@ -1,0 +1,55 @@
+.activity-group .activity-artifacts { padding: 12px; background: #f8faf5; }
+.activity-artifacts .operation-card { border: 1px solid #dfe7d7; border-radius: 12px; background: #fff; overflow: hidden; margin: 0; box-shadow: 0 2px 5px #33493203; }
+.activity-artifacts .operation-card + .operation-card { margin-top: 10px; border: 1px solid #dfe7d7; }
+.operation-card .artifact-toggle { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto 15px; align-items: start; gap: 12px; padding: 16px; }
+.operation-card .artifact-toggle:hover { background: #fafcf7; }
+.operation-icon { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #dce8d2; border-radius: 12px; background: #f0f5e9; color: #648148; }
+.operation-card[data-kind="command"] .operation-icon, .operation-card[data-kind="output"] .operation-icon { background: #edf2ee; border-color: #d8e3dc; color: #466653; }
+.operation-card[data-kind="read"] .operation-icon { background: #edf4f8; border-color: #dce7ef; color: #577c93; }
+.operation-card[data-kind="files"] .operation-icon { background: #f3f0f9; border-color: #e5deef; color: #80649f; }
+.operation-card[data-kind="search"] .operation-icon, .operation-card[data-kind="browse"] .operation-icon { background: #fbf5e7; border-color: #eee4cb; color: #9b813f; }
+.operation-card .artifact-heading > .operation-label { display: block; font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #8b9980; margin: 0 0 5px; line-height: 1.3; }
+.operation-card .artifact-heading > strong { font-size: 13px; font-weight: 600; color: #344e3b; overflow-wrap: anywhere; }
+.operation-card .artifact-heading > .operation-description { font-size: 11px; margin-top: 6px; line-height: 1.6; color: #819074; -webkit-line-clamp: 2; }
+.operation-state { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; margin-top: 2px; border-radius: 5px; font-size: 9px; white-space: nowrap; color: #78866b; background: #f1f4ed; }
+.operation-state[data-state="Completed"] { color: #547b46; background: #eef5e7; }
+.operation-state[data-state="Failed"] { color: #a45f43; background: #fbefe7; }
+.operation-state[data-state="Running"] { color: #527694; background: #eaf3f8; }
+.operation-card .artifact-chevron { margin-top: 8px; color: #8c9c7c; }
+.operation-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: -2px 16px 14px 68px; font-size: 10px; color: #89967b; }
+.operation-facts:empty { display: none; }
+.operation-facts > span { display: inline-flex; align-items: center; gap: 5px; }
+.operation-facts > .operation-cwd { overflow-wrap: anywhere; min-width: 0; font-family: ui-monospace, monospace; font-size: 9px; }
+.operation-diff b { font-weight: 500; color: #5b8750; }
+.operation-diff b + b, .operation-facts > .operation-error { color: #b1765c; }
+.operation-card .artifact-body { border-top: 1px solid #eaf0e3; padding: 4px 16px 12px; }
+.operation-card .artifact-files { margin-top: 4px; margin-bottom: 6px; }
+.operation-card .artifact-files li { border-bottom: 1px solid #eef2e8; }
+.operation-card .artifact-files li:last-child { border-bottom: 0; }
+.operation-card .artifact-files [data-change="read"] { background: #edf4f8; color: #5a7f96; }
+.operation-card .activity-code { margin: 10px 0; }
+.operation-card .activity-code pre { max-height: 330px; }
+.operation-command-toggle { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 10px 0 3px; font-size: 10px; color: #7b8a70; cursor: pointer; }
+.operation-history { display: flex; align-items: flex-start; gap: 7px; font-size: 10px; color: #8c977f; line-height: 1.7; margin: 12px 0 0; }
+.operation-history svg { flex-shrink: 0; margin-top: 2px; }
+.read-preview { border: 1px solid #e0e7d9; border-radius: 9px; margin-top: 12px; overflow: hidden; }
+.read-preview-tabs { display: flex; gap: 5px; padding: 6px 8px; background: #f5f8f0; border-bottom: 1px solid #e0e7d9; }
+.read-preview-tabs button { border: 0; border-radius: 5px; background: transparent; color: #819074; padding: 6px 10px; font-size: 10px; cursor: pointer; }
+.read-preview-tabs button[aria-pressed="true"] { background: #fff; box-shadow: 0 1px 3px #354c3910; color: #476240; }
+.read-preview-content { max-height: 380px; overflow: auto; padding: 15px; font-size: 12px; line-height: 1.8; scrollbar-width: thin; overflow-wrap: anywhere; }
+.read-preview-content .markdown h1 { font-size: 19px; }
+.read-preview-content .markdown h2 { font-size: 16px; }
+@media (max-width: 640px) {
+  .activity-group .activity-artifacts { padding: 8px; }
+  .operation-card .artifact-toggle { grid-template-columns: 32px minmax(0, 1fr) 14px; gap: 9px; padding: 12px; }
+  .operation-icon { width: 32px; height: 32px; border-radius: 10px; }
+  .operation-state { grid-column: 2; grid-row: 2; justify-self: start; margin: 0; }
+  .operation-card .artifact-chevron { grid-column: 3; grid-row: 1; }
+  .operation-card .artifact-heading > strong { font-size: 12px; }
+  .operation-card .artifact-heading > .operation-description { font-size: 10px; }
+  .operation-facts { margin: 0 12px 12px 53px; gap: 6px 10px; }
+  .operation-card .artifact-body { padding: 4px 10px 10px; }
+  .operation-card .activity-code pre { max-height: 45dvh; }
+  .operation-command-toggle, .read-preview-tabs button { min-height: 44px; }
+}
+.read-metadata > summary { cursor: pointer; color: #809070; font-size: 10px; padding-bottom: 10px; }

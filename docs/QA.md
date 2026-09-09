@@ -7,7 +7,7 @@ small explicit fixture. Actual Codex/GitHub checks are recorded separately below
 
 ## Automated coverage
 
-`pnpm check` runs Antfu ESLint, TypeScript checks, 42 unit/integration tests, and the
+`pnpm check` runs Antfu ESLint, TypeScript checks, 48 unit/integration tests, and the
 production Vue build. `pnpm test:e2e` runs three complete Chromium journeys plus
 mobile layout/navigation passes in Chromium and WebKit.
 
@@ -160,6 +160,37 @@ the success badge.
 Reviewed captures: [desktop workflow results](screenshots/activity-json-desktop.png),
 [mobile workflow results](screenshots/activity-json-mobile.png), and
 [mobile pull request files](screenshots/activity-json-files-mobile.png).
+
+## Operation cards in v0.1.4
+
+Activity uses distinct cards for terminal commands, file reads, edits, searches,
+workspace browsing, tools, plans, and session notices. Cards show retained command
+and file metadata, explicit exit codes, lifecycle duration when both events exist,
+output line counts, and additions/removals when a diff is available. File reads
+highlight the file language; Markdown reads offer a rendered preview, collapsible
+frontmatter, and the original source. Raw output and copy controls remain available.
+
+The reported “Working” cards reproduced with an old item-start/item-complete pair:
+completion updated the output but left the generic start title. Historical pairs
+now become neutral “Recorded output” cards with a preview. Commands, file identities,
+exit codes and diffs discarded by old workers cannot be reconstructed from output;
+the UI says when those details were not recorded. A regression also preserves the
+pair when the completed output happens to be a JSON object.
+
+Read/search/browse classification is conservative and based on saved commands.
+A small parser recognizes simple shell commands and quoted shell wrappers without
+executing them; compound commands, redirections and substitutions keep terminal
+presentation. Tests cover reads, search, directory browsing, commands, mutation
+ambiguity, lifecycle identity and the historical event cases. Both browser engines
+exercise source highlighting, Markdown preview/source switching, failed command
+status and historical output across mobile viewports.
+
+Reviewed screenshots: [desktop operations](screenshots/artifacts-desktop.png),
+[code read](screenshots/artifacts-read-mobile.png),
+[Markdown preview](screenshots/artifacts-markdown-mobile.png),
+[file edits](screenshots/artifacts-edit-mobile.png),
+[terminal output](screenshots/artifacts-command-mobile.png), and
+[historical output](screenshots/artifacts-legacy-mobile.png).
 
 ## Actual provider and container execution
 
