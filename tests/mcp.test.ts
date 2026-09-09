@@ -17,11 +17,13 @@ describe('stateless MCP over real HTTP', () => {
     await Promise.all(clients.splice(0).map(client => client.close()))
     await ctx.dispose()
   })
-  async function connect(scopes: string[]) {
+  async function connect(scopes: string[], protocolVersion = '2026-07-28') {
     const { token } = ctx.auth.personal('SDK test', scopes)
     const client = new Client(
       { name: 'test-client', version: '1.0.0' },
-      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+      protocolVersion === '2026-07-28'
+        ? { versionNegotiation: { mode: { pin: '2026-07-28' } } }
+        : { supportedProtocolVersions: [protocolVersion] },
     )
     clients.push(client)
     const transport = new StreamableHTTPClientTransport(
@@ -62,8 +64,8 @@ describe('stateless MCP over real HTTP', () => {
     expect(ctx.service.store.active()).toHaveLength(1)
   })
 
-  it('enforces scopes, revocation and protocol revision at the HTTP boundary', async () => {
-    const { client, token } = await connect(['read'])
+  it.each(['2026-07-28', '2025-06-18'])('enforces scopes and revocation over %s', async (protocolVersion) => {
+    const { client, token } = await connect(['read'], protocolVersion)
     const denied = await client.callTool({
       name: 'run_task',
       arguments: { taskId: ctx.task.id },
@@ -79,7 +81,23 @@ describe('stateless MCP over real HTTP', () => {
     expect(unauthorized.headers.get('www-authenticate')).toContain(
       'oauth-protected-resource/mcp',
     )
-    const legacy = await fetch(`${address}/mcp`, {
+    ctx.auth.revoke(ctx.auth.verify(token).family)
+    await expect(
+      client.callTool({ name: 'list_agents', arguments: {} }),
+    ).rejects.toThrow()
+  })
+
+  it.each(['2025-06-18', '2025-11-25'])('supports %s clients without session state', async (protocolVersion) => {
+    const { client, transport, token } = await connect(['read'], protocolVersion)
+    expect(transport.sessionId).toBeUndefined()
+    expect((await client.listTools()).tools.map(tool => tool.name)).toContain('list_agents')
+    const other = await connect(['read'], protocolVersion)
+    expect(other.transport.sessionId).toBeUndefined()
+    const result = await other.client.callTool({ name: 'list_agents', arguments: {} })
+    expect(result.isError).not.toBe(true)
+    expect(JSON.stringify(result.content)).toContain('Test agent')
+
+    const initialized = await fetch(`${address}/mcp`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -91,16 +109,26 @@ describe('stateless MCP over real HTTP', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '2025-11-25',
+          protocolVersion,
           capabilities: {},
           clientInfo: { name: 'old', version: '1' },
         },
       }),
     })
-    expect(legacy.status).toBeGreaterThanOrEqual(400)
-    ctx.auth.revoke(ctx.auth.verify(token).family)
-    await expect(
-      client.callTool({ name: 'list_agents', arguments: {} }),
-    ).rejects.toThrow()
+    expect(initialized.status).toBe(200)
+    expect(initialized.headers.get('mcp-session-id')).toBeNull()
+    await initialized.text()
+    for (const method of ['GET', 'DELETE']) {
+      const response = await fetch(`${address}/mcp`, {
+        method,
+        headers: {
+          'authorization': `Bearer ${token}`,
+          'accept': 'application/json, text/event-stream',
+          'mcp-protocol-version': protocolVersion,
+        },
+      })
+      expect(response.status).toBe(405)
+      await response.text()
+    }
   })
 })

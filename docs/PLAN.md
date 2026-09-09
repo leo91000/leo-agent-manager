@@ -31,8 +31,9 @@ responsible for project tests and releases requested by an agent.
   are supported; arbitrary shell templates and unimplemented providers are absent.
 - OAuth scopes separate read, run, and manage capabilities. Browser sessions and
   MCP access tokens are separate credentials. Tokens are hashed at rest.
-- MCP uses SDK v2 and protocol 2026-07-28 per-request HTTP handlers, without legacy
-  session transports or SSE reconnection state. App run polling is independent of
+- MCP uses SDK v2 and protocol 2026-07-28 per-request HTTP handlers, with stateless
+  compatibility for older Streamable HTTP clients and no retained sessions or SSE
+  reconnection state. App run polling is independent of
   MCP transport state.
 
 ## Feature inventory and acceptance criteria

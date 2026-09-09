@@ -7,7 +7,7 @@ small explicit fixture. Actual Codex/GitHub checks are recorded separately below
 
 ## Automated coverage
 
-`pnpm check` runs Antfu ESLint, TypeScript checks, 25 unit/integration tests, and the
+`pnpm check` runs Antfu ESLint, TypeScript checks, 28 unit/integration tests, and the
 production Vue build. `pnpm test:e2e` runs three complete Chromium journeys.
 
 | Area | Evidence |
@@ -20,7 +20,7 @@ production Vue build. `pnpm test:e2e` runs three complete Chromium journeys.
 | Actual subprocess output, malformed JSON, usage/session capture, redaction, failures, cancellation, timeout, restart interruption | `tests/worker.test.ts` |
 | Project execution serialization, isolated Git worktree, dirty primary preservation, guarded cleanup | `tests/worker.test.ts` |
 | Device-code parsing and process completion | `tests/worker.test.ts` |
-| Official MCP v2 client over TCP, independent requests, no session ID, tools, scopes, old-protocol rejection, revoked access | `tests/mcp.test.ts` |
+| Official MCP v2 client over TCP, independent requests, no session ID, tools, scopes, stateless 2025-06-18/2025-11-25 compatibility, revoked access | `tests/mcp.test.ts` |
 | Durable reopen, transaction rollback, expired records, schema downgrade refusal, compact pagination, archival restrictions | `tests/store.test.ts` |
 | Setup → profile → project → skill → scheduled task → real fixture run → result → reload → pause → mobile navigation → logout | Browser journey 1 |
 | Supporting-file write/read/preview, running cancellation, archive/restore, retained history | Browser journey 2 |

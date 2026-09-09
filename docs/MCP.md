@@ -3,9 +3,13 @@
 ## Endpoint and protocol
 
 Use `https://agents.example.com/mcp`. The server uses MCP SDK v2.0.0 and the
-**2026-07-28** protocol through `createMcpHandler(..., { legacy: 'reject' })`.
+**2026-07-28** protocol through `createMcpHandler(..., { legacy: 'stateless' })`.
+The same endpoint accepts older Streamable HTTP clients, including protocols
+2025-06-18 and 2025-11-25, using the SDK's stateless compatibility handler.
 Every HTTP request gets its own server handler. There is no session ID, retained
-transport, or legacy initialization/SSE reconnection state. The run queue persists
+transport, or SSE reconnection state. Older initialization requests are answered
+without retaining a session; standalone SSE GET and session DELETE return 405.
+The run queue persists
 in SQLite independently of MCP transport state.
 
 The official SDK client is exercised over real HTTP in `tests/mcp.test.ts` with:
@@ -21,9 +25,24 @@ const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
 await client.connect(transport)
 ```
 
-Do not assume that a connector using an older protocol will work merely because
-it supports Streamable HTTP. Platform connection and marketplace review must be
-verified separately on the final hosted endpoint.
+Tests also exercise older initialization, tool discovery and calls, absence of
+session IDs, and authorization. Platform connection and marketplace review must
+still be verified separately on the final hosted endpoint.
+
+## Codex
+
+Add the HTTPS endpoint with native OAuth dynamic client registration:
+
+```sh
+codex mcp add leo-agent-manager \
+  --url https://agents.example.com/mcp \
+  --oauth-client-registration dcr \
+  --oauth-resource https://agents.example.com/mcp
+```
+
+Complete OAuth in the browser, then start a new Codex session. Codex CLI 0.153.4
+uses protocol 2025-06-18; the stateless compatibility handler supports this
+handshake without an adapter or server-side transport sessions.
 
 ## Authorization
 
@@ -77,9 +96,8 @@ OAuth. Organization owners configure team connectors first. Claude's cloud must
 be able to reach the endpoint; a localhost URL on your computer is insufficient.
 See the [Claude custom connector guide](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
 
-If a platform rejects the modern protocol, report that compatibility failure
-rather than enabling a stateful/legacy transport silently. This project deliberately
-supports the modern protocol only.
+Clients must support Streamable HTTP. Stateful sessions and the older standalone
+HTTP+SSE transport are outside this project's scope.
 
 ## Before submitting to a directory or marketplace
 
@@ -102,5 +120,7 @@ listing and live ChatGPT/Claude end-to-end interoperability are not claimed by
 local SDK tests or by a public source repository.
 
 Sources: [MCP v2 HTTP](https://ts.sdk.modelcontextprotocol.io/v2/serving/http.html),
+[stateless compatibility](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/legacy-clients.md),
+[Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
 [MCP authorization](https://ts.sdk.modelcontextprotocol.io/v2/serving/authorization.html),
 [OpenAI authentication](https://developers.openai.com/plugins/build/auth).

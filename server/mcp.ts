@@ -213,7 +213,7 @@ export function mountMcp(
         )
         return server
       },
-      { legacy: 'reject' },
+      { legacy: 'stateless' },
     )
     reply.hijack()
     try {

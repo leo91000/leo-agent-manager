@@ -13,7 +13,7 @@ Run it on a VPS so schedules keep working when your laptop is off.
 - Follow runs, inspect results and original instructions, cancel, retry, archive tasks, and clean up reviewed worktrees.
 - Edit global and project `.agents/skills`, including supporting files and Markdown previews.
 - Connect the official Codex and GitHub CLIs through device sign-in. Codex uses ChatGPT subscription authentication.
-- Expose scoped tools through a **stateless MCP 2026-07-28** endpoint, with OAuth, PKCE, refresh rotation, and revocation.
+- Expose scoped tools through a **stateless MCP 2026-07-28** endpoint, with stateless compatibility for older Streamable HTTP clients, OAuth, PKCE, refresh rotation, and revocation.
 
 The application serves one private owner workspace. The repository is public;
 your credentials, projects, task instructions, and run history stay on your server.
@@ -73,7 +73,7 @@ and is absent from the production image.
 - Worktrees preserve changes for review. Cleanup rejects dirty/untracked files and preserves Git branches.
 - Event output is bounded per run and expires after 30 days for finished runs; audit entries expire after 90 days. Run summaries and worktrees remain until deliberately managed.
 - Every agent uses YOLO mode inside Docker: full container access, no Codex sandbox, and no approval prompts. MCP `run` grants can trigger task-authorized external actions.
-- Other model providers, multi-owner tenancy, and legacy/stateful MCP transports are outside this version.
+- Other model providers, multi-owner tenancy, stateful MCP sessions, and standalone HTTP+SSE transports are outside this version.
 
 [Detailed delivery plan](docs/PLAN.md) · [Validation record](docs/QA.md) ·
 [Performance measurements](docs/PERFORMANCE.md) · [Security](SECURITY.md)
