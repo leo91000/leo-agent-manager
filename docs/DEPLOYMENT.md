@@ -1,0 +1,130 @@
+# Deployment and recovery
+
+## Docker on a VPS
+
+Install Docker Engine and the Compose plugin. Clone this repository on the server,
+copy `.env.example` to `.env`, and set `PUBLIC_URL=https://agents.example.com`.
+The URL must be an origin without a path and must match the address used by browsers
+and MCP clients. Keep one manager replica per SQLite data volume.
+
+Run `docker compose up -d --build`. For published images, use
+`docker compose pull && docker compose up -d` and pin `LEO_IMAGE` to a verified
+`ghcr.io/leo91000/leo-agent-manager:sha-<full-commit>` tag for controlled upgrades.
+Only expose port 4310 through your HTTPS reverse proxy. Preserve the public Host
+header; forwarded headers are not trusted as authentication evidence.
+
+The Compose file persists:
+
+| Volume | Container path | Contents |
+| --- | --- | --- |
+| `data` | `/data` | SQLite, bootstrap token, run results and worktrees |
+| `agent-home` | `/home/node` | Codex/GitHub authentication, Git configuration, global skills |
+| `workspaces` | `/workspaces` | Project clones and project skills |
+
+The image runs as UID/GID 1000. Bind mounts need matching ownership. Do not run
+`docker compose down -v` on a live installation: it deletes persistent volumes.
+The Compose defaults give the application two CPUs and 4 GB of memory; adjust these
+for the projects your agents build. Container logs rotate independently of run logs.
+
+For local access through SSH before configuring a domain:
+
+```sh
+ssh -L 4310:127.0.0.1:4310 your-server
+```
+
+Use `PUBLIC_URL=http://localhost:4310` for that setup route, then change it to the
+final HTTPS origin and restart before adding OAuth clients. Existing OAuth grants
+are audience-bound and must be reconnected after changing origins.
+
+## First login and CLI accounts
+
+Read `/data/setup-token` through your server terminal and enter it on the setup
+screen. The application creates an administrator password, then disables setup.
+Keep tokens and account files out of Git, images, screenshots, and support logs.
+
+The **Connections** screen provides official CLI device sign-in. If a provider
+requires terminal interaction instead, run:
+
+```sh
+docker compose exec manager codex login --device-auth
+docker compose exec manager gh auth login --hostname github.com --git-protocol https --web
+docker compose exec manager gh auth setup-git
+```
+
+Refresh Connections afterward. Codex must report a ChatGPT subscription login.
+The worker removes API-key overrides and sets `forced_login_method="chatgpt"` for
+runs. Your VPS gets its own persistent login; it does not depend on your laptop.
+Provider session expiry or usage limits can still cause a run to fail; inspect the
+run result and reconnect when necessary. A schedule cannot guarantee that every
+external task succeeds.
+
+Set the Git identity you want agents to use before tasks create commits:
+
+```sh
+docker compose exec manager git config --global user.name 'Your name'
+docker compose exec manager git config --global user.email 'your-address@example.com'
+docker compose exec manager gh repo clone OWNER/REPOSITORY /workspaces/REPOSITORY
+```
+
+Register `/workspaces/REPOSITORY` in Projects. Its base branch must already exist
+locally. Isolated runs branch from that local ref; tasks that need current remote
+state should fetch and update their isolated branch according to their instructions.
+The manager does not reset or update your primary checkout automatically.
+
+The image includes Node 24, pnpm 12, Git, GitHub CLI, Codex CLI, Python, and native
+build tools. Install project-specific toolchains such as Rust in a derived image
+or in the persistent worker home before scheduling projects that require them.
+Every task runs Codex with `--dangerously-bypass-approvals-and-sandbox` (YOLO mode).
+Docker is the isolation boundary; there is no inner Codex sandbox or approval prompt.
+The container runs as a non-root user without privileged mode or a host Docker socket.
+Agents can use everything accessible to that user, including mounted workspaces,
+persistent credentials, and the network. Use a dedicated container and its volumes
+for this trusted, single-owner installation. Running the worker directly on a host
+gives tasks the same unrestricted access as that host user.
+
+## Coolify
+
+Create an application from the public repository with the Dockerfile build pack,
+or use the published GHCR image. Set container port **4310**, `PUBLIC_URL` to the
+chosen HTTPS domain, and persistent storage mounts for all three paths above.
+Use the healthcheck path `/health`, one replica, and a shutdown grace period of
+60 seconds. Point the domain's DNS record at the selected server and enable TLS.
+Do not add an interactive proxy login in front of `/mcp`, `/oauth/*`, or the
+well-known metadata endpoints: MCP clients use the application's OAuth flow.
+
+After deployment, check HTTPS, bootstrap/login, Connections, a small task, restart
+persistence, and MCP discovery from outside the server. A working local container
+does not establish that DNS, TLS, reverse-proxy routing, or cloud connectors work.
+
+## Backups
+
+Back up **all three volumes together**. Stop the manager first so SQLite and Git
+worktrees are consistent, make encrypted volume backups with your server backup
+system, then restart it. Credentials in the home volume make those backups secrets.
+For a live SQLite-only snapshot, Node's `node:sqlite` backup API can create a
+consistent database backup, but that does not include working directories or CLI
+accounts and is not a complete recovery point.
+
+Restore into fresh volumes while the manager is stopped, preserve UID/GID 1000,
+and start the same image version that created the backup. Check login, profiles,
+tasks, global/project skills, and worktree paths. Database schema versions newer
+than the application are rejected rather than silently downgraded. Roll back the
+image and its matching backup together when a future migration requires it.
+
+Finished-run events expire after 30 days and audit entries after 90 days. Expired
+OAuth/session records are removed hourly. Run summaries and preserved worktrees
+are not automatically deleted. Review worktree storage in the run's Task brief;
+cleanup refuses changes, including ignored/untracked files, and keeps Git branches.
+
+## Troubleshooting
+
+- **Unexpected host/origin:** correct `PUBLIC_URL`, proxy Host preservation, and the browser URL.
+- **Project outside workspace root:** use a directory under `WORKSPACE_ROOTS` (colon-separated on Linux), then register its canonical path.
+- **Worktree preparation failed:** check that the project is a Git repository and the configured local base branch exists.
+- **Interrupted:** inspect existing files and external PR/release effects before retrying; runs are not silently replayed.
+- **No CLI installed/signed in:** use Connections and the commands above; provider account credentials are separate from the manager password.
+- **MCP rejects initialization:** use an MCP 2026-07-28-capable client. Legacy transports are intentionally rejected.
+- **Lost administrator password:** restore a known backup or stop the service and remove only the `admin` and `session:*` keys from SQLite through a trusted server terminal, then restart and repeat bootstrap. OAuth grants remain unless separately revoked; preserve a backup first.
+
+See [Docker's volume documentation](https://docs.docker.com/engine/storage/volumes/)
+and [Codex authentication](https://learn.chatgpt.com/docs/auth) for the underlying tools.

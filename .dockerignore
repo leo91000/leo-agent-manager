@@ -1,0 +1,13 @@
+.git
+node_modules
+dist
+.env*
+.data
+.playwright-mcp
+playwright-report
+test-results
+coverage
+docs
+tests
+*.db*
+*.log

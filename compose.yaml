@@ -1,0 +1,27 @@
+services:
+  manager:
+    image: ${LEO_IMAGE:-ghcr.io/leo91000/leo-agent-manager:latest}
+    build: .
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      - '127.0.0.1:4310:4310'
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4310}
+      CONCURRENCY: ${CONCURRENCY:-1}
+    volumes:
+      - data:/data
+      - agent-home:/home/node
+      - workspaces:/workspaces
+    mem_limit: 4g
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+volumes:
+  data:
+  agent-home:
+  workspaces:
