@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { Task } from '../../shared/contracts'
+import { Bot, CalendarDays, CalendarRange, Clock, FolderGit2, Play } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { api, notify, refresh, state } from '../api'
 import Modal from './Modal.vue'
+import VirtualSelect from './VirtualSelect.vue'
 
 const props = defineProps<{ task?: Task }>()
 const emit = defineEmits<{ close: [] }>()
@@ -21,6 +23,14 @@ const form = ref({
   worktree: props.task?.worktree ?? true,
 })
 const cadence = ref(props.task?.cron ? 'custom' : 'once')
+const agents = computed(() => state.agents.map(agent => ({ value: agent.id, label: agent.name, description: agent.description || `${agent.model || 'Codex default'} · ${agent.reasoning} reasoning` })))
+const projects = computed(() => state.projects.map(project => ({ value: project.id, label: project.name, description: project.path })))
+const cadences = [
+  { value: 'once', label: 'One-off', description: 'Run when you’re ready', icon: Play, group: 'On demand' },
+  { value: 'daily', label: 'Every day', description: 'Daily at 09:00 in your timezone', icon: CalendarDays, group: 'Recurring' },
+  { value: 'weekly', label: 'Every Monday', description: 'Weekly at 09:00 in your timezone', icon: CalendarRange, group: 'Recurring' },
+  { value: 'custom', label: 'Custom schedule', description: 'Set your own cron expression', icon: Clock, group: 'Recurring' },
+]
 const tagText = computed({
   get: () => form.value.tags.join(', '),
   set: (value) => {
@@ -120,25 +130,9 @@ async function save() {
           rows="5"
           placeholder="Describe the outcome, constraints, and how your agent should verify its work."
         /><small>Be specific about whether the agent may push, merge, or
-          release.</small></label><label>Agent<select v-model="form.agentId" required>
-          <option value="" disabled>Select an agent</option>
-          <option
-            v-for="agent in state.agents"
-            :key="agent.id"
-            :value="agent.id"
-          >
-            {{ agent.name }}
-          </option>
-        </select></label><label>Project<select v-model="form.projectId" required>
-          <option value="" disabled>Select a project</option>
-          <option
-            v-for="project in state.projects"
-            :key="project.id"
-            :value="project.id"
-          >
-            {{ project.name }}
-          </option>
-        </select></label>
+          release.</small></label>
+        <VirtualSelect v-model="form.agentId" label="Agent" :options="agents" :icon="Bot" placeholder="Choose an agent" empty-text="Add an agent to get started" required />
+        <VirtualSelect v-model="form.projectId" label="Project" :options="projects" :icon="FolderGit2" placeholder="Choose a project" empty-text="Add a project to get started" required />
         <p
           v-if="!state.agents.length || !state.projects.length"
           class="inline-note span-2"
@@ -150,12 +144,7 @@ async function save() {
           v-model="tagText"
           placeholder="maintenance, release"
         ><small>Separate tags with commas, up to ten.</small></label>
-        <label>When<select v-model="cadence">
-          <option value="once">One-off · run when ready</option>
-          <option value="daily">Every day at 09:00</option>
-          <option value="weekly">Every Monday at 09:00</option>
-          <option value="custom">Custom schedule</option>
-        </select></label><label v-if="cadence !== 'once'">Timezone<input
+        <VirtualSelect v-model="cadence" label="When" :options="cadences" /><label v-if="cadence !== 'once'">Timezone<input
           v-model="form.timezone"
           required
           placeholder="Europe/Paris"

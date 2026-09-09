@@ -65,7 +65,8 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
   await page
     .getByLabel('What should happen?')
     .fill('Review dependencies and report the checks you ran. fixture:activity')
-  await page.getByLabel(/^When/).selectOption('weekly')
+  await page.getByRole('combobox', { name: 'When', exact: true }).click()
+  await page.getByRole('option', { name: 'Every Monday', exact: true }).click()
   await page.getByLabel('Timezone').fill('Europe/Paris')
   await page.getByRole('button', { name: 'Preview next runs' }).click()
   await expect(page.locator('.schedule-preview span')).toHaveCount(3)
@@ -141,7 +142,8 @@ test('edits supporting files, cancels work, and archives without losing history'
   await page.getByRole('button', { name: 'Save skill' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.getByRole('button', { name: 'Edit review', exact: true }).click()
-  await page.getByLabel('Skill file').selectOption('references/checks.md')
+  await page.getByRole('combobox', { name: 'Skill file', exact: true }).click()
+  await page.getByRole('option', { name: 'references/checks.md', exact: true }).click()
   await expect(page.getByLabel('Supporting file content')).toHaveValue(
     '# Checks\nRun the test suite and inspect the diff.',
   )
@@ -345,6 +347,24 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo) {
     expect(fullBox!.height).toBe(viewport.height)
     expect(fullBox!.width).toBe(viewport.width)
     await screenshot(`${viewport.width}-activity-fullscreen`)
+    const checks = viewer.getByRole('region', { name: 'Workflow checks', exact: true })
+    await checks.scrollIntoViewIfNeeded()
+    await expect(checks.getByText('11 passed', { exact: true })).toBeVisible()
+    await checks.getByRole('button', { name: /Show more/ }).click()
+    await expect(checks.getByText('Skipped', { exact: true })).toBeVisible()
+    await checks.locator('.data-content').evaluate(el => el.scrollTo(0, 0))
+    await screenshot(`${viewport.width}-structured-checks`)
+    await checks.locator('.data-source > summary').click()
+    await expect(checks.locator('.hljs-attr').first()).toBeVisible()
+    await expect(checks.getByRole('button', { name: 'Copy JSON' })).toBeVisible()
+    await checks.locator('.data-source > summary').click()
+    const pullRequest = viewer.getByRole('region', { name: 'Pull request details', exact: true })
+    await pullRequest.scrollIntoViewIfNeeded()
+    await expect(pullRequest.getByText('.changeset/september-baseline-authoring.md', { exact: true })).toBeVisible()
+    await pullRequest.getByRole('button', { name: /Show more/ }).click()
+    await expect(pullRequest.getByText('scripts/generate-css-feature-target.ts', { exact: true })).toBeVisible()
+    await pullRequest.locator('.data-content').evaluate(el => el.scrollTo(0, 0))
+    await screenshot(`${viewport.width}-structured-files`)
     await page.keyboard.press('Escape')
     await expect(viewer).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Open activity fullscreen' })).toBeFocused()
@@ -357,6 +377,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo) {
       ['agent-editor', '/agents', 'New agent'],
       ['project-editor', '/projects', 'Add project'],
       ['skill-editor', '/skills', 'New skill'],
+      ['skill-files', '/skills', 'Edit review'],
       ['token-editor', '/settings', 'New token'],
     ]) {
       await navigate(url)
@@ -367,6 +388,24 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo) {
       expect(box!.y).toBeGreaterThanOrEqual(0)
       expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
       await screenshot(`${viewport.width}-${name}`)
+      for (const select of await dialog.getByRole('combobox').all()) {
+        if (await select.isDisabled())
+          continue
+        expect((await select.boundingBox())!.width).toBeGreaterThan(80)
+        await select.click()
+        const list = page.getByRole('listbox')
+        await expect(list).toBeVisible()
+        const popup = page.locator('.vs-popup:popover-open')
+        const bounds = await popup.boundingBox()
+        expect(bounds!.x).toBeGreaterThanOrEqual(0)
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width)
+        expect(bounds!.y).toBeGreaterThanOrEqual(0)
+        expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height)
+        await screenshot(`${viewport.width}-${name}-${await select.getAttribute('aria-label')}-select`)
+        await page.keyboard.press('Escape')
+        await expect(list).not.toBeVisible()
+        await expect(dialog).toBeVisible()
+      }
       await dialog.getByRole('button').last().scrollIntoViewIfNeeded()
       await expect(dialog.getByRole('button').last()).toBeInViewport()
       await page.keyboard.press('Escape')
@@ -404,6 +443,44 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo) {
   await page.getByRole('link', { name: 'Tasks', exact: true }).click()
   await expect(page.locator('.sidebar')).not.toHaveClass(/open/)
   await expect(page.locator('.task-card').first()).toBeVisible()
+  const manyAgents = Array.from({ length: 10000 }, (_, index) => ({
+    id: `virtual-${index}`,
+    name: index === 4999 ? 'Équipe sécurité' : `Agent ${index.toString().padStart(5, '0')}`,
+    description: `Maintains project ${index}`,
+    model: '',
+    reasoning: 'high',
+  }))
+  await page.route('**/api/agents', route => route.fulfill({ json: manyAgents }))
+  await page.goto('/tasks')
+  await page.getByRole('button', { name: 'New task', exact: true }).click()
+  const agentSelect = page.getByRole('combobox', { name: 'Agent', exact: true })
+  await agentSelect.click()
+  await expect(page.getByRole('option').first()).toBeVisible()
+  expect(await page.getByRole('option').count()).toBeLessThan(20)
+  await agentSelect.press('End')
+  await expect(page.getByRole('option', { name: 'Agent 09999', exact: true })).toBeVisible()
+  expect(await page.getByRole('option').count()).toBeLessThan(20)
+  await screenshot('select-10000-options')
+  await agentSelect.press('Enter')
+  await expect(agentSelect).toHaveValue('Agent 09999')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await agentSelect.click()
+  await agentSelect.fill('equipe')
+  await expect(page.getByRole('option')).toHaveCount(1)
+  await agentSelect.press('Enter')
+  await expect(agentSelect).toHaveValue('Équipe sécurité')
+  await agentSelect.click()
+  await agentSelect.fill('does-not-exist')
+  await expect(page.getByText('No matches found', { exact: true })).toBeVisible()
+  await screenshot('select-no-results')
+  await agentSelect.press('Escape')
+  await expect(agentSelect).toHaveValue('Équipe sécurité')
+  await agentSelect.click()
+  await agentSelect.press('Tab')
+  await expect(page.getByRole('listbox')).not.toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Project', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await page.unroute('**/api/agents')
   expect(errors).toEqual([])
 }
 

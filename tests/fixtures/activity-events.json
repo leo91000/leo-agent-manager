@@ -1,13 +1,139 @@
 [
-  { "type": "item.completed", "item": { "id": "message-1", "type": "agent_message", "text": "I’ll review the CSS support matrix, check the implementation, and run the compatibility tests.\n\nStarting with **sibling functions** and the files that describe Baseline coverage." } },
-  { "type": "item.completed", "item": { "id": "plan-1", "type": "todo_list", "items": [{ "text": "Review the latest CSS feature data", "completed": true }, { "text": "Update authoring support and regression tests", "completed": false }, { "text": "Run checks and prepare the release", "completed": false }] } },
-  { "type": "item.started", "item": { "id": "command-1", "type": "command_execution", "command": "rg -n 'sibling-(count|index)' src tests", "aggregated_output": "", "status": "in_progress" } },
-  { "type": "item.completed", "item": { "id": "command-1", "type": "command_execution", "command": "rg -n 'sibling-(count|index)' src tests", "aggregated_output": "src/values/functions.ts:48: sibling-count: { arguments: 0 }\nsrc/values/functions.ts:49: sibling-index: { arguments: 0 }", "exit_code": 0, "status": "completed" } },
-  { "type": "item.completed", "item": { "id": "research-1", "type": "web_search", "query": "CSS Baseline sibling functions" } },
-  { "type": "item.completed", "item": { "id": "message-2", "type": "agent_message", "text": "The parser already recognizes both functions. I found one gap in the round-trip coverage, so I’m adding a small regression test.\n\n```css\n.card {\n  opacity: calc(sibling-index() / sibling-count());\n}\n```" } },
-  { "type": "item.completed", "item": { "id": "files-1", "type": "file_change", "status": "completed", "changes": [{ "path": "tests/css/sibling-functions.test.ts", "kind": "update", "diff": "@@ -12,2 +12,5 @@\n describe('sibling functions', () => {\n+  it('round trips sibling-count()', () => {\n+    expect(roundTrip('sibling-count()')).toBe('sibling-count()')\n+  })\n })" }, { "path": ".changeset/quiet-leaves.md", "kind": "add" }] } },
-  { "type": "item.started", "item": { "id": "command-2", "type": "command_execution", "command": "pnpm test -- sibling-functions && pnpm typecheck", "aggregated_output": "", "status": "in_progress" } },
-  { "type": "item.completed", "item": { "id": "command-2", "type": "command_execution", "command": "pnpm test -- sibling-functions && pnpm typecheck", "aggregated_output": "✓ tests/css/sibling-functions.test.ts (8 tests)\n\nTest Files  1 passed (1)\n     Tests  8 passed (8)\n  Duration  412ms\n\nTypeScript: no errors found.", "exit_code": 0, "status": "completed" } },
-  { "type": "item.completed", "item": { "id": "tool-1", "type": "mcp_tool_call", "server": "github", "tool": "get_pull_request", "arguments": { "owner": "example", "repo": "css-workspace", "pull_number": 42 }, "result": { "content": [{ "type": "text", "text": "Pull request #42 is ready for review. All required checks passed." }] }, "status": "completed" } },
-  { "type": "item.completed", "item": { "id": "message-3", "type": "agent_message", "text": "### Ready for review\n\nThe regression is covered and all checks passed.\n\n- **8 tests passed**, including both sibling functions.\n- TypeScript checks are clean.\n- The changeset is ready for the next patch release.\n\nThe changes are small and preserve the existing authoring behavior." } }
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "message-1",
+      "type": "agent_message",
+      "text": "I’ll review the CSS support matrix, check the implementation, and run the compatibility tests.\n\nStarting with **sibling functions** and the files that describe Baseline coverage."
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "plan-1",
+      "type": "todo_list",
+      "items": [
+        {
+          "text": "Review the latest CSS feature data",
+          "completed": true
+        },
+        {
+          "text": "Update authoring support and regression tests",
+          "completed": false
+        },
+        {
+          "text": "Run checks and prepare the release",
+          "completed": false
+        }
+      ]
+    }
+  },
+  {
+    "type": "item.started",
+    "item": {
+      "id": "command-1",
+      "type": "command_execution",
+      "command": "rg -n 'sibling-(count|index)' src tests",
+      "aggregated_output": "",
+      "status": "in_progress"
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "command-1",
+      "type": "command_execution",
+      "command": "rg -n 'sibling-(count|index)' src tests",
+      "aggregated_output": "src/values/functions.ts:48: sibling-count: { arguments: 0 }\nsrc/values/functions.ts:49: sibling-index: { arguments: 0 }",
+      "exit_code": 0,
+      "status": "completed"
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "research-1",
+      "type": "web_search",
+      "query": "CSS Baseline sibling functions"
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "message-2",
+      "type": "agent_message",
+      "text": "The parser already recognizes both functions. I found one gap in the round-trip coverage, so I’m adding a small regression test.\n\n```css\n.card {\n  opacity: calc(sibling-index() / sibling-count());\n}\n```"
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "files-1",
+      "type": "file_change",
+      "status": "completed",
+      "changes": [
+        {
+          "path": "tests/css/sibling-functions.test.ts",
+          "kind": "update",
+          "diff": "@@ -12,2 +12,5 @@\n describe('sibling functions', () => {\n+  it('round trips sibling-count()', () => {\n+    expect(roundTrip('sibling-count()')).toBe('sibling-count()')\n+  })\n })"
+        },
+        {
+          "path": ".changeset/quiet-leaves.md",
+          "kind": "add"
+        }
+      ]
+    }
+  },
+  {
+    "type": "item.started",
+    "item": {
+      "id": "command-2",
+      "type": "command_execution",
+      "command": "pnpm test -- sibling-functions && pnpm typecheck",
+      "aggregated_output": "",
+      "status": "in_progress"
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "command-2",
+      "type": "command_execution",
+      "command": "pnpm test -- sibling-functions && pnpm typecheck",
+      "aggregated_output": "✓ tests/css/sibling-functions.test.ts (8 tests)\n\nTest Files  1 passed (1)\n     Tests  8 passed (8)\n  Duration  412ms\n\nTypeScript: no errors found.",
+      "exit_code": 0,
+      "status": "completed"
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "tool-1",
+      "type": "mcp_tool_call",
+      "server": "github",
+      "tool": "get_pull_request",
+      "arguments": {
+        "owner": "example",
+        "repo": "css-workspace",
+        "pull_number": 42
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Pull request #42 is ready for review. All required checks passed."
+          }
+        ]
+      },
+      "status": "completed"
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "id": "message-3",
+      "type": "agent_message",
+      "text": "### Ready for review\n\nThe regression is covered and all checks passed.\n\n- **8 tests passed**, including both sibling functions.\n- TypeScript checks are clean.\n- The changeset is ready for the next patch release.\n\nThe changes are small and preserve the existing authoring behavior.\n\n[{\"id\":34375012123,\"head\":\"f467d688bbc17c2d5d62eff454480d61c299c95f\",\"status\":\"completed\",\"conclusion\":\"success\",\"jobs\":[{\"name\":\"changes\",\"conclusion\":\"success\"},{\"name\":\"changeset-policy\",\"conclusion\":\"success\"},{\"name\":\"native-quality\",\"conclusion\":\"success\"},{\"name\":\"wasm-quality\",\"conclusion\":\"success\"},{\"name\":\"documentation\",\"conclusion\":\"success\"},{\"name\":\"native-foreign-bindings (s390x-unknown-linux-gnu)\",\"conclusion\":\"success\"},{\"name\":\"native-musl-bindings (x86_64-unknown-linux-musl, ubuntu-24.04)\",\"conclusion\":\"success\"},{\"name\":\"browser-compatibility\",\"conclusion\":\"success\"},{\"name\":\"minimum-node\",\"conclusion\":\"success\"},{\"name\":\"quality\",\"conclusion\":\"success\"},{\"name\":\"native-bindings (aarch64-apple-darwin, macos-15)\",\"conclusion\":\"success\"},{\"name\":\"node-current-signal\",\"conclusion\":\"skipped\"}]}]\n\nimplementation-pr {\"baseRefOid\":\"bde80b7848503fd55b73032804761375c2ea9832\",\"body\":\"\",\"files\":[\".changeset/september-baseline-authoring.md\",\".github/workflows/ci.yml\",\"compatibility/css-authoring-coverage.json\",\"compatibility/css-authoring-probes.json\",\"compatibility/css-feature-target.json\",\"crates/sheetom-core/src/declaration_state.rs\",\"crates/sheetom-core/src/extension_value.rs\",\"crates/sheetom-core/src/lib.rs\",\"crates/sheetom-native/src/lib.rs\",\"crates/sheetom-wasm/src/lib.rs\",\"docs/css-baseline-gap-audit.md\",\"scripts/generate-css-feature-target.ts\"],\"headRefOid\":\"f467d688bbc17c2d5d62eff454480d61c299c95f\",\"title\":\"Refresh CSS Baseline authoring support\"}"
+    }
+  }
 ]

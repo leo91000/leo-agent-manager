@@ -7,7 +7,7 @@ small explicit fixture. Actual Codex/GitHub checks are recorded separately below
 
 ## Automated coverage
 
-`pnpm check` runs Antfu ESLint, TypeScript checks, 36 unit/integration tests, and the
+`pnpm check` runs Antfu ESLint, TypeScript checks, 42 unit/integration tests, and the
 production Vue build. `pnpm test:e2e` runs three complete Chromium journeys plus
 mobile layout/navigation passes in Chromium and WebKit.
 
@@ -110,6 +110,56 @@ Reviewed screenshots: [mobile conversation](screenshots/activity-conversation-mo
 [fullscreen on mobile](screenshots/activity-fullscreen-mobile.png),
 [file changes on mobile](screenshots/activity-files-mobile.png), and
 [desktop details](screenshots/activity-details-desktop.png).
+
+## Shared virtual selects
+
+All eight native selects now use the [shared combobox](SELECT.md), with searchable
+labels/descriptions, option icons, groups, clearable filters, keyboard navigation,
+and required/disabled states. The menu uses the native top layer and follows the
+visual viewport so it remains usable inside scrolling dialogs.
+
+Unit checks cover multiword/accent-insensitive search and virtual row geometry.
+Both browser engines select the last of 10,000 options while fewer than 20 options
+are mounted, search for “Équipe sécurité” using “equipe”, preserve the selection
+on Escape, show empty results, and restore tab navigation. The viewport matrix
+opens task, agent, and skill menus at 320×568, 390×664, 430×932, and 844×390.
+An existing skill editor is included to catch cramped file-picker controls.
+
+The manual isolated-browser review also verified clearing a run status filter,
+disabled scope on existing skills, and native required-field validation focusing
+the visible combobox with an empty-state message. It found and fixed the skill
+file input collapsing to zero width at 320 pixels: the file picker and editor
+tabs now occupy separate rows on mobile.
+
+Reviewed captures: [desktop agent menu](screenshots/select-agent-desktop.png),
+[mobile agent menu](screenshots/select-agent-mobile.png),
+[grouped schedule menu](screenshots/select-schedule-mobile.png), and
+[320-pixel skill file picker](screenshots/select-skill-mobile.png).
+
+## Structured activity results in v0.1.3
+
+Assistant text and tool output now recognize complete JSON objects/arrays, including
+prefixed output and JSON code fences. Workflow results show explicit statuses,
+check counts and compact job rows; pull request results show fields and file lists.
+Other structures use labeled fields and expandable sections. Long arrays load in
+batches, nested sections mount on expansion, and the highlighted JSON source mounts
+only when opened. Copy JSON preserves the original JSON text.
+
+The historical screenshot cases are reproduced in the activity fixture. Parsing
+tests cover mixed prose, quoted braces, code fences, Markdown links, multiple
+results, and truncated/malformed data. Incomplete JSON and other code remain intact.
+This is a presentation change: existing persisted activity is rendered through the
+same component and does not need to be rerun or migrated.
+
+The Chromium/WebKit viewport matrix opens checks and file lists in fullscreen,
+expands long lists, checks syntax highlighting and copy controls, and verifies
+horizontal containment. Manual desktop/mobile screenshot review confirmed the
+layout. Completed execution is neutral; only explicit successful conclusions use
+the success badge.
+
+Reviewed captures: [desktop workflow results](screenshots/activity-json-desktop.png),
+[mobile workflow results](screenshots/activity-json-mobile.png), and
+[mobile pull request files](screenshots/activity-json-files-mobile.png).
 
 ## Actual provider and container execution
 

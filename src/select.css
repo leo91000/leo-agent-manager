@@ -1,0 +1,64 @@
+.virtual-select { min-width: 0; width: 100%; position: relative; }
+.vs-label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 500; color: #637c4d; }
+.vs-control { display: flex; align-items: center; gap: 10px; min-height: 48px; width: 100%; padding: 0 10px 0 13px; background: #fff; border: 1px solid #dce5d2; border-radius: 10px; transition: border-color .15s, box-shadow .15s; }
+.vs-control:hover { border-color: #acbc9b; }
+.vs-control:focus-within, .vs-open .vs-control { border-color: #88a873; box-shadow: 0 0 0 3px #e9f1e2; }
+.vs-control > input { min-width: 0; flex: 1; width: 100%; height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 13px; font-weight: 500; color: #3e5633; outline: none; box-shadow: none; cursor: pointer; }
+.vs-control > input:focus { border: 0; outline: none; box-shadow: none; }
+.vs-open .vs-control > input { cursor: text; }
+.vs-control > input::placeholder { color: #93a284; font-weight: 400; }
+.vs-leading { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 8px; color: #78935e; background: #f0f4e8; flex-shrink: 0; }
+.vs-clear, .vs-chevron { display: grid; place-items: center; border: 0; background: transparent; color: #7b9169; padding: 0; min-width: 27px; min-height: 32px; cursor: pointer; border-radius: 6px; flex-shrink: 0; }
+.vs-clear:hover, .vs-chevron:hover { background: #f1f5eb; color: #426836; }
+.vs-chevron svg { transition: transform .15s; }
+.vs-open .vs-chevron > svg:not(.vs-spin) { transform: rotate(180deg); }
+.vs-disabled { opacity: .65; }
+.vs-disabled .vs-control, .vs-disabled .vs-control > input { cursor: not-allowed; background: #f5f6f0; }
+.vs-validation { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; padding: 0; border: 0; bottom: 0; left: 0; }
+.vs-invalid .vs-control { border-color: #b9775e; }
+.vs-error { display: block; color: #a06247; font-size: 11px; margin-top: 7px; }
+.vs-popup { position: fixed; inset: auto; margin: 0; padding: 0; border: 1px solid #dce5d1; border-radius: 13px; background: #fff; color: #384f37; box-shadow: 0 16px 45px #243c2520, 0 3px 10px #243c2510; overflow: hidden; font-family: inherit; }
+.vs-popup-header { height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 13px; font-size: 10px; font-weight: 600; color: #778965; background: #fbfcf8; border-bottom: 1px solid #edf0e6; }
+.vs-count { font-size: 9px; font-weight: 400; padding: 3px 6px; border-radius: 5px; background: #eff4e8; color: #758c5d; }
+.vs-viewport { overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #c7d5b9 transparent; }
+.vs-spacer { position: relative; width: 100%; }
+.vs-option { position: absolute; inset-inline: 5px; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 7px; cursor: pointer; border: 3px solid transparent; background-clip: padding-box; }
+.vs-option.is-active { background-color: #f0f5e8; }
+.vs-option.is-selected { color: #376244; }
+.vs-option.is-selected.is-active { background-color: #eaf2df; }
+.vs-option.is-disabled { cursor: not-allowed; opacity: .45; }
+.vs-option-icon { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 9px; color: #7e9765; background: #f1f5e9; border: 1px solid #e6eddb; }
+.is-selected .vs-option-icon { background: #e2eccf; border-color: #d7e3c4; color: #537842; }
+.vs-option-copy { min-width: 0; flex: 1; }
+.vs-option-copy > strong { display: block; font-weight: 500; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-option-copy > span { display: block; margin-top: 4px; font-size: 10px; color: #87957a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-check { flex-shrink: 0; color: #638f4a; }
+.vs-unavailable { font-size: 9px; }
+.vs-group { position: absolute; inset-inline: 0; padding: 10px 18px 4px; font-size: 9px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: #8c9b7a; }
+.vs-empty { display: flex; flex-direction: column; gap: 7px; align-items: center; justify-content: center; height: 100%; color: #93a17f; padding: 10px; text-align: center; }
+.vs-empty strong { font-size: 12px; color: #6c8059; font-weight: 500; }
+.vs-empty > span { font-size: 10px; }
+.vs-popup-footer { height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 13px; color: #98a18c; border-top: 1px solid #edf0e6; background: #fbfcf8; font-size: 9px; }
+.vs-popup-footer > span { display: flex; gap: 4px; align-items: center; }
+.vs-popup-footer kbd { font: inherit; padding: 1px 3px; background: #fff; border: 1px solid #e5eadc; border-radius: 3px; }
+.vs-popup-footer button { border: 0; background: transparent; font: inherit; color: #60824c; cursor: pointer; min-height: 32px; }
+.vs-compact { width: auto; min-width: 160px; max-width: 100%; }
+.vs-compact .vs-control { min-height: 40px; }
+.vs-compact .vs-control > input { height: 38px; font-size: 12px; }
+.vs-spin { animation: vs-spin 1s linear infinite; }
+@keyframes vs-spin { to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  .vs-control > input, .vs-compact .vs-control > input { font-size: 16px; height: 46px; }
+  .vs-control { min-height: 48px; gap: 8px; }
+  .vs-option-copy > strong { font-size: 13px; }
+  .vs-option-copy > span { font-size: 11px; }
+  .vs-clear, .vs-chevron { min-width: 30px; min-height: 44px; }
+  .vs-popup-footer kbd { display: none; }
+  .vs-popup-footer > span:first-child { font-size: 0; }
+  .vs-popup-footer > span:first-child::after { content: 'Tap an option to choose'; font-size: 10px; }
+  .vs-compact { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vs-spin { animation: none; }
+  .vs-control, .vs-chevron svg { transition: none; }
+}

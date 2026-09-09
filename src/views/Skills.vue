@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { Skill } from '../../shared/contracts'
-import { BookOpen, Code, Eye, Pencil, Plus, Search, Trash2 } from '@lucide/vue'
+import { BookOpen, Code, Eye, FileCode, FolderGit2, Globe, Layers, Pencil, Plus, Search, Trash2 } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { api, notify, refresh, state } from '../api'
 import Empty from '../components/Empty.vue'
 import Markdown from '../components/Markdown.vue'
 import Modal from '../components/Modal.vue'
+import VirtualSelect from '../components/VirtualSelect.vue'
 
 const query = ref('')
 const scopeFilter = ref('all')
@@ -22,6 +23,12 @@ const files = ref<string[]>([])
 const file = ref('SKILL.md')
 const fileContent = ref('')
 const newFile = ref('')
+const scopes = computed(() => [
+  { value: 'global', label: 'Global', description: 'Available to every project', group: 'Workspace', icon: Globe },
+  ...state.projects.map(project => ({ value: project.id, label: project.name, description: project.path, group: 'Projects', icon: FolderGit2 })),
+])
+const scopeFilters = computed(() => [{ value: 'all', label: 'All skills', icon: Layers }, ...scopes.value])
+const fileOptions = computed(() => [...new Set([...files.value, file.value])].map(entry => ({ value: entry, label: entry, icon: FileCode })))
 const items = computed(() =>
   state.skills.filter(
     s =>
@@ -116,17 +123,9 @@ async function remove() {
     </button>
   </div>
   <div class="toolbar">
-    <label class="inline-label">Scope<select v-model="scopeFilter">
-      <option value="all">All skills</option>
-      <option value="global">Global</option>
-      <option
-        v-for="project in state.projects"
-        :key="project.id"
-        :value="project.id"
-      >
-        {{ project.name }}
-      </option>
-    </select></label><label class="search-field"><Search :size="17" /><input
+    <div class="inline-label">
+      <span>Scope</span><VirtualSelect v-model="scopeFilter" label="Scope" :options="scopeFilters" compact hide-label />
+    </div><label class="search-field"><Search :size="17" /><input
       v-model="query"
       placeholder="Search skills"
       aria-label="Search skills"
@@ -195,31 +194,10 @@ async function remove() {
             required
             pattern="[a-z0-9][a-z0-9\-]{0,63}"
             placeholder="my-skill"
-          ><small>Match the name in your YAML frontmatter.</small></label><label>Scope<select v-model="scope" :disabled="!!original">
-            <option value="global">Global · all projects</option>
-            <option
-              v-for="project in state.projects"
-              :key="project.id"
-              :value="project.id"
-            >
-              {{ project.name }}
-            </option>
-          </select></label>
+          ><small>Match the name in your YAML frontmatter.</small></label><VirtualSelect v-model="scope" label="Scope" :options="scopes" :disabled="!!original" />
         </div>
         <div class="editor-toolbar">
-          <select
-            v-if="original"
-            :value="file"
-            aria-label="Skill file"
-            @change="readFile(($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="entry in files" :key="entry">
-              {{ entry }}
-            </option>
-            <option v-if="!files.includes(file)">
-              {{ file }}
-            </option>
-          </select><span v-else>SKILL.md</span>
+          <VirtualSelect v-if="original" :model-value="file" label="Skill file" :options="fileOptions" compact hide-label @update:model-value="readFile" /><span v-else>SKILL.md</span>
           <div class="tabs">
             <button
               type="button"

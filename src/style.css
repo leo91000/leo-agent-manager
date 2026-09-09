@@ -898,11 +898,8 @@ svg {
   font-size: 12px;
   color: #859175;
   white-space: nowrap;
-}
-.inline-label select {
-  width: auto;
-  font-size: 12px;
-  padding: 8px 28px 8px 11px;
+  min-width: 0;
+  max-width: 100%;
 }
 .task-grid {
   display: grid;
@@ -1298,10 +1295,10 @@ td small {
   font-size: 12px;
   color: #8fa172;
 }
-.editor-toolbar select {
-  width: auto;
+.editor-toolbar .virtual-select {
+  min-width: 0;
   max-width: 50%;
-  font-size: 12px;
+  flex: 1;
 }
 .code-editor {
   font-family: Consolas, monospace !important;
@@ -2130,6 +2127,14 @@ legend small {
     padding: 9px 10px;
     font-size: 12px;
   }
+  .editor-toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .editor-toolbar .virtual-select {
+    flex: 1 0 100%;
+    max-width: 100%;
+  }
   .toolbar {
     gap: 16px;
     min-width: 0;
@@ -2153,8 +2158,7 @@ legend small {
   input,
   textarea,
   select,
-  .search-field input,
-  .inline-label select {
+  .search-field input {
     font-size: 16px;
   }
   .empty {

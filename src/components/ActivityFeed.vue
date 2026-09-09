@@ -5,7 +5,7 @@ import { ArrowDown, Check, ChevronDown, CircleAlert, FileCode, Globe, Layers, Le
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { activityEntries } from '../activity'
 import ActivityCode from './ActivityCode.vue'
-import Markdown from './Markdown.vue'
+import ActivityContent from './ActivityContent.vue'
 import '../activity.css'
 
 const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number }>()
@@ -102,7 +102,7 @@ onBeforeUnmount(() => viewer.value?.close())
             <template v-for="entry in entries" :key="entry.id">
               <article v-if="entry.kind === 'message'" class="activity-message">
                 <header><span class="message-dot" /><strong>{{ agent }}</strong><time>{{ new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time></header>
-                <Markdown :content="entry.text" />
+                <ActivityContent :content="entry.text" />
               </article>
               <section v-else class="activity-group" :class="{ expanded: opened.has(entry.id) }">
                 <button class="activity-group-toggle" :aria-expanded="opened.has(entry.id)" :aria-controls="`activity-${entry.id}`" @click="toggle(opened, entry.id)">
@@ -129,7 +129,7 @@ onBeforeUnmount(() => viewer.value?.close())
                           <span><Check v-if="taskItem.completed" :size="13" /></span>{{ taskItem.text }}
                         </li>
                       </ul>
-                      <ActivityCode v-for="(block, index) in artifact.blocks" :key="index" :label="block.label" :code="block.code" :language="block.language" />
+                      <ActivityContent v-for="(block, index) in artifact.blocks" :key="index" :label="block.label" :content="block.code" :language="block.language" />
                       <p v-if="!artifact.blocks.length && !artifact.files.length && !artifact.tasks.length" class="artifact-no-output">
                         {{ artifact.status === 'running' && active ? 'Waiting for output…' : 'No additional output for this step.' }}
                       </p>

@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { notify } from '../api'
 import { highlight } from '../highlight'
 
-const props = defineProps<{ code: string, label: string, language?: string }>()
+const props = defineProps<{ code: string, label: string, language?: string, copyCode?: string }>()
 const expanded = ref(false)
 const copied = ref(false)
 let timer: ReturnType<typeof setTimeout>
@@ -12,7 +12,7 @@ const shown = computed(() => expanded.value ? props.code : props.code.slice(0, 1
 const html = computed(() => highlight(shown.value, props.language))
 async function copy() {
   try {
-    await navigator.clipboard.writeText(props.code)
+    await navigator.clipboard.writeText(props.copyCode ?? props.code)
     copied.value = true
     clearTimeout(timer)
     timer = setTimeout(() => copied.value = false, 2000)

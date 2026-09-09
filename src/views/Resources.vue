@@ -5,12 +5,14 @@ import {
   Pencil,
   Plus,
   ShieldCheck,
+  Sparkles,
   Trash2,
 } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { api, notify, refresh, state } from '../api'
 import Empty from '../components/Empty.vue'
 import Modal from '../components/Modal.vue'
+import VirtualSelect from '../components/VirtualSelect.vue'
 
 const props = defineProps<{ kind: 'agents' | 'projects' }>()
 const isAgent = computed(() => props.kind === 'agents')
@@ -21,6 +23,12 @@ const deleting = ref<any>(null)
 const busy = ref(false)
 const error = ref('')
 const form = ref<any>({})
+const reasoningOptions = [
+  { value: 'low', label: 'Low', description: 'Quick responses for straightforward work' },
+  { value: 'medium', label: 'Medium', description: 'A balance of speed and depth' },
+  { value: 'high', label: 'High', description: 'More time for complex reasoning' },
+  { value: 'xhigh', label: 'Extra high', description: 'The deepest reasoning for demanding tasks' },
+]
 function edit(item?: any) {
   editing.value = item?.id ?? null
   form.value = item
@@ -181,12 +189,7 @@ async function remove() {
           <label>Model<input
             v-model="form.model"
             placeholder="Use Codex default"
-          ><small>Leave blank to follow CLI settings.</small></label><label>Reasoning<select v-model="form.reasoning">
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="xhigh">Extra high</option>
-          </select></label><p class="span-2 muted">
+          ><small>Leave blank to follow CLI settings.</small></label><VirtualSelect v-model="form.reasoning" label="Reasoning" :options="reasoningOptions" :icon="Sparkles" /><p class="span-2 muted">
             All agents run in YOLO mode with full container access and no approval prompts. Docker provides isolation.
           </p><label>Time limit (minutes)<input
             v-model.number="form.timeoutMinutes"

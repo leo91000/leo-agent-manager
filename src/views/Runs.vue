@@ -1,15 +1,25 @@
 <script setup lang="ts">
-import { ArrowUpRight, RefreshCw } from '@lucide/vue'
+import { ArrowUpRight, CircleCheck, CirclePause, Clock, ListFilter, LoaderCircle, RefreshCw, Square, TriangleAlert } from '@lucide/vue'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, date, duration } from '../api'
 import Empty from '../components/Empty.vue'
 import Status from '../components/Status.vue'
+import VirtualSelect from '../components/VirtualSelect.vue'
 
 const runs = ref<any[]>([])
 const status = ref('')
 const error = ref('')
 const offset = ref(0)
 const busy = ref(false)
+const outcomes = [
+  { value: '', label: 'All outcomes', icon: ListFilter },
+  { value: 'queued', label: 'Queued', icon: Clock, group: 'In progress' },
+  { value: 'running', label: 'Running', icon: LoaderCircle, group: 'In progress' },
+  { value: 'succeeded', label: 'Succeeded', icon: CircleCheck, group: 'Finished' },
+  { value: 'failed', label: 'Failed', icon: TriangleAlert, group: 'Finished' },
+  { value: 'cancelled', label: 'Cancelled', icon: Square, group: 'Finished' },
+  { value: 'interrupted', label: 'Interrupted', icon: CirclePause, group: 'Finished' },
+]
 async function load() {
   busy.value = true
   try {
@@ -53,22 +63,9 @@ onBeforeUnmount(() => clearInterval(timer))
     </button>
   </div>
   <div class="toolbar">
-    <span class="muted">{{ runs.length }} runs on this page</span><label class="inline-label">Status<select v-model="status">
-      <option value="">All outcomes</option>
-      <option
-        v-for="value in [
-          'queued',
-          'running',
-          'succeeded',
-          'failed',
-          'cancelled',
-          'interrupted',
-        ]"
-        :key="value"
-      >
-        {{ value }}
-      </option>
-    </select></label>
+    <span class="muted">{{ runs.length }} runs on this page</span><div class="inline-label">
+      <span>Status</span><VirtualSelect v-model="status" label="Status" :options="outcomes" compact hide-label clearable />
+    </div>
   </div>
   <p v-if="error" class="error" role="alert">
     {{ error }}
