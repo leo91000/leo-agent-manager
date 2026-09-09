@@ -7,7 +7,7 @@ small explicit fixture. Actual Codex/GitHub checks are recorded separately below
 
 ## Automated coverage
 
-`pnpm check` runs Antfu ESLint, TypeScript checks, 28 unit/integration tests, and the
+`pnpm check` runs Antfu ESLint, TypeScript checks, 31 unit/integration tests, and the
 production Vue build. `pnpm test:e2e` runs three complete Chromium journeys.
 
 | Area | Evidence |

@@ -96,6 +96,44 @@ After deployment, check HTTPS, bootstrap/login, Connections, a small task, resta
 persistence, and MCP discovery from outside the server. A working local container
 does not establish that DNS, TLS, reverse-proxy routing, or cloud connectors work.
 
+### Deploy version tags through GitHub Actions
+
+The `Quality and container` workflow deploys pushes of `v*` tags after quality,
+browser, and container smoke tests pass and the image is published. Main branch
+pushes publish images without deploying. Deployment jobs are serialized.
+
+The GitHub `production` environment needs:
+
+| Setting | Kind | Value |
+| --- | --- | --- |
+| `COOLIFY_TOKEN` | Secret | Dedicated Coolify API token with `read`, `write`, and `deploy` abilities |
+| `COOLIFY_URL` | Variable | `https://coolify.leo-coletta.fr` |
+| `COOLIFY_SERVICE_UUID` | Variable | UUID of the Leo Compose service |
+| `LEO_PUBLIC_URL` | Variable | `https://agents.webdns.leo-coletta.fr` |
+
+In the Coolify service's raw Compose, set `services.manager.image` to
+`${LEO_IMAGE}` and create the `LEO_IMAGE` environment variable with the currently
+deployed image reference. The workflow updates only that variable to the image's
+immutable GHCR digest, requests a service restart, then waits up to ten minutes
+for public `/health` to return the tagged commit. It fails if the previous version
+is still running, even when that version is healthy. Volumes, domain and CLI
+credentials persist across deployments.
+
+To release the current main commit, choose an unused version tag:
+
+```sh
+git switch main
+git pull --ff-only
+git tag -a v0.1.1 -m 'Release v0.1.1'
+git push origin v0.1.1
+```
+
+The workflow run's deployment summary records the exact image and verified commit.
+If deployment fails, inspect that run and the Coolify service logs; there is no
+automatic rollback. For recovery, set `LEO_IMAGE` back to the previous verified
+digest in Coolify and restart, accounting for any database migration as described
+below. A successful tag run can also be rerun to deploy that version again.
+
 ## Backups
 
 Back up **all three volumes together**. Stop the manager first so SQLite and Git

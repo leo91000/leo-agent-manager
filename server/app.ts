@@ -124,7 +124,10 @@ export async function buildApp(overrides: Partial<Config> = {}) {
     })
     return { authenticated: true, csrf: session.csrf }
   }
-  app.get('/health', () => ({ status: 'ok' }))
+  app.get('/health', (_request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    return { status: 'ok', commit: process.env.APP_COMMIT || 'development' }
+  })
   app.get('/api/session', (request) => {
     const session = auth.read(request.cookies.leo_session)
     return {

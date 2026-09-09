@@ -48,6 +48,12 @@ async function main() {
       throw new Error('Container did not become healthy')
     }
     await ready()
+    const health = await fetch(`${url}/health`)
+    assert.equal(health.headers.get('cache-control'), 'no-store')
+    const version = await health.json()
+    assert.equal(typeof version.commit, 'string')
+    if (process.env.GITHUB_SHA)
+      assert.equal(version.commit, process.env.GITHUB_SHA)
     assert.equal((await fetch(`${url}/api/tasks`)).status, 401)
     const setup = await fetch(`${url}/api/setup`, {
       method: 'POST',
