@@ -9,6 +9,7 @@ import rateLimit from '@fastify/rate-limit'
 import staticFiles from '@fastify/static'
 import Fastify from 'fastify'
 import { z, ZodError } from 'zod'
+import { version } from '../shared/version.ts'
 import { Auth, OAuthError, safeEqual } from './auth.ts'
 import { config as loadConfig } from './config.ts'
 import { Connections } from './connections.ts'
@@ -330,7 +331,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
     home: config.home,
     concurrency: config.concurrency,
     mcpUrl: `${config.publicUrl}/mcp`,
-    version: '0.1.0',
+    version,
     commit: process.env.APP_COMMIT || 'development',
     protocol: '2026-07-28',
   }))
@@ -412,7 +413,15 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   mountMcp(app, service, worker, auth)
   const dist = path.resolve('dist')
   if (existsSync(path.join(dist, 'index.html'))) {
-    await app.register(staticFiles, { root: dist, prefix: '/', maxAge: '1h' })
+    await app.register(staticFiles, {
+      root: dist,
+      prefix: '/',
+      maxAge: '1h',
+      setHeaders(response, filePath) {
+        if (path.basename(filePath) === 'index.html')
+          response.header('Cache-Control', 'no-cache')
+      },
+    })
     app.setNotFoundHandler((request, reply) => {
       if (
         request.method === 'GET'

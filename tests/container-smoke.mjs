@@ -100,7 +100,9 @@ async function main() {
     )
     assert.equal(agents[0].name, 'Persistent profile')
     assert.equal((await fetch(`${url}/api/session`)).status, 200)
-    assert.match(await fetch(url).then(r => r.text()), /Leo/)
+    const page = await fetch(url)
+    assert.equal(page.headers.get('cache-control'), 'no-cache')
+    assert.match(await page.text(), /Leo/)
     process.stdout.write(
       'Container smoke passed: non-root, CLI tools, auth, Vue build, persistent session and data across restart.\n',
     )

@@ -6,6 +6,7 @@ import { toNodeHandler } from '@modelcontextprotocol/node'
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { agentInput, projectInput, taskInput } from '../shared/contracts.ts'
+import { version } from '../shared/version.ts'
 import { AppError, requireValue } from './errors.ts'
 
 export function mountMcp(
@@ -30,7 +31,7 @@ export function mountMcp(
       () => {
         const server = new McpServer({
           name: 'leo-agent-manager',
-          version: '0.1.0',
+          version,
         })
         const tool = <Shape extends z.ZodRawShape>(
           name: string,

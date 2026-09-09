@@ -74,7 +74,7 @@ onBeforeUnmount(() => clearInterval(timer))
     {{ error }}
   </p>
   <div v-if="runs.length" class="panel table-wrap">
-    <table>
+    <table class="run-table">
       <thead>
         <tr>
           <th>Task</th>
@@ -92,10 +92,16 @@ onBeforeUnmount(() => clearInterval(timer))
               {{ run.taskName }}
             </RouterLink><small>{{ run.agentName }}</small>
           </td>
-          <td><Status :status="run.status" /></td>
-          <td>{{ date(run.createdAt) }}</td>
-          <td>{{ duration(run.startedAt, run.finishedAt) }}</td>
-          <td>
+          <td data-label="Outcome">
+            <Status :status="run.status" />
+          </td>
+          <td data-label="Started">
+            {{ date(run.createdAt) }}
+          </td>
+          <td data-label="Duration">
+            {{ duration(run.startedAt, run.finishedAt) }}
+          </td>
+          <td data-label="Trigger">
             <span class="pill muted-pill">{{ run.trigger }}</span>
           </td>
           <td>

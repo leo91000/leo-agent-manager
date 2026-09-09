@@ -164,15 +164,17 @@ async function copy() {
             Task brief
           </button>
         </div>
+      </header>
+      <div v-if="(tab === 'result' && run.summary) || tab === 'events'" class="run-panel-actions">
         <button
           v-if="tab === 'result' && run.summary"
-          class="icon-button"
+          class="button small"
           aria-label="Copy result"
           @click="copy"
         >
-          <Copy :size="16" />
+          <Copy :size="16" />Copy result
         </button><label v-if="tab === 'events'" class="checkbox"><input v-model="follow" type="checkbox">Follow output</label>
-      </header>
+      </div>
       <div v-if="tab === 'result'" class="result-content">
         <Markdown v-if="run.summary" :content="run.summary" />
         <div v-else class="mini-empty">

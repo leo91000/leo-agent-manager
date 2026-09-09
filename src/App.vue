@@ -14,8 +14,9 @@ import {
   Plug,
   Search,
   Settings,
+  X,
 } from '@lucide/vue'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, notify, refresh, session, state } from './api'
 import Modal from './components/Modal.vue'
@@ -27,6 +28,15 @@ const setupToken = ref('')
 const busy = ref(false)
 const error = ref('')
 const mobile = ref(false)
+const navigation = ref<HTMLElement>()
+const menuButton = ref<HTMLButtonElement>()
+const mobileQuery = window.matchMedia('(max-width: 640px)')
+const narrow = ref(mobileQuery.matches)
+function viewportChanged() {
+  narrow.value = mobileQuery.matches
+  if (!narrow.value)
+    mobile.value = false
+}
 const searchOpen = ref(false)
 const search = ref('')
 const nav = [
@@ -70,18 +80,52 @@ onMounted(async () => {
     state.ready = true
   }
   document.addEventListener('keydown', key)
+  mobileQuery.addEventListener('change', viewportChanged)
 })
-onBeforeUnmount(() => document.removeEventListener('keydown', key))
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', key)
+  mobileQuery.removeEventListener('change', viewportChanged)
+})
+watch(mobile, async (open) => {
+  await nextTick()
+  if (open)
+    navigation.value?.querySelector<HTMLButtonElement>('.navigation-close')?.focus()
+  else if (narrow.value)
+    menuButton.value?.focus()
+})
 watch(
   () => route.path,
   () => (mobile.value = false),
 )
 function key(event: KeyboardEvent) {
+  if (event.key === 'Escape' && mobile.value) {
+    mobile.value = false
+    return
+  }
   if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
     event.preventDefault()
     if (state.authenticated)
       searchOpen.value = !searchOpen.value
   }
+}
+function navigationKey(event: KeyboardEvent) {
+  if (!mobile.value || event.key !== 'Tab')
+    return
+  const controls = navigation.value?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')
+  const first = controls?.[0]
+  const last = controls?.[controls.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  }
+  else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
+function navigationClick(event: MouseEvent) {
+  if (event.target instanceof Element && event.target.closest('a[href]'))
+    mobile.value = false
 }
 async function login() {
   busy.value = true
@@ -188,12 +232,29 @@ async function logout() {
   </main>
   <div v-else class="shell">
     <div v-if="mobile" class="mobile-backdrop" @click="mobile = false" />
-    <aside class="sidebar" :class="[{ open: mobile }]">
-      <RouterLink to="/" class="wordmark">
-        <span class="logo-mark"><Leaf :size="24" /></span>leo<span
-          class="wordmark-tag"
-        >AGENT MANAGER</span>
-      </RouterLink>
+    <aside
+      id="workspace-navigation"
+      ref="navigation"
+      class="sidebar"
+      :class="[{ open: mobile }]"
+      :inert="narrow && !mobile"
+      :role="narrow && mobile ? 'dialog' : undefined"
+      :aria-modal="narrow && mobile ? true : undefined"
+      :aria-hidden="narrow && !mobile ? true : undefined"
+      aria-label="Workspace navigation"
+      @keydown="navigationKey"
+      @click="navigationClick"
+    >
+      <div class="sidebar-heading">
+        <RouterLink to="/" class="wordmark">
+          <span class="logo-mark"><Leaf :size="24" /></span>leo<span
+            class="wordmark-tag"
+          >AGENT MANAGER</span>
+        </RouterLink>
+        <button class="icon-button navigation-close" aria-label="Close navigation" @click="mobile = false">
+          <X :size="22" />
+        </button>
+      </div>
       <div class="workspace-switch">
         <span class="workspace-avatar">L</span><span>Personal workspace<small>Your agent control room</small></span>
       </div>
@@ -240,12 +301,15 @@ async function logout() {
         </div>
       </div>
     </aside>
-    <div class="main-area">
+    <div class="main-area" :inert="narrow && mobile">
       <header class="topbar">
         <div class="breadcrumb">
           <button
+            ref="menuButton"
             class="icon-button mobile-menu"
             aria-label="Open navigation"
+            aria-controls="workspace-navigation"
+            :aria-expanded="mobile"
             @click="mobile = true"
           >
             <Menu :size="22" />

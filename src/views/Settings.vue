@@ -101,8 +101,8 @@ async function copy(value: string) {
           </button></div></label>
       <div class="inline-note">
         Choose OAuth authentication. You’ll sign in here and approve exactly
-        what the assistant can access. This endpoint uses stateless MCP
-        {{ settings.protocol }}; the client must support that protocol.
+        what the assistant can access. Connect using the Streamable HTTP
+        transport supported by Codex and other compatible MCP clients.
       </div>
     </section>
     <section class="panel settings-section">
@@ -200,7 +200,7 @@ async function copy(value: string) {
           <Copy :size="16" />Copy token
         </button>
       </template>
-      <form v-else @submit.prevent="create">
+      <form v-else class="token-form" @submit.prevent="create">
         <label>Name<input
           v-model="label"
           required

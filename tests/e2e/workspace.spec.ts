@@ -1,3 +1,4 @@
+import type { Page, TestInfo } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
 test.describe.configure({ mode: 'serial' })
@@ -114,7 +115,7 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
     fullPage: true,
     animations: 'disabled',
   })
-  await page.getByRole('button', { name: /navigation|menu/i }).click()
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await expect(
     page.getByRole('button', { name: 'Sign in', exact: true }),
@@ -258,4 +259,151 @@ test('approves a scoped OAuth connector and revokes its grant', async ({
     data: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
   })
   expect(denied.status()).toBe(401)
+})
+
+async function checkMobileLayouts(page: Page, testInfo: TestInfo) {
+  test.setTimeout(180000)
+  // The screenshot matrix is a burst of real requests against the production
+  // limiter. Begin with a fresh budget instead of weakening it in the fixture.
+  const health = await page.request.get('/health')
+  const headers = health.headers()
+  if (Number(headers['x-ratelimit-remaining']) < 250)
+    await new Promise(resolve => setTimeout(resolve, (Number(headers['x-ratelimit-reset']) + 1) * 1000))
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('/')
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.shell')).toBeVisible()
+  const runs = await page.request.get('/api/runs').then(response => response.json())
+  const run = runs.find((item: { status: string }) => item.status === 'succeeded')
+
+  async function navigate(url: string) {
+    const destination = url.startsWith('/runs/') ? '/runs' : url
+    const menu = page.getByRole('button', { name: 'Open navigation' })
+    if (await menu.isVisible())
+      await menu.click()
+    await page.locator(`.sidebar a[href="${destination}"]`).last().click()
+    if (destination !== url)
+      await page.locator(`.run-table a[href="${url}"]`).first().click()
+  }
+  async function fits() {
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
+  }
+  async function screenshot(name: string) {
+    await page.evaluate(() => document.fonts.ready)
+    await fits()
+    const overlay = await page.locator('dialog[open], .sidebar.open').count()
+    await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: !overlay, animations: 'disabled' })
+  }
+  const screens = [
+    ['overview', '/', '.stat-card'],
+    ['tasks', '/tasks', '.task-card'],
+    ['runs', '/runs', 'tbody tr'],
+    ['agents', '/agents', '.resource-card'],
+    ['projects', '/projects', '.resource-card'],
+    ['skills', '/skills', '.skill-card'],
+    ['connections', '/connections', '.connection-card'],
+    ['settings', '/settings', '.settings-section'],
+    ['result', `/runs/${run.id}`, '.run-panel'],
+  ]
+  for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 664 }, { width: 430, height: 932 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport)
+    for (const [name, url, ready] of screens) {
+      await navigate(url)
+      await expect(page.locator(ready).first()).toBeVisible()
+      await screenshot(`${viewport.width}-${name}`)
+      if (name === 'tasks' || name === 'skills') {
+        const geometry = await page.locator('.search-field').evaluate((field) => {
+          const icon = field.querySelector('svg')!.getBoundingClientRect()
+          const input = field.querySelector('input')!.getBoundingClientRect()
+          return { aligned: Math.abs(icon.y + icon.height / 2 - input.y - input.height / 2) < 2, separated: icon.right <= input.left }
+        })
+        expect(geometry).toEqual({ aligned: true, separated: true })
+      }
+    }
+    await page.getByRole('button', { name: /^Activity/ }).click()
+    await expect(page.locator('.event-row').first()).toBeAttached()
+    const head = await page.locator('.run-panel-head').boundingBox()
+    const actions = await page.locator('.run-panel-actions').boundingBox()
+    expect(actions!.y).toBeGreaterThanOrEqual(head!.y + head!.height)
+    await page.getByLabel('Follow output').uncheck()
+    await expect(page.getByLabel('Follow output')).not.toBeChecked()
+    await screenshot(`${viewport.width}-activity`)
+    await page.getByRole('button', { name: 'Task brief', exact: true }).click()
+    await screenshot(`${viewport.width}-brief`)
+
+    for (const [name, url, button] of [
+      ['task-editor', '/tasks', 'New task'],
+      ['agent-editor', '/agents', 'New agent'],
+      ['project-editor', '/projects', 'Add project'],
+      ['skill-editor', '/skills', 'New skill'],
+      ['token-editor', '/settings', 'New token'],
+    ]) {
+      await navigate(url)
+      await page.getByRole('button', { name: button, exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toBeVisible()
+      const box = await dialog.boundingBox()
+      expect(box!.y).toBeGreaterThanOrEqual(0)
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
+      await screenshot(`${viewport.width}-${name}`)
+      await dialog.getByRole('button').last().scrollIntoViewIfNeeded()
+      await expect(dialog.getByRole('button').last()).toBeInViewport()
+      await page.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+    }
+    await page.getByRole('button', { name: 'Search workspace' }).click()
+    await page.getByRole('dialog').getByLabel('Search', { exact: true }).fill('review')
+    await screenshot(`${viewport.width}-workspace-search`)
+    await page.keyboard.press('Escape')
+  }
+
+  await page.setViewportSize({ width: 390, height: 664 })
+  await page.getByRole('button', { name: 'Open navigation' }).click()
+  await expect(page.getByRole('button', { name: 'Close navigation' })).toBeFocused()
+  await expect(page.locator('.main-area')).toHaveAttribute('inert', '')
+  for (const height of [360, 568, 844]) {
+    await page.setViewportSize({ width: 390, height })
+    await expect.poll(() => page.locator('.sidebar').evaluate(el => el.clientHeight)).toBe(height)
+    await page.locator('.sidebar').evaluate(el => el.scrollTo({ top: el.scrollHeight }))
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeInViewport()
+    await screenshot(`drawer-${height}-bottom`)
+    await page.locator('.sidebar').evaluate(el => el.scrollTo({ top: 0 }))
+    await screenshot(`drawer-${height}-top`)
+  }
+  await page.locator('.sidebar a').first().focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.locator('.sidebar a').first()).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused()
+  await expect(page.locator('.sidebar')).toHaveAttribute('inert', '')
+  await expect(page.locator('.main-area')).not.toHaveAttribute('inert', '')
+  await page.getByRole('button', { name: 'Open navigation' }).click()
+  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await expect(page.locator('.sidebar')).not.toHaveClass(/open/)
+  await expect(page.locator('.task-card').first()).toBeVisible()
+  expect(errors).toEqual([])
+}
+
+test('Chromium mobile pages, dialogs and navigation', async ({ page }, testInfo) => {
+  await checkMobileLayouts(page, testInfo)
+})
+
+test('WebKit mobile pages, dialogs and navigation', async ({ playwright }, testInfo) => {
+  const browser = await playwright.webkit.launch()
+  try {
+    const context = await browser.newContext({
+      baseURL: 'http://127.0.0.1:4322',
+      viewport: { width: 390, height: 664 },
+      isMobile: true,
+      hasTouch: true,
+    })
+    await checkMobileLayouts(await context.newPage(), testInfo)
+  }
+  finally {
+    await browser.close()
+  }
 })

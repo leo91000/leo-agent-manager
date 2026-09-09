@@ -8,7 +8,8 @@ small explicit fixture. Actual Codex/GitHub checks are recorded separately below
 ## Automated coverage
 
 `pnpm check` runs Antfu ESLint, TypeScript checks, 31 unit/integration tests, and the
-production Vue build. `pnpm test:e2e` runs three complete Chromium journeys.
+production Vue build. `pnpm test:e2e` runs three complete Chromium journeys plus
+mobile layout/navigation passes in Chromium and WebKit.
 
 | Area | Evidence |
 | --- | --- |
@@ -25,6 +26,7 @@ production Vue build. `pnpm test:e2e` runs three complete Chromium journeys.
 | Setup → profile → project → skill → scheduled task → real fixture run → result → reload → pause → mobile navigation → logout | Browser journey 1 |
 | Supporting-file write/read/preview, running cancellation, archive/restore, retained history | Browser journey 2 |
 | OAuth consent through login, redirect callback, code exchange, settings revocation, denied MCP access | Browser journey 3 |
+| Nine workspace pages, all run tabs, five editors, workspace search, drawer scrolling/focus at changing viewport heights | Browser journeys 4–5, Chromium and WebKit |
 | Non-root container, CLI binaries/pnpm 12, authenticated API, Vue build, persistent session/data across restart | `tests/container-smoke.mjs` |
 
 ## UI/UX critique and exploratory checks
@@ -65,6 +67,26 @@ console errors.
 
 The browser suite checks unexpected console errors as well as page exceptions.
 Intentional invalid-input HTTP 400 responses are excluded from that console check.
+
+### Mobile pass for v0.1.1
+
+The screenshot matrix covers 320×568, 390×664, 430×932, and 844×390 viewports in
+Chromium and WebKit. It checks horizontal overflow, search icon alignment,
+separation of Activity controls from tabs, and reachable dialog actions. Drawer
+checks resize the viewport to 360, 568, and 844 pixels high, scroll to Sign out,
+and exercise focus trapping, Escape, focus restoration, and navigation. Screenshots
+are saved in the workflow's Playwright artifact; these are browser emulations,
+not physical-device captures.
+
+An independent isolated-browser review also covered login and OAuth approval at
+320 pixels wide. The pass fixed the unscrollable navigation, dynamic viewport and
+safe-area sizing, stacked search icons, cramped Activity tabs, overflowing run
+history, small mobile form controls, and editor height constraints. Selecting the
+current navigation destination now closes the mobile drawer as well.
+
+Reviewed WebKit captures: [Tasks](screenshots/mobile-tasks.png),
+[Activity](screenshots/mobile-activity.png), [Runs](screenshots/mobile-runs.png),
+and [scrolled short-screen drawer](screenshots/mobile-drawer-scrolled.png).
 
 ## Actual provider and container execution
 
