@@ -99,6 +99,7 @@ process.stdin.on('end', () => {
       const result = await fetch(`${url}/runs/${id}/wait`, { method: 'POST', headers }).then(response => response.json())
       const logs = await fetch(`${url}/runs/${id}/logs`, { headers }).then(response => response.text())
       assert.equal(result.StatusCode, 0, logs)
+      assert.doesNotMatch(logs, /failed to write cache file/)
       assert.match(logs, /Isolation assertions passed|Real Codex sandbox denied/)
       const inspect = JSON.parse(docker('inspect', `leo-run-${id}`))[0]
       assert.equal(inspect.Config.User, '1000:1000')

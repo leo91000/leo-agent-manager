@@ -81,5 +81,8 @@ export async function toolkitEnvironment(home: string, base: NodeJS.ProcessEnv =
     PATH: [path.join(home, '.local/share/mise/shims'), '/usr/local/share/mise/shims', path.join(cargo, 'bin'), base.PATH].filter(Boolean).join(path.delimiter),
   }
   await promisify(execFile)('/usr/local/bin/mise', ['reshim'], { cwd: '/tmp', env, timeout: 30000 })
+  // Resolve the baked tools while the private home is writable. Inside a
+  // read-only Codex sandbox, cache writes would otherwise flood every command.
+  await promisify(execFile)('/usr/local/bin/mise', ['env', '--json'], { cwd: '/tmp', env, timeout: 30000 })
   return env
 }
