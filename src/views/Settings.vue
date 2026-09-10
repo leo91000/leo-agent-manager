@@ -64,12 +64,7 @@ async function copy(value: string) {
 <template>
   <div class="page-heading">
     <div>
-      <span class="eyebrow">YOUR WORKSPACE, YOUR RULES</span>
       <h1>Settings</h1>
-      <p>
-        Connections for other assistants, access controls, and workspace
-        details.
-      </p>
     </div>
   </div>
   <p v-if="error" class="error" role="alert">
@@ -78,7 +73,7 @@ async function copy(value: string) {
   <template v-if="settings">
     <section class="panel settings-section appearance-section">
       <div class="section-intro">
-        <div><h2>Appearance</h2><p>Make this workspace feel right, day or night.</p></div>
+        <div><h2>Appearance</h2></div>
       </div>
       <ThemeControl />
       <p class="appearance-hint">

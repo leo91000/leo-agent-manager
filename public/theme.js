@@ -15,7 +15,7 @@
     root.dataset.theme = resolved
     root.dataset.themePreference = preference
     root.style.colorScheme = resolved
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolved === 'dark' ? '#121a16' : '#f7f8f4')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolved === 'dark' ? '#171823' : '#fafaff')
     for (const subscriber of subscribers)
       subscriber(preference)
   }

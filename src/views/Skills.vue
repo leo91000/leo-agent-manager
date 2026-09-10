@@ -114,9 +114,7 @@ async function remove() {
 <template>
   <div class="page-heading">
     <div>
-      <span class="eyebrow">GOOD INSTRUCTIONS, REUSED</span>
       <h1>Skills library</h1>
-      <p>Turn your best workflows into a shared advantage.</p>
     </div>
     <button class="button primary" @click="edit()">
       <Plus :size="17" />New skill

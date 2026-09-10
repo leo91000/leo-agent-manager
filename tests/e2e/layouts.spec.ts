@@ -14,7 +14,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
   const run = runs.find((item: { status: string }) => item.status === 'succeeded')
 
   async function navigate(url: string) {
-    const destination = url.startsWith('/runs/') ? '/runs' : url
+    const destination = url === '/' ? '/tasks' : url.startsWith('/runs/') ? '/runs' : url
     const menu = page.getByRole('button', { name: 'Open navigation' })
     if (await menu.isVisible())
       await menu.click()
@@ -22,7 +22,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
     const headings: Record<string, string> = { '/tasks': 'Tasks', '/runs': 'Run history', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills library', '/connections': 'Connections', '/settings': 'Settings' }
     if (headings[destination])
       await expect(page.getByRole('heading', { name: headings[destination], exact: true })).toBeVisible()
-    if (destination !== url) {
+    if (url.startsWith('/runs/')) {
       await page.locator(`.run-table a[href="${url}"]`).first().click()
       await expect(page.locator('.run-title-meta')).toBeVisible()
     }
@@ -44,7 +44,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
     await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: !overlay, animations: 'disabled' })
   }
   const screens = [
-    ['overview', '/', '.stat-card'],
+    ['overview', '/', '.task-card'],
     ['tasks', '/tasks', '.task-card'],
     ['runs', '/runs', 'tbody tr'],
     ['agents', '/agents', '.resource-card'],
@@ -60,6 +60,8 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
       await navigate(url)
       await expect(page.locator(ready).first()).toBeVisible()
       await screenshot(`${viewport.width}-${name}`)
+      if (name === 'tasks')
+        await page.getByRole('button', { name: 'Search tasks', exact: true }).click()
       if (name === 'tasks' || name === 'skills') {
         const geometry = await page.locator('.search-field').evaluate((field) => {
           const icon = field.querySelector('svg')!.getBoundingClientRect()

@@ -6,15 +6,15 @@ import {
   Bot,
   Check,
   FolderGit2,
-  LayoutDashboard,
-  Leaf,
   ListTodo,
   LogOut,
   Menu,
   Plug,
+  Plus,
   Search,
   Settings,
   X,
+  Zap,
 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -41,7 +41,6 @@ function viewportChanged() {
 const searchOpen = ref(false)
 const search = ref('')
 const nav = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard },
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/runs', label: 'Runs', icon: Activity },
   { to: '/agents', label: 'Agents', icon: Bot },
@@ -166,39 +165,33 @@ async function logout() {
 
 <template>
   <div v-if="!state.ready" class="loading-screen">
-    Opening your workspace…
+    Loading…
   </div>
   <main v-else-if="!state.authenticated" class="auth-screen">
     <div class="auth-story">
       <div class="wordmark">
-        <span class="logo-mark"><Leaf :size="25" /></span>leo<span
+        <span class="logo-mark"><Zap :size="25" /></span>leo<span
           class="wordmark-tag"
         >AGENT MANAGER</span>
       </div>
       <div>
-        <span class="eyebrow">LESS SUPERVISION. MORE MOMENTUM.</span>
-        <h1>A little direction.<br>A lot of progress.</h1>
-        <p>
-          Your agents, projects, and ideas.<br>One thoughtful place to put
-          them to work.
-        </p>
+        <h1>Your agents.<br>Your workspace.</h1>
       </div>
-      <span class="auth-foot">Your infrastructure. Your accounts. Your work.</span>
+      <span class="auth-foot">Leo Agent Manager</span>
     </div>
     <div class="auth-form">
       <div class="auth-appearance">
         <ThemeControl compact />
       </div>
       <div class="auth-card">
-        <span class="eyebrow">YOUR CONTROL ROOM</span>
         <h2>
-          {{ state.setupRequired ? "Make yourself at home." : "Welcome back." }}
+          {{ state.setupRequired ? "Create workspace" : "Sign in" }}
         </h2>
         <p>
           {{
             state.setupRequired
               ? "Create your administrator account to get started."
-              : "Sign in to see what your agents have been working on."
+              : ""
           }}
         </p>
         <form @submit.prevent="login">
@@ -251,7 +244,7 @@ async function logout() {
     >
       <div class="sidebar-heading">
         <RouterLink to="/" class="wordmark">
-          <span class="logo-mark"><Leaf :size="24" /></span>leo<span
+          <span class="logo-mark"><Zap :size="24" /></span>leo<span
             class="wordmark-tag"
           >AGENT MANAGER</span>
         </RouterLink>
@@ -260,9 +253,9 @@ async function logout() {
         </button>
       </div>
       <div class="workspace-switch">
-        <span class="workspace-avatar">L</span><span>Personal workspace<small>Your agent control room</small></span>
+        <span class="workspace-avatar">L</span><span>Personal workspace</span>
       </div>
-      <span class="nav-caption">WORKSPACE</span>
+
       <nav>
         <RouterLink
           v-for="item in nav"
@@ -284,9 +277,6 @@ async function logout() {
         </RouterLink>
       </nav>
       <div class="sidebar-bottom">
-        <div class="sidebar-note">
-          <span class="small-orbit" />Built for work that keeps moving.<small>Set the direction. Stay in control.</small>
-        </div>
         <RouterLink
           to="/connections"
           :class="{ active: route.path === '/connections' }"
@@ -301,7 +291,7 @@ async function logout() {
           <LogOut :size="18" />Sign out
         </button>
         <div class="sidebar-user">
-          <span class="workspace-avatar">L</span><span>Workspace owner<small>Self-hosted · Private</small></span><span class="online-dot" />
+          <span class="workspace-avatar">L</span><span>Workspace owner</span><span class="online-dot" />
         </div>
       </div>
     </aside>
@@ -337,9 +327,23 @@ async function logout() {
       <main class="page">
         <RouterView :key="route.path" />
       </main>
-      <footer class="page-footer">
-        A quieter way to get things done.<span>Leo Agent Manager</span>
-      </footer>
+      <nav v-if="!mobile" class="mobile-bottom-nav" aria-label="Quick navigation">
+        <RouterLink to="/tasks" aria-label="Tasks" :class="{ active: route.path === '/tasks' }">
+          <ListTodo :size="20" />
+        </RouterLink>
+        <RouterLink to="/runs" aria-label="Activity" :class="{ active: route.path.startsWith('/runs') }">
+          <Activity :size="20" />
+        </RouterLink>
+        <RouterLink to="/tasks?new=1" class="mobile-new-task" aria-label="New task">
+          <Plus :size="20" />
+        </RouterLink>
+        <RouterLink to="/agents" aria-label="Agents" :class="{ active: route.path === '/agents' }">
+          <Bot :size="20" />
+        </RouterLink>
+        <button aria-label="More navigation" @click="mobile = true">
+          <Menu :size="20" />
+        </button>
+      </nav>
     </div>
   </div>
   <Transition name="toast">

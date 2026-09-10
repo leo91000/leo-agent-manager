@@ -54,9 +54,7 @@ onBeforeUnmount(() => clearInterval(timer))
 <template>
   <div class="page-heading">
     <div>
-      <span class="eyebrow">EVERY STEP, ACCOUNTED FOR</span>
       <h1>Run history</h1>
-      <p>The progress, outcomes, and details behind each assignment.</p>
     </div>
     <button class="button" :disabled="busy" @click="load">
       <RefreshCw :size="16" />Refresh

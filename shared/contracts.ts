@@ -97,3 +97,8 @@ export interface RunEvent {
   text: string
   payload?: Record<string, unknown>
 }
+
+export type RunListItem = Omit<Run, 'snapshot' | 'summary'> & {
+  taskName: string
+  agentName: string
+}

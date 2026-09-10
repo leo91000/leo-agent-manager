@@ -115,19 +115,7 @@ async function remove() {
 <template>
   <div class="page-heading">
     <div>
-      <span class="eyebrow">{{
-        isAgent
-          ? "GOOD WORK STARTS WITH A GOOD TEAM"
-          : "GIVE YOUR AGENTS A PLACE TO WORK"
-      }}</span>
       <h1>{{ isAgent ? "Agents" : "Projects" }}</h1>
-      <p>
-        {{
-          isAgent
-            ? "Different strengths. Shared direction. Profiles for the way you work."
-            : "Connect the codebases and directories your agents can work in."
-        }}
-      </p>
     </div>
     <button class="button primary" @click="edit()">
       <Plus :size="17" />{{ isAgent ? "New agent" : "Add project" }}

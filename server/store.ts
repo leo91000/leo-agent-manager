@@ -3,6 +3,7 @@ import type {
   Project,
   Run,
   RunEvent,
+  RunListItem,
   RunStatus,
   Task,
 } from '../shared/contracts.ts'
@@ -21,9 +22,9 @@ interface RunQuery {
   limit?: number
   offset?: number
 }
-export type RunListItem = Omit<Run, 'snapshot' | 'summary'> & {
-  taskName: string
-  agentName: string
+const runListColumns = 'json_remove(data,\'$.snapshot\',\'$.summary\') AS data,json_extract(data,\'$.snapshot.task.name\') AS taskName,json_extract(data,\'$.snapshot.agent.name\') AS agentName'
+function runListItem(row: Record<string, unknown>): RunListItem {
+  return { ...JSON.parse(row.data as string), taskName: row.taskName, agentName: row.agentName }
 }
 export class Store {
   db: DatabaseSync
@@ -121,14 +122,14 @@ export class Store {
   }
 
   listRuns(query: RunQuery = {}): RunListItem[] {
-    return this.runRows(
-      query,
-      'json_remove(data,\'$.snapshot\',\'$.summary\') AS data,json_extract(data,\'$.snapshot.task.name\') AS taskName,json_extract(data,\'$.snapshot.agent.name\') AS agentName',
-    ).map(row => ({
-      ...JSON.parse(row.data as string),
-      taskName: row.taskName,
-      agentName: row.agentName,
-    }))
+    return this.runRows(query, runListColumns).map(runListItem)
+  }
+
+  latestTaskRuns(): RunListItem[] {
+    return this.db.prepare(`SELECT ${runListColumns} FROM runs WHERE id IN (
+      SELECT (SELECT id FROM runs WHERE task_id=records.id ORDER BY created_at DESC,id DESC LIMIT 1)
+      FROM records WHERE kind='tasks'
+    ) ORDER BY created_at DESC,id DESC`).all().map(runListItem)
   }
 
   maintain(now = Date.now()) {

@@ -9,7 +9,9 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', ...devices['Desktop Chrome'] },
   projects: [
-    { name: 'journeys', testMatch: 'workspace.spec.ts' },
+    { name: 'journeys', testMatch: 'workspace.spec.ts', grepInvert: /appearance follows|dark appearance settings/ },
+    { name: 'journeys-appearance', testMatch: 'workspace.spec.ts', grep: /appearance follows|dark appearance settings/ },
+    { name: 'journeys-task-focus', testMatch: 'task-focus.spec.ts' },
     { name: 'journeys-agent-access', testMatch: 'agent-access.spec.ts' },
     ...(['chromium', 'webkit'] as const).flatMap(browserName =>
       (['light', 'dark'] as const).map(colorScheme => ({

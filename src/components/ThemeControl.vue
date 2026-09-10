@@ -10,8 +10,8 @@ const trigger = ref<HTMLButtonElement>()
 const popup = ref<HTMLElement>()
 const choices = [
   { value: 'system' as const, label: 'System', description: 'Follow your device', icon: Monitor },
-  { value: 'light' as const, label: 'Light', description: 'Soft paper and sage', icon: Sun },
-  { value: 'dark' as const, label: 'Dark', description: 'A calmer evening view', icon: Moon },
+  { value: 'light' as const, label: 'Light', description: 'Light surfaces', icon: Sun },
+  { value: 'dark' as const, label: 'Dark', description: 'Dark surfaces', icon: Moon },
 ]
 function position() {
   if (!trigger.value || !popup.value)

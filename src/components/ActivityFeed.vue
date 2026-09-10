@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type { RunEvent } from '../../shared/contracts'
 import type { ActivityArtifact } from '../activity'
-import { ArrowDown, ChevronDown, Layers, Leaf, LoaderCircle, Maximize2, Minimize2 } from '@lucide/vue'
+import { ArrowDown, ChevronDown, Layers, LoaderCircle, Maximize2, Minimize2, Zap } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { activityEntries } from '../activity'
 import ActivityArtifactCard from './ActivityArtifactCard.vue'
 import ActivityContent from './ActivityContent.vue'
 import '../activity.css'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean }>()
 defineEmits<{ load: [] }>()
 const entries = computed(() => activityEntries(props.events))
 const follow = ref(true)
@@ -19,6 +19,16 @@ const fullscreenButton = ref<HTMLButtonElement>()
 const scroller = ref<HTMLElement>()
 const opened = ref(new Set<string>())
 const expanded = ref(new Set<string>())
+let previewed = false
+watch(entries, (items) => {
+  if (!props.preview || previewed)
+    return
+  const group = items.findLast(item => item.kind === 'group' && item.artifacts.some(artifact => artifact.kind !== 'notice'))
+  if (!group || group.kind !== 'group')
+    return
+  opened.value.add(group.id)
+  previewed = true
+}, { immediate: true })
 function toggle(set: Set<string>, id: string) {
   if (set.has(id))
     set.delete(id)
@@ -80,7 +90,7 @@ onBeforeUnmount(() => viewer.value?.close())
       <section class="activity-feed" :class="{ 'is-fullscreen': fullscreen }" aria-label="Run conversation">
         <header class="activity-toolbar">
           <div class="activity-toolbar-title">
-            <span class="activity-presence" :class="{ live: active }" /><span>{{ fullscreen ? task : 'Agent activity' }}<small>{{ active ? 'Working on your task' : 'The story behind this run' }}</small></span>
+            <span class="activity-presence" :class="{ live: active }" /><span>{{ fullscreen ? task : 'Agent activity' }}</span>
           </div>
           <div class="activity-toolbar-controls">
             <label class="checkbox"><input v-model="follow" type="checkbox" @change="followChanged">Follow output</label>
@@ -92,7 +102,7 @@ onBeforeUnmount(() => viewer.value?.close())
         <div ref="scroller" class="activity-scroll" @scroll="scrolled">
           <div class="activity-conversation">
             <div class="activity-intro">
-              <span class="activity-avatar"><Leaf :size="19" /></span><div><strong>{{ agent }}</strong><span>Your agent’s updates, work, and discoveries.</span></div>
+              <span class="activity-avatar"><Zap :size="19" /></span><div><strong>{{ agent }}</strong></div>
             </div>
             <p v-if="trimmed" class="activity-retention">
               Showing the latest {{ events.length.toLocaleString() }} events. {{ trimmed.toLocaleString() }} earlier events are outside this view.
@@ -102,7 +112,7 @@ onBeforeUnmount(() => viewer.value?.close())
                 <header><span class="message-dot" /><strong>{{ agent }}</strong><time>{{ new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time></header>
                 <ActivityContent :content="entry.text" />
               </article>
-              <section v-else class="activity-group" :class="{ expanded: opened.has(entry.id) }">
+              <section v-else class="activity-group" :class="{ 'expanded': opened.has(entry.id), 'notice-only': entry.artifacts.every(item => item.kind === 'notice') }">
                 <button class="activity-group-toggle" :aria-expanded="opened.has(entry.id)" :aria-controls="`activity-${entry.id}`" @click="toggle(opened, entry.id)">
                   <span class="activity-group-icon"><LoaderCircle v-if="active && entry.artifacts.some(item => item.status === 'running')" class="activity-spinning" :size="17" /><Layers v-else :size="17" /></span>
                   <span class="activity-group-label"><strong>{{ groupLabel(entry.artifacts) }}</strong><small>{{ entry.artifacts.length }} {{ entry.artifacts.length === 1 ? 'step' : 'steps' }}<span v-if="entry.artifacts.some(item => item.status === 'error')" class="activity-attention"> · Includes errors</span></small></span>

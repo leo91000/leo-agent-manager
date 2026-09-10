@@ -5,11 +5,12 @@ import '@fontsource-variable/dm-sans/wght.css'
 import '@fontsource-variable/manrope/wght.css'
 import './style.css'
 import './theme.css'
+import './focus.css'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: () => import('./views/Overview.vue') },
+    { path: '/', redirect: '/tasks' },
     { path: '/tasks', component: () => import('./views/Tasks.vue') },
     { path: '/runs', component: () => import('./views/Runs.vue') },
     { path: '/runs/:id', component: () => import('./views/RunDetail.vue') },

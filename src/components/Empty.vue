@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Sparkles } from '@lucide/vue'
 
-defineProps<{ title: string, description: string }>()
+defineProps<{ title: string, description?: string }>()
 </script>
 
 <template>
@@ -10,7 +10,9 @@ defineProps<{ title: string, description: string }>()
       <Sparkles :size="27" />
     </div>
     <h3>{{ title }}</h3>
-    <p>{{ description }}</p>
+    <p v-if="description">
+      {{ description }}
+    </p>
     <slot />
   </div>
 </template>

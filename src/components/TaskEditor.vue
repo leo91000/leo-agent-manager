@@ -8,7 +8,7 @@ import Modal from './Modal.vue'
 import VirtualSelect from './VirtualSelect.vue'
 
 const props = defineProps<{ task?: Task }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: [], saved: [task: Task] }>()
 const form = ref({
   name: props.task?.name ?? '',
   prompt: props.task?.prompt ?? '',
@@ -107,11 +107,12 @@ async function save() {
   busy.value = true
   error.value = ''
   try {
-    await api(`/tasks${props.task ? `/${props.task.id}` : ''}`, {
+    const saved = await api<Task>(`/tasks${props.task ? `/${props.task.id}` : ''}`, {
       method: props.task ? 'PUT' : 'POST',
       body: JSON.stringify(form.value),
     })
     await refresh()
+    emit('saved', saved)
     notify(props.task ? 'Task updated' : 'Task created')
     emit('close')
   }

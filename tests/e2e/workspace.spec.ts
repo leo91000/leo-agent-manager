@@ -94,6 +94,8 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
     page.getByRole('heading', { name: 'Weekly dependency review' }),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Run now', exact: true }).click()
+  await expect(page.locator('.task-focus-detail .run-title-meta')).toBeVisible()
+  await page.getByRole('link', { name: 'Open run', exact: true }).click()
   await expect(page).toHaveURL(/\/runs\//)
   await expect(page.locator('.run-title-meta .status')).toContainText(
     'succeeded',
@@ -103,11 +105,12 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
   await page.reload()
   await expect(page.getByText('The fixture task passed.')).toBeVisible()
   await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await page.locator('.task-action-menu > summary').click()
   await page
     .getByRole('button', { name: 'Pause schedule', exact: true })
     .click()
   await expect(page.getByText('Paused', { exact: true }).last()).toBeVisible()
-  await page.getByRole('link', { name: 'Overview', exact: true }).click()
+  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.mouse.move(0, 0)
   await expect(page.locator('.toast')).toHaveCount(0)
@@ -164,6 +167,7 @@ test('edits supporting files, cancels work, and archives without losing history'
   ).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await page.locator('.task-action-menu > summary').click()
   await page
     .getByRole('button', { name: 'Edit Weekly dependency review', exact: true })
     .click()
@@ -179,6 +183,7 @@ test('edits supporting files, cancels work, and archives without losing history'
     .click()
   await expect(page.locator('.run-title-meta .status')).toHaveText('cancelled')
   await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await page.locator('.task-action-menu > summary').click()
   await page
     .getByRole('button', { name: 'Archive Weekly dependency review' })
     .click()
@@ -192,6 +197,7 @@ test('edits supporting files, cancels work, and archives without losing history'
   await expect(
     page.getByRole('button', { name: 'Run now', exact: true }),
   ).toBeDisabled()
+  await page.locator('.task-action-menu > summary').click()
   await page
     .getByRole('button', { name: 'Restore Weekly dependency review' })
     .click()
@@ -324,7 +330,7 @@ test('appearance follows the device, persists overrides, syncs tabs and paints b
   await page.reload()
   await expect(page.locator('#app')).toBeEmpty()
   await expect(root).toHaveAttribute('data-theme', 'dark')
-  expect(await root.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(18, 26, 22)')
+  expect(await root.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(23, 24, 35)')
 })
 
 test('dark appearance settings, empty states and connection sign-in feedback', async ({ page }, testInfo) => {
@@ -344,7 +350,7 @@ test('dark appearance settings, empty states and connection sign-in feedback', a
   await expect(page.getByRole('button', { name: 'Appearance: dark', exact: true })).toBeFocused()
   await page.route('**/api/tasks', route => route.fulfill({ json: [] }))
   await page.goto('/tasks')
-  await expect(page.getByRole('heading', { name: 'What would you like to get done?', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'No tasks yet', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('empty-tasks.png'), fullPage: true, animations: 'disabled' })
   await page.route('**/api/connections?*', route => route.fulfill({ json: [
     { provider: 'codex', installed: true, connected: false, version: 'Test CLI' },

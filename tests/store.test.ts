@@ -7,6 +7,32 @@ import { Store } from '../server/store.ts'
 import { fixture } from './helpers.ts'
 
 describe('durable storage and API boundaries', () => {
+  it('returns the latest lightweight run for every current task beyond a page of history', async () => {
+    const ctx = await fixture()
+    try {
+      const headers = await ctx.login()
+      const first = await ctx.service.enqueue(ctx.task.id)
+      ctx.service.store.updateRun(first.id, { status: 'succeeded' })
+      const other = ctx.service.task({ ...ctx.task, name: 'Another task' })
+      const recent = await ctx.service.enqueue(other.id)
+      ctx.service.store.updateRun(recent.id, { status: 'succeeded' })
+      for (let index = 0; index < 110; index++) {
+        ctx.service.store.addRun({ ...recent, id: `history-${index.toString().padStart(3, '0')}`, status: 'succeeded', createdAt: recent.createdAt + 1000, summary: 'Not in the list' })
+      }
+      const response = await ctx.app.inject({ url: '/api/tasks/activity', headers })
+      expect(response.statusCode).toBe(200)
+      const items = response.json()
+      expect(items.map((item: { id: string }) => item.id)).toEqual(['history-109', first.id])
+      expect(items[0]).not.toHaveProperty('summary')
+      expect(items[0]).not.toHaveProperty('snapshot')
+      ctx.service.store.remove('tasks', other.id)
+      expect(ctx.service.store.latestTaskRuns().map(run => run.id)).toEqual([first.id])
+      expect((await ctx.app.inject({ url: '/api/tasks/activity' })).statusCode).toBe(401)
+    }
+    finally {
+      await ctx.dispose()
+    }
+  })
   it('upgrades version 1 event history without losing records and persists structured payloads', async () => {
     const ctx = await fixture()
     try {

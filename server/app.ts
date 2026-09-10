@@ -222,6 +222,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
       .parse(request.body)
     return { occurrences: nextOccurrences(input.cron, input.timezone) }
   })
+  app.get('/api/tasks/activity', () => store.latestTaskRuns())
   app.get('/api/runs', (request) => {
     const query = z
       .object({

@@ -66,9 +66,7 @@ onBeforeUnmount(() => clearInterval(timer))
 <template>
   <div class="page-heading">
     <div>
-      <span class="eyebrow">THE TOOLS YOUR AGENTS KNOW</span>
       <h1>Connections</h1>
-      <p>Bring your accounts. Keep your existing tools and permissions.</p>
     </div>
     <button class="button" @click="load">
       <RefreshCw :size="16" />Check connections
