@@ -60,6 +60,8 @@ process.stdin.on('end', () => {
     if (apparmor)
       execFileSync('sudo', ['apparmor_parser', '-r', path.resolve('deploy/leo-runner.apparmor')], { stdio: 'pipe' })
     docker('run', '-d', '--name', manager, '-v', `${root}:${root}`, '--entrypoint', 'node', image, '-e', 'setInterval(()=>{},1000)')
+    // Match production volume ownership even when the CI host user is UID 1001.
+    docker('exec', '--user', '0:0', manager, 'chown', '-R', '1000:1000', root)
     docker('run', '-d', '--name', broker, '--user', '0:0', '-v', `${root}:${root}:ro`, '-v', '/var/run/docker.sock:/var/run/docker.sock', '-p', '127.0.0.1::4311', '-e', `DATA_DIR=${root}/data`, '-e', `RUNNER_MANAGER_CONTAINER=${manager}`, '-e', `RUNNER_APPARMOR_PROFILE=${apparmor ? 'leo-agent-sandbox' : ''}`, '--entrypoint', 'node', image, '--import', 'tsx', '/app/server/runner-broker.ts')
     url = `http://${docker('port', broker, '4311/tcp')}`
     for (let attempt = 0; attempt < 50; attempt++) {
@@ -121,6 +123,10 @@ process.stdin.on('end', () => {
     process.stdout.write('Runner smoke passed: authentication, resource isolation, YOLO, read-only, real Codex sandbox, and cancellation.\n')
   }
   finally {
+    try {
+      docker('exec', '--user', '0:0', manager, 'chown', '-R', `${process.getuid()}:${process.getgid()}`, root)
+    }
+    catch { /* manager may not have started */ }
     for (const name of [...runs.map(id => `leo-run-${id}`), broker, manager]) {
       try {
         docker('rm', '-f', '-v', name)
