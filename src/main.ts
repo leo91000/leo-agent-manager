@@ -6,6 +6,7 @@ import '@fontsource-variable/manrope/wght.css'
 import './style.css'
 import './theme.css'
 import './focus.css'
+import './workspace-layout.css'
 
 const router = createRouter({
   history: createWebHistory(),

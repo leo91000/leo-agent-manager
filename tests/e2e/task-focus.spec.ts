@@ -32,6 +32,12 @@ test('keeps task selection across reloads and discards a previous run response',
     await page.getByRole('button', { name: 'Choose task' }).click()
     await page.getByRole('button', { name: /Weekly dependency review/ }).click()
     await expect(page.locator('.task-inbox-row.selected')).toContainText('Weekly dependency review')
+    await page.setViewportSize({ width: 390, height: 664 })
+    await page.getByRole('button', { name: 'Run now', exact: true }).click()
+    await page.getByRole('button', { name: 'Stop run', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.getByRole('dialog').getByRole('button', { name: 'Stop run', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
   }
   finally {
     release()

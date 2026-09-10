@@ -99,7 +99,7 @@ onBeforeUnmount(() => viewer.value?.close())
             </button>
           </div>
         </header>
-        <div ref="scroller" class="activity-scroll" @scroll="scrolled">
+        <div ref="scroller" class="activity-scroll" tabindex="0" role="region" aria-label="Activity output" @scroll="scrolled">
           <div class="activity-conversation">
             <div class="activity-intro">
               <span class="activity-avatar"><Zap :size="19" /></span><div><strong>{{ agent }}</strong></div>

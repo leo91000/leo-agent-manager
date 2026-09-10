@@ -123,7 +123,6 @@ h2 { font-weight: 700; }
 .task-focus-detail .activity-group-label small { font-size: 10px; }
 .task-focus-detail .activity-artifact { margin-left: 0; margin-right: 0; }
 .task-focus-detail .result-content { padding: 20px; }
-.task-focus-detail .activity-scroll { max-height: min(70dvh, 800px); }
 .unstarted-title { font-size: 23px; margin-bottom: 20px; overflow-wrap: anywhere; }
 .task-ready { display: grid; justify-items: center; gap: 18px; padding: 40px 15px; }
 .ready-mark { display: grid; place-items: center; width: 54px; height: 54px; border: 1px solid light-dark(#34334e, #817c9e); background: light-dark(#ffdf70, #e8c95e); color: #282537; box-shadow: 3px 3px 0 light-dark(#34334e, #080912); border-radius: 13px; transform: rotate(-7deg); }
@@ -204,7 +203,6 @@ h2 { font-weight: 700; }
   .auth-story { min-height: auto; }
   .auth-story h1 { font-size: 32px; }
 }
-.task-focus-detail .activity-scroll { height: auto; max-height: 65dvh; }
 .task-focus-detail .activity-intro { display: none; }
 .task-focus-detail .activity-message .markdown { font-size: 13px; line-height: 1.8; }
 @media (max-width: 640px) {

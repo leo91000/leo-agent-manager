@@ -28,7 +28,6 @@
 .operation-card .artifact-files li:last-child { border-bottom: 0; }
 .operation-card .artifact-files [data-change="read"] { background: light-dark(#edf4f8, var(--dark-blue-surface)); color: light-dark(#5a7f96, var(--dark-blue)); }
 .operation-card .activity-code { margin: 10px 0; }
-.operation-card .activity-code pre { max-height: 330px; }
 .operation-command-toggle { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 10px 0 3px; font-size: 10px; color: light-dark(#6f6d8d, var(--dark-muted)); cursor: pointer; }
 .operation-history { display: flex; align-items: flex-start; gap: 7px; font-size: 10px; color: light-dark(#7e7c9a, var(--dark-muted)); line-height: 1.7; margin: 12px 0 0; }
 .operation-history svg { flex-shrink: 0; margin-top: 2px; }
@@ -36,7 +35,7 @@
 .read-preview-tabs { display: flex; gap: 5px; padding: 6px 8px; background: light-dark(#f1f0f8, var(--dark-surface)); border-bottom: 1px solid light-dark(#dad9e7, var(--dark-border)); }
 .read-preview-tabs button { border: 0; border-radius: 5px; background: transparent; color: light-dark(#747292, var(--dark-muted)); padding: 6px 10px; font-size: 10px; cursor: pointer; }
 .read-preview-tabs button[aria-pressed="true"] { background: light-dark(#fff, var(--dark-raised)); box-shadow: 0 1px 3px light-dark(#37354c10, #00000010); color: light-dark(#434062, var(--dark-text)); }
-.read-preview-content { max-height: 380px; overflow: auto; padding: 15px; font-size: 12px; line-height: 1.8; scrollbar-width: thin; overflow-wrap: anywhere; }
+.read-preview-content { overflow: visible; padding: 15px; font-size: 12px; line-height: 1.8; scrollbar-width: thin; overflow-wrap: anywhere; }
 .read-preview-content .markdown h1 { font-size: 19px; }
 .read-preview-content .markdown h2 { font-size: 16px; }
 @media (max-width: 640px) {
@@ -49,7 +48,6 @@
   .operation-card .artifact-heading > .operation-description { font-size: 10px; }
   .operation-facts { margin: 0 12px 12px 53px; gap: 6px 10px; }
   .operation-card .artifact-body { padding: 4px 10px 10px; }
-  .operation-card .activity-code pre { max-height: 45dvh; }
   .operation-command-toggle, .read-preview-tabs button { min-height: 44px; }
 }
 .read-metadata > summary { cursor: pointer; color: light-dark(#726f91, var(--dark-muted)); font-size: 10px; padding-bottom: 10px; }

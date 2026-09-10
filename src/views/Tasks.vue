@@ -15,6 +15,7 @@ import {
   Play,
   Plus,
   Search,
+  Square,
   Trash2,
   Zap,
 } from '@lucide/vue'
@@ -24,12 +25,14 @@ import { api, date, notify, refresh, state } from '../api'
 import Empty from '../components/Empty.vue'
 import Modal from '../components/Modal.vue'
 import RunWorkspace from '../components/RunWorkspace.vue'
+import Status from '../components/Status.vue'
 import TaskEditor from '../components/TaskEditor.vue'
 
 const router = useRouter()
 const route = useRoute()
 const latestRuns = ref<RunListItem[]>([])
 const choosing = ref(false)
+const runWorkspace = ref<InstanceType<typeof RunWorkspace>>()
 const searching = ref(false)
 const searchInput = ref<HTMLInputElement>()
 async function toggleSearch() {
@@ -219,7 +222,12 @@ watch(() => route.query.new, (value) => {
   <div v-if="tasks.length" class="task-focus-layout">
     <section class="task-inbox" :class="{ choosing }" aria-label="Task list">
       <header>
-        <h2>Tasks <small>{{ tasks.length }}</small></h2><button class="icon-button" aria-label="Search tasks" :aria-expanded="searching" @click="toggleSearch">
+        <div class="task-inbox-title">
+          <h2 class="task-inbox-heading">
+            Tasks <small>{{ tasks.length }}</small>
+          </h2>
+          <span v-if="selected" class="task-inbox-selection" :title="selected.name"><strong>{{ selected.name }}</strong><Status v-if="selectedRun" :status="selectedRun.status" /></span>
+        </div><button class="icon-button" aria-label="Search tasks" :aria-expanded="searching" @click="toggleSearch">
           <Search :size="16" />
         </button><button class="icon-button choose-task" :aria-expanded="choosing" aria-controls="task-inbox-items" aria-label="Choose task" @click="choosing = !choosing">
           <ChevronDown :size="18" />
@@ -236,8 +244,13 @@ watch(() => route.query.new, (value) => {
     </section>
     <section v-if="selected" class="task-focus-detail task-card" :class="{ 'has-run': selectedRun }" aria-label="Selected task">
       <header class="task-focus-actions">
+        <span v-if="selected.cron" class="focus-schedule">
+          <Clock :size="13" />{{ selected.enabled ? `Next: ${date(selected.nextRun)}` : 'Schedule paused' }}
+        </span>
         <span v-if="!selectedRun" class="task-agent-label"><Bot :size="16" />{{ state.agents.find(agent => agent.id === selected.agentId)?.name || 'Deleted agent' }}</span><button v-if="!['running', 'queued'].includes(selectedRun?.status || '')" class="button small primary" :disabled="busy === selected.id || selected.archived" @click="run(selected)">
           <Play :size="14" />{{ busy === selected.id ? 'Starting…' : 'Run now' }}
+        </button><button v-else-if="selectedRun && ['running', 'queued'].includes(selectedRun.status)" class="button small danger-outline" :disabled="!runWorkspace?.canStop" @click="runWorkspace?.requestStop()">
+          <Square :size="14" />Stop run
         </button><RouterLink v-if="selectedRun" :to="`/runs/${selectedRun.id}`" class="icon-button" aria-label="Open run">
           <ArrowUpRight :size="17" />
         </RouterLink><details class="task-action-menu" @click="closeMenu">
@@ -258,10 +271,7 @@ watch(() => route.query.new, (value) => {
           </div>
         </details>
       </header>
-      <div v-if="selected.cron" class="focus-schedule">
-        <Clock :size="13" />{{ selected.enabled ? `Next: ${date(selected.nextRun)}` : 'Schedule paused' }}
-      </div>
-      <RunWorkspace v-if="selectedRun" :key="selectedRun.id" :run-id="selectedRun.id" embedded @run="loadActivity" />
+      <RunWorkspace v-if="selectedRun" :key="selectedRun.id" ref="runWorkspace" :run-id="selectedRun.id" embedded @run="loadActivity" />
       <template v-else>
         <h2 class="unstarted-title">
           {{ selected.name }}

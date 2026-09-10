@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -58,3 +59,20 @@ export const test = base.extend<object, { workspace: Workspace }>({
   baseURL: async ({ workspace }, use) => use(workspace.url),
 })
 export { expect } from '@playwright/test'
+
+export async function expectSingleScroll(page: Page) {
+  const report = await page.evaluate(() => {
+    const scrolls = (element: Element) => element.clientHeight > 0 && element.scrollHeight > element.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(element).overflowY)
+    const nested: string[] = []
+    for (const element of document.querySelectorAll('*')) {
+      if (element.matches('textarea') || element.closest('.vs-popup, .theme-popover') || !scrolls(element))
+        continue
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        if (scrolls(parent))
+          nested.push(`${element.className} inside ${parent.className}`)
+      }
+    }
+    return { root: document.documentElement.scrollHeight - innerHeight, horizontal: document.documentElement.scrollWidth - innerWidth, nested }
+  })
+  expect(report).toEqual({ root: 0, horizontal: 0, nested: [] })
+}

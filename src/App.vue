@@ -325,7 +325,7 @@ async function logout() {
           </button><ThemeControl compact />
         </div>
       </header>
-      <main class="page">
+      <main class="page" :class="{ 'page-tasks': route.path === '/tasks', 'page-run': route.path.startsWith('/runs/') }">
         <RouterView :key="route.path" />
       </main>
       <nav v-if="!mobile" class="mobile-bottom-nav" aria-label="Quick navigation">

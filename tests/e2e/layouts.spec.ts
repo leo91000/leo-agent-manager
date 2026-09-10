@@ -1,5 +1,5 @@
 import type { Page, TestInfo } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { expect, expectSingleScroll, test } from './fixtures'
 
 async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: 'light' | 'dark' = 'light') {
   await page.emulateMedia({ colorScheme })
@@ -19,7 +19,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
     if (await menu.isVisible())
       await menu.click()
     await page.locator(`.sidebar a[href="${destination}"]`).last().click()
-    const headings: Record<string, string> = { '/tasks': 'Tasks', '/runs': 'Run history', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills library', '/connections': 'Connections', '/settings': 'Settings' }
+    const headings: Record<string, string> = { '/tasks': 'Tasks', '/runs': 'Run history', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills library', '/connections': 'Connections', '/settings': 'Settings', '/mcps': 'MCPs' }
     if (headings[destination])
       await expect(page.getByRole('heading', { name: headings[destination], exact: true })).toBeVisible()
     if (url.startsWith('/runs/')) {
@@ -29,6 +29,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
   }
   async function fits() {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
+    await expectSingleScroll(page)
   }
   async function screenshot(name: string) {
     await page.evaluate(() => document.fonts.ready)
@@ -52,6 +53,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
     ['skills', '/skills', '.skill-card'],
     ['connections', '/connections', '.connection-card'],
     ['settings', '/settings', '.settings-section'],
+    ['mcps', '/mcps', '.page-heading'],
     ['result', `/runs/${run.id}`, '.run-panel'],
   ]
   for (const viewport of [...(colorScheme === 'dark' ? [{ width: 1440, height: 1000 }] : []), { width: 320, height: 568 }, { width: 390, height: 664 }, { width: 430, height: 932 }, { width: 844, height: 390 }]) {
@@ -73,6 +75,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
     }
     await page.getByRole('button', { name: /^Activity/ }).click()
     await expect(page.locator('.activity-group').first()).toBeAttached()
+    expect((await page.locator('.activity-scroll').boundingBox())!.height).toBeGreaterThan(65)
     const head = await page.locator('.run-panel-head').boundingBox()
     const actions = await page.locator('.activity-toolbar').boundingBox()
     expect(actions!.y).toBeGreaterThanOrEqual(head!.y + head!.height)

@@ -1,5 +1,5 @@
 import { mcpProvider } from '../mcp-provider'
-import { expect, test } from './fixtures'
+import { expect, expectSingleScroll, test } from './fixtures'
 
 test('manages MCP connections, OAuth consent, tools and agent access on desktop and mobile', async ({ page }, testInfo) => {
   const provider = await mcpProvider()
@@ -22,6 +22,7 @@ test('manages MCP connections, OAuth consent, tools and agent access on desktop 
       for (const width of [1440, 320, 390]) {
         await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
+        await expectSingleScroll(page)
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-oauth-editor.png`), animations: 'disabled' })
       }
     }
