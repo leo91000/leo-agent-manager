@@ -34,7 +34,7 @@ describe('durable conversation recovery', () => {
   })
   const waitForWork = async (id: string) => {
     await expect.poll(async () => readFile(path.join(ctx.service.store.run(id)?.workspace ?? ctx.projectPath, 'restart-work.txt'), 'utf8').catch(() => ''), { timeout: 10000 }).toBe('preserved before restart')
-    expect(ctx.service.store.run(id)?.sessionId).toBe('fixture-session')
+    await expect.poll(() => ctx.service.store.run(id)?.sessionId, { timeout: 10000 }).toBe('fixture-session')
   }
   const restart = async () => {
     const worker = new Worker(ctx.service)
