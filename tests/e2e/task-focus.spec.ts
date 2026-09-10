@@ -1,4 +1,44 @@
-import { expect, test } from './fixtures'
+import { expect, expectSingleScroll, test } from './fixtures'
+
+test('reconnects after a temporary restart and resumes a cancelled conversation in place', async ({ page, workspace }) => {
+  const agent = workspace.service.agent({ name: 'Recovery engineer' })
+  const project = workspace.service.store.list('projects')[0]
+  const task = workspace.service.task({ name: 'Recover a deployment review', agentId: agent.id, projectId: project.id, prompt: 'fixture:restart', worktree: false })
+  const run = await workspace.service.enqueue(task.id)
+  await expect.poll(() => workspace.service.store.run(run.id)?.sessionId).toBe('fixture-session')
+  await page.goto('/')
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.task-focus-detail')).toBeVisible()
+  let available = false
+  await page.route(`**/api/runs/${run.id}`, async (route) => {
+    if (available)
+      await route.continue()
+    else await route.fulfill({ status: 503, json: { error: 'Worker is restarting' } })
+  })
+  await page.goto(`/runs/${run.id}`)
+  await expect(page.getByText('Worker is restarting', { exact: true })).toBeVisible()
+  available = true
+  await expect(page.getByRole('heading', { name: task.name })).toBeVisible()
+  await expect(page.getByText('Worker is restarting', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Stop run', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Stop run', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(page.locator('.sidebar')).not.toBeInViewport()
+  await expectSingleScroll(page)
+  await page.screenshot({ animations: 'disabled', path: test.info().outputPath('resume-mobile-dark.png') })
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeInViewport()
+  await page.getByRole('button', { name: 'Resume', exact: true }).click()
+  await expect.poll(() => workspace.service.store.run(run.id)?.status).toBe('succeeded')
+  await page.getByRole('button', { name: 'Result', exact: true }).click()
+  await expect(page.getByText('The saved conversation and work survived the restart.', { exact: true })).toBeVisible()
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.screenshot({ animations: 'disabled', path: test.info().outputPath('resumed-desktop-light.png') })
+  expect(workspace.service.store.runs().filter(item => item.taskId === task.id)).toHaveLength(1)
+})
 
 test('keeps task selection across reloads and discards a previous run response', async ({ page }) => {
   await page.goto('/')

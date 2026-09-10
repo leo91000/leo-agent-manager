@@ -71,7 +71,7 @@ onMounted(async () => {
   if (active.value)
     tab.value = 'events'
   timer = setInterval(() => {
-    if (active.value && !document.hidden)
+    if ((active.value || error.value) && !document.hidden)
       load()
   }, 1500)
 })
@@ -89,6 +89,15 @@ async function cancel() {
   catch (e) {
     error.value = (e as Error).message
   }
+}
+async function resume() {
+  try {
+    await api(`/runs/${run.value!.id}/resume`, { method: 'POST' })
+    tab.value = 'events'
+    notify('Resuming saved conversation')
+    await load()
+  }
+  catch (e) { error.value = (e as Error).message }
 }
 async function retry() {
   try {
@@ -132,9 +141,15 @@ async function copy() {
       </RouterLink>
       <UiButton v-if="run && active" variant="danger-outline" @click="confirm = true">
         <Icon :name="Square" :size="15" />Stop run
-      </UiButton><UiButton v-else-if="run" @click="retry">
-        <Icon :name="RotateCw" :size="16" />Run again
       </UiButton>
+      <div v-else-if="run" class="flex flex-wrap justify-end gap-2">
+        <UiButton size="small" @click="retry">
+          Run again
+        </UiButton>
+        <UiButton v-if="run.resumeAvailable" size="small" variant="primary" @click="resume">
+          <Icon :name="RotateCw" :size="16" />Resume
+        </UiButton>
+      </div>
     </div>
     <UiAlert v-if="error">
       {{ error }}
@@ -154,6 +169,9 @@ async function copy() {
       <p v-if="run.accountWaitReason" role="status" class="mb-3 shrink-0 text-sm text-warning">
         {{ run.accountWaitReason }}
       </p>
+      <UiButton v-if="embedded && run.resumeAvailable && !active" class="mb-3 self-start" size="small" @click="resume">
+        Resume conversation
+      </UiButton>
       <section class="panel run-panel flex flex-1 min-h-0 flex-col overflow-hidden rounded-card border border-line bg-surface">
         <header class="run-panel-head flex shrink-0 items-center justify-between border-b border-line p-[7px] phone:p-[5px]">
           <UiSegments v-model="tab" label="Run view" :options="[{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Task brief' }]" />

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deviceDetails } from '../server/connections.ts'
-import { codexArgs, redact, redactPayload } from '../server/worker.ts'
+import { codexArgs, redact, redactPayload, Worker } from '../server/worker.ts'
 import { fixture } from './helpers.ts'
 import { mcpProvider } from './mcp-provider.ts'
 
@@ -122,8 +122,8 @@ describe('real worker subprocess lifecycle', () => {
     expect(result.status).toBe('failed')
     expect(result.summary).toContain('time limit')
     const next = await ctx.service.enqueue(ctx.task.id)
-    ctx.service.store.updateRun(next.id, { status: 'running' })
-    ctx.worker.start()
+    ctx.service.store.updateRun(next.id, { status: 'running', startedAt: Date.now() })
+    new Worker(ctx.service).initialize()
     expect(ctx.service.store.run(next.id)?.status).toBe('interrupted')
     expect(ctx.service.store.active()).toHaveLength(0)
   })

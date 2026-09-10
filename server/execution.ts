@@ -40,13 +40,13 @@ async function copyTree(source: string, target: string) {
   }
   await cp(source, target, { recursive: true, dereference: false })
 }
-export async function prepareExecution(run: Run, config: Config, githubToken?: string, codexHome?: string) {
+export async function prepareExecution(run: Run, config: Config, githubToken?: string, codexHome?: string, generation?: string) {
   const directory = path.join(config.dataDir, 'runs', run.id)
   const isIsolated = isolated(run.snapshot.agent)
   const accessPolicy = policy(run.snapshot.agent)
   if (isIsolated && !config.runnerUrl)
     throw new AppError(503, 'Isolated runner is not configured. This agent will not fall back to shared execution.')
-  const root = path.join(directory, 'workspace')
+  const root = path.join(directory, generation ? `workspace-${generation}` : 'workspace')
   await mkdir(root, { recursive: true, mode: 0o700 })
   const projects = runProjects(run)
   const workspaces: NonNullable<Run['workspaces']> = []
@@ -79,7 +79,7 @@ export async function prepareExecution(run: Run, config: Config, githubToken?: s
         kind = 'worktree'
         if (target === root)
           await import('node:fs/promises').then(fs => fs.rmdir(root))
-        await exec('git', ['-C', source, 'worktree', 'add', '-b', `feat/run-${run.id.slice(0, 8)}-${project.id.slice(0, 8)}`, target, project.baseBranch], { timeout: 30000, maxBuffer: 100000 })
+        await exec('git', ['-C', source, 'worktree', 'add', '-b', `feat/run-${run.id.slice(0, 8)}-${project.id.slice(0, 8)}${generation ? `-${generation}` : ''}`, target, project.baseBranch], { timeout: 30000, maxBuffer: 100000 })
       }
     }
     workspaces.push({ projectId: project.id, path: target, kind })
@@ -100,16 +100,7 @@ export async function prepareExecution(run: Run, config: Config, githubToken?: s
   })
   await copyFile(await realpath(auth), path.join(home, '.codex', 'auth.json'))
   await writeFile(path.join(home, '.codex', 'config.toml'), 'cli_auth_credentials_store = "file"\n', { mode: 0o600 })
-  // Share only the explicitly enabled GitHub connection, never the entire user home.
-  if (accessPolicy.github) {
-    const github = path.join(config.home, '.config', 'gh')
-    if (await access(github).then(() => true).catch(() => false))
-      await cp(github, path.join(home, '.config', 'gh'), { recursive: true })
-  }
-  if (githubToken && !accessPolicy.github) {
-    await mkdir(path.join(home, '.config', 'gh'), { recursive: true })
-    await writeFile(path.join(home, '.config', 'gh', 'hosts.yml'), YAML.stringify({ 'github.com': { oauth_token: githubToken, git_protocol: 'https' } }), { mode: 0o600 })
-  }
+  await prepareGithubHome(home, config, accessPolicy.github, githubToken)
   const gitConfig = path.join(home, '.gitconfig')
   await exec('git', ['config', '--file', gitConfig, 'user.name', run.snapshot.agent.name])
   await exec('git', ['config', '--file', gitConfig, 'user.email', 'agent@localhost'])
@@ -154,5 +145,44 @@ export async function prepareCodexHome(config: Config, home: string) {
       if (error.code !== 'EEXIST')
         throw error
     })
+  }
+}
+
+export async function restoreExecution(run: Run, prepared: Awaited<ReturnType<typeof prepareExecution>>, config: Config, githubToken?: string) {
+  if (prepared.isolated !== isolated(run.snapshot.agent))
+    throw new AppError(409, 'Execution isolation changed; this run cannot be resumed.')
+  if (prepared.isolated && !config.runnerUrl)
+    throw new AppError(503, 'The isolated runner is not configured.')
+  for (const project of runProjects(run)) {
+    if (await workspaceDirectory(project.path, config.workspaceRoots) !== project.path)
+      throw new AppError(409, 'A project moved outside its permitted location.')
+  }
+  const root = path.join(config.dataDir, 'runs', run.id)
+  const allowed = [root, ...prepared.workspaces.filter(workspace => workspace.kind === 'direct').map(workspace => requireProject(run, workspace.projectId))]
+  for (const source of new Set([prepared.cwd, path.dirname(prepared.output), ...prepared.workspaces.map(workspace => workspace.path), ...prepared.mounts.map(mount => mount.source)])) {
+    if (await workspaceDirectory(source, allowed) !== source)
+      throw new AppError(409, 'A saved workspace changed location. Working files were preserved.')
+  }
+  if (prepared.isolated)
+    await prepareGithubHome(path.join(root, 'home'), config, policy(run.snapshot.agent).github, githubToken)
+  return prepared
+}
+function requireProject(run: Run, id: string) {
+  const project = runProjects(run).find(project => project.id === id)
+  if (!project)
+    throw new AppError(409, 'A saved workspace is no longer in the agent’s project scope.')
+  return project.path
+}
+
+async function prepareGithubHome(home: string, config: Config, shared: boolean, githubToken?: string) {
+  // Share only the explicitly enabled GitHub connection, never the entire user home.
+  if (shared) {
+    const github = path.join(config.home, '.config', 'gh')
+    if (await access(github).then(() => true).catch(() => false))
+      await cp(github, path.join(home, '.config', 'gh'), { recursive: true })
+  }
+  if (githubToken && !shared) {
+    await mkdir(path.join(home, '.config', 'gh'), { recursive: true })
+    await writeFile(path.join(home, '.config', 'gh', 'hosts.yml'), YAML.stringify({ 'github.com': { oauth_token: githubToken, git_protocol: 'https' } }), { mode: 0o600 })
   }
 }

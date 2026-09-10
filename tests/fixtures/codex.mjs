@@ -21,6 +21,15 @@ async function main() {
       const authPath = path.join(process.env.CODEX_HOME, 'auth.json')
       const auth = existsSync(authPath) ? JSON.parse(readFileSync(authPath, 'utf8')) : null
       const id = auth?.tokens.account_id ?? 'fixture'
+      const conversation = path.join(process.env.CODEX_HOME, 'fixture-conversation.json')
+      if (request.method === 'thread/read' || request.method === 'thread/list') {
+        if (!existsSync(conversation)) {
+          process.stdout.write(`${JSON.stringify({ id: request.id, error: { code: -32000, message: 'Session missing' } })}\n`)
+          continue
+        }
+        const thread = JSON.parse(readFileSync(conversation, 'utf8'))
+        result = request.method === 'thread/read' ? { thread } : { data: [thread] }
+      }
       if (request.method === 'account/read')
         result = { account: auth ? { type: 'chatgpt', email: `${id}@example.test`, planType: 'plus' } : null }
       if (request.method === 'account/rateLimits/read')
@@ -48,7 +57,26 @@ async function main() {
     let prompt = ''
     for await (const chunk of process.stdin) prompt += chunk
     const emit = value => process.stdout.write(`${JSON.stringify(value)}\n`)
+    mkdirSync(process.env.CODEX_HOME, { recursive: true })
+    const conversation = path.join(process.env.CODEX_HOME, 'fixture-conversation.json')
+    if (!args.includes('resume'))
+      writeFileSync(conversation, JSON.stringify({ id: 'fixture-session', cwd: process.cwd(), parentThreadId: null }))
     emit({ type: 'thread.started', thread_id: 'fixture-session' })
+    const restartMarker = path.join(process.env.CODEX_HOME, 'fixture-restart.json')
+    if (prompt.includes('fixture:restart') && !args.includes('resume')) {
+      writeFileSync(restartMarker, JSON.stringify({ cwd: process.cwd() }))
+      writeFileSync(path.join(process.cwd(), 'restart-work.txt'), 'preserved before restart')
+      setInterval(emit, 100, { type: 'progress', item: { text: 'Waiting for restart' } })
+      return
+    }
+    if (args.includes('resume') && existsSync(restartMarker)) {
+      const previous = JSON.parse(readFileSync(restartMarker, 'utf8'))
+      if (previous.cwd !== process.cwd() || readFileSync(path.join(process.cwd(), 'restart-work.txt'), 'utf8') !== 'preserved before restart')
+        throw new Error('Restart lost workspace')
+      writeFileSync(args[args.indexOf('--output-last-message') + 1], '# Resumed\nThe saved conversation and work survived the restart.')
+      emit({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } })
+      return
+    }
     const marker = path.join(process.env.CODEX_HOME, 'fixture-resume.json')
     if (prompt.includes('fixture:exhaust')) {
       mkdirSync(process.env.CODEX_HOME, { recursive: true })

@@ -12,7 +12,7 @@ Usage-window resets happen on OpenAI's side. The worker observes them automatica
 
 If Codex exits with a subscription usage-limit error and a saved session ID, the worker releases the exhausted account and resumes the same conversation with the next available account. It preserves the working directories, changes, agent policy, MCP scope, and original run timeout. It tells the resumed agent to verify external effects before repeating an action. This continues the task, but cannot guarantee that a model will never repeat a side effect. Ordinary command failures, authentication errors, and temporary HTTP throttling do not trigger account switching.
 
-If every account is unavailable, the run waits for capacity while retaining its project lock. It stays cancellable, and the original timeout still applies. Account recovery is confirmed by fresh window usage or the backend clearing its explicit usage block. Interrupted runs after a worker restart still require an explicit retry; this feature does not change crash recovery policy. A failure without a saved Codex session cannot be resumed automatically.
+If every account is unavailable, the run waits for capacity while retaining its project lock. It stays cancellable, and the original timeout still applies. Account recovery is confirmed by fresh window usage or the backend clearing its explicit usage block. After a worker restart, active runs resume with a freshly selected available account and their retained conversation. Recovery first stops the previous process/container before recovering rotated credentials. A failure without available saved Codex history cannot be resumed automatically. See [restart recovery](RESTART-RECOVERY.md).
 
 ## Credentials and configuration
 

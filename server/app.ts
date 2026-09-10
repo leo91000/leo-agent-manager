@@ -249,6 +249,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
     worker.cancel(request.params.id)
     return { ok: true }
   })
+  app.post<{ Params: { id: string } }>('/api/runs/:id/resume', request => worker.resume(request.params.id))
   app.post<{ Params: { id: string } }>('/api/runs/:id/retry', request =>
     service.enqueue(requireValue(store.run(request.params.id)).taskId, 'retry'))
   app.post<{ Params: { id: string } }>('/api/runs/:id/cleanup', request =>
@@ -493,15 +494,17 @@ export async function buildApp(overrides: Partial<Config> = {}) {
       return reply.code(404).send({ error: 'Not found' })
     })
   }
+  app.addHook('preClose', async () => {
+    await worker.close()
+  })
   app.addHook('onClose', async () => {
     connections.cancel()
-    await worker.close()
     await service.accounts.close()
     store.close()
   })
   if (config.workerEnabled) {
-    service.accounts.start()
     worker.start()
+    service.accounts.start()
   }
   return { app, service, worker, auth, connections }
 }

@@ -103,8 +103,9 @@ responsible for project tests and releases requested by an agent.
 - Paginated run history and incremental log polling; readable event timeline,
   final answer, duration, trigger, workspace, and task/settings snapshot.
 - Cancel queued/running work, terminate process groups with bounded escalation,
-  enforce timeouts, explicitly retry failed work, preserve interrupted state on
-  restart. No automatic repetition of potentially completed external mutations.
+  enforce timeouts and resume checkpointed conversations after worker restart.
+  Preserve cancelled state and require explicit resumption of failed or cancelled work.
+  Resume instructions require checking external effects before repeating actions.
 - Bounded output/event size and retention prevent a verbose child from exhausting
   memory or storage. Store summaries separately from event pages.
 - Acceptance: real fixture subprocesses exercise streaming, malformed JSON,

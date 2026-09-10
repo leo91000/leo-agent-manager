@@ -6,6 +6,7 @@ import http from 'node:http'
 import path from 'node:path'
 import process from 'node:process'
 import { dockerJson, dockerOutput, dockerRequest } from './docker.ts'
+import { RunnerLifecycle } from './runner-lifecycle.ts'
 import sandboxSeccomp from './runner-seccomp.json' with { type: 'json' }
 
 const label = 'leo.agent-run'
@@ -59,9 +60,13 @@ async function createRun(id: string) {
   await dockerJson('POST', `/containers/${containerName(id)}/start`)
 }
 async function removeRun(id: string) {
-  await dockerJson('DELETE', `/containers/${containerName(id)}?force=true&v=true`).catch(() => {})
+  await dockerJson('DELETE', `/containers/${containerName(id)}?force=true&v=true`).catch((error) => {
+    if (error.statusCode !== 404)
+      throw error
+  })
 }
 async function main() {
+  const lifecycle = new RunnerLifecycle(path.join(dataDirectory, 'runner-stops'), createRun, removeRun)
   const server = http.createServer(async (request, response) => {
     try {
       if (request.url === '/health') {
@@ -81,11 +86,11 @@ async function main() {
       }
       const [, id, action] = match
       if (request.method === 'POST' && !action) {
-        await createRun(id)
+        await lifecycle.start(id)
         response.end('{}')
       }
       else if (request.method === 'DELETE' && !action) {
-        await removeRun(id)
+        await lifecycle.stop(id)
         response.end('{}')
       }
       else if (request.method === 'GET' && action === 'logs') {

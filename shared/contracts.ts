@@ -68,6 +68,10 @@ export type Task = z.infer<typeof taskInput> & {
 export type RunStatus
   = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
 export interface Run {
+  recoveryPending?: boolean
+  resumeAvailable?: boolean
+  resumeCount?: number
+  cancelRequestedAt?: number | null
   codexAccountId?: string | null
   codexAccountName?: string | null
   accountWaitReason?: string | null

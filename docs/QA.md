@@ -18,7 +18,7 @@ mobile layout/navigation passes in Chromium and WebKit.
 | Immutable snapshots, concurrent enqueue, task reference protection, sanitized Git origin metadata | `tests/service.test.ts` |
 | Cron validation, pause, catch-up once, overlap, spring/autumn DST | `tests/service.test.ts` |
 | Actual global/project skill files, frontmatter validation, nested supporting files, traversal and symlink escapes | `tests/service.test.ts` |
-| Actual subprocess output, malformed JSON, usage/session capture, redaction, failures, cancellation, timeout, restart interruption | `tests/worker.test.ts` |
+| Actual subprocess output, malformed JSON, usage/session capture, redaction, failures, cancellation, timeout, legacy restart interruption | `tests/worker.test.ts` |
 | Project execution serialization, isolated Git worktree, dirty primary preservation, guarded cleanup | `tests/worker.test.ts` |
 | Device-code parsing and process completion | `tests/worker.test.ts` |
 | Official MCP v2 client over TCP, independent requests, no session ID, tools, scopes, stateless 2025-06-18/2025-11-25 compatibility, revoked access | `tests/mcp.test.ts` |
@@ -224,3 +224,5 @@ The latest remote result is available in the repository's Actions tab.
 Live ChatGPT/Claude linking, marketplace listing, and Coolify deployment require the
 final reachable deployment/account configuration and are not established by local
 SDK/browser tests. Platform submission requirements are documented in [MCP.md](MCP.md).
+
+Restart recovery is covered by `tests/restart.test.ts` (real SIGTERM/SIGKILL process loss, session retention/discovery, cancellation, timeout, policy changes, account selection, runner fencing) and `tests/runner-lifecycle.test.ts` (in-flight/delayed container starts). `tests/e2e/task-focus.spec.ts` checks automatic browser reconnection and manual conversation resume, with mobile dark and desktop light screenshots.

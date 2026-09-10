@@ -171,7 +171,7 @@ cleanup refuses changes, including ignored/untracked files, and keeps Git branch
 - **Unexpected host/origin:** correct `PUBLIC_URL`, proxy Host preservation, and the browser URL.
 - **Project outside workspace root:** use a directory under `WORKSPACE_ROOTS` (colon-separated on Linux), then register its canonical path.
 - **Worktree preparation failed:** check that the project is a Git repository and the configured local base branch exists.
-- **Interrupted:** inspect existing files and external PR/release effects before retrying; runs are not silently replayed.
+- **Recovering:** active conversations resume after the previous process/container stops. If the runner is unavailable, recovery waits and retains project/account locks. **Interrupted:** older runs without a checkpoint need review and an explicit retry. See [restart recovery](RESTART-RECOVERY.md).
 - **No CLI installed/signed in:** use Connections and the commands above; provider account credentials are separate from the manager password.
 - **MCP rejects initialization:** verify the client uses Streamable HTTP and the deployed image includes stateless compatibility. Both 2026-07-28 and older 2025 clients are supported; standalone HTTP+SSE and stateful sessions are not.
 - **Lost administrator password:** restore a known backup or stop the service and remove only the `admin` and `session:*` keys from SQLite through a trusted server terminal, then restart and repeat bootstrap. OAuth grants remain unless separately revoked; preserve a backup first.

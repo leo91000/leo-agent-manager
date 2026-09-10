@@ -88,7 +88,7 @@ and is absent from the production image.
 
 - Run **one application process per data volume**. SQLite persists the queue and sessions.
 - One active run per task, one executing run per project, and 1–4 global workers.
-- After downtime, schedules catch up once. Interrupted runs require an explicit retry.
+- After downtime, schedules catch up once. Active conversations resume automatically with their saved workspace and remaining timeout. Explicitly stopped runs stay stopped and can be resumed from the run view. See [restart recovery](docs/RESTART-RECOVERY.md).
 - Retry uses the task's current configuration; the previous run's snapshot stays intact.
 - Worktrees preserve changes for review. Cleanup rejects dirty/untracked files and preserves Git branches.
 - Event output is bounded per run and expires after 30 days for finished runs; audit entries expire after 90 days. Run summaries and worktrees remain until deliberately managed.

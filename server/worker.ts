@@ -4,15 +4,17 @@ import type { AccountLease } from './codex-accounts.ts'
 import type { Service } from './service.ts'
 import { Buffer } from 'node:buffer'
 import { execFile, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { mkdir, open, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { AppError, requireValue } from './errors.ts'
-import { prepareCodexHome, prepareExecution, runnerSecret } from './execution.ts'
+import { prepareCodexHome, prepareExecution, restoreExecution, runnerSecret } from './execution.ts'
 import { maintenanceActive } from './maintenance.ts'
 import { policy, runProjects } from './policy.ts'
+import { processIdentity, RunRecovery } from './run-recovery.ts'
 import { toolkitEnvironment } from './toolkit.ts'
 
 const exec = promisify(execFile)
@@ -94,30 +96,35 @@ export class Worker {
   executions = new Set<Promise<void>>()
   active = new Map<
     string,
-    { child: ChildProcess | null, cancelled: boolean, timedOut: boolean }
+    { child: ChildProcess | null, cancelled: boolean, timedOut: boolean, stopping: boolean }
   >()
 
   timer: NodeJS.Timeout | undefined
   busy = false
   closing = false
   lastMaintenance = 0
-  constructor(public service: Service) {}
-  start() {
+  readonly recovery: RunRecovery
+  private initialized = false
+  constructor(public service: Service) { this.recovery = new RunRecovery(service.store, service.config) }
+  initialize() {
+    if (this.initialized)
+      return
+    this.initialized = true
     for (const run of this.service.store.active()) {
-      if (run.status === 'running') {
-        this.service.store.updateRun(run.id, {
-          status: 'interrupted',
-          finishedAt: Date.now(),
-          summary:
-            'The worker restarted. Review external effects before retrying.',
-        })
-        this.service.store.event(
-          run.id,
-          'status',
-          'Interrupted by worker restart',
-        )
+      if (run.status !== 'running')
+        continue
+      const checkpoint = this.recovery.get(run.id)
+      if (!checkpoint && run.startedAt) {
+        this.service.store.updateRun(run.id, { status: 'interrupted', finishedAt: Date.now(), summary: 'This older run has no restart checkpoint. Review its working files before retrying.' })
+        continue
       }
+      this.service.store.updateRun(run.id, { status: 'queued', recoveryPending: true, finishedAt: null, accountWaitReason: 'Recovering after worker restart.' })
+      this.service.store.event(run.id, 'status', 'Recovering after worker restart')
     }
+  }
+
+  start() {
+    this.initialize()
     this.timer = setInterval(() => void this.tick(), 1000)
     this.timer.unref()
     void this.tick()
@@ -127,6 +134,7 @@ export class Worker {
     if (this.busy || this.closing)
       return
     this.busy = true
+    this.initialize()
     try {
       if (Date.now() - this.lastMaintenance > 3600000) {
         this.service.store.maintain()
@@ -145,6 +153,37 @@ export class Worker {
           break
         if (run.status !== 'queued' || runProjects(run).some(project => projects.has(project.id)))
           continue
+        // Saved conversations retain their project lock while waiting for recovery or an account.
+        if (run.recoveryPending || this.recovery.get(run.id)?.launched) {
+          for (const project of runProjects(run)) projects.add(project.id)
+        }
+        if (run.recoveryPending) {
+          try {
+            await this.recovery.fence(run)
+            this.service.mcps.revokeRun(run.id)
+            await this.service.accounts.recoverRun(run)
+            this.service.store.updateRun(run.id, { recoveryPending: false })
+            if (this.service.store.run(run.id)?.cancelRequestedAt) {
+              this.service.store.updateRun(run.id, { status: 'cancelled', finishedAt: Date.now(), accountWaitReason: null })
+              continue
+            }
+            const checkpoint = this.recovery.get(run.id)
+            if (checkpoint?.settled) {
+              this.service.store.updateRun(run.id, { ...checkpoint.settled, accountWaitReason: null })
+              continue
+            }
+            if (checkpoint?.completed) {
+              this.service.store.updateRun(run.id, { status: 'succeeded', finishedAt: Date.now(), resumeAvailable: false, accountWaitReason: null, summary: checkpoint.lastMessage || 'Conversation completed before worker restart. See Activity for the recorded result.' })
+              continue
+            }
+          }
+          catch {
+            const message = 'Waiting for the previous execution to stop before recovery.'
+            if (run.accountWaitReason !== message)
+              this.service.store.updateRun(run.id, { accountWaitReason: message })
+            continue
+          }
+        }
         let account: AccountLease | null
         try {
           account = await this.service.accounts.acquire(run.id, run.snapshot.agent.model)
@@ -168,6 +207,7 @@ export class Worker {
           child: null,
           cancelled: false,
           timedOut: false,
+          stopping: false,
         })
         const execution = this.execute(run, account)
         this.executions.add(execution)
@@ -188,11 +228,18 @@ export class Worker {
     const { store, config } = this.service
     const control = this.active.get(run.id)!
     let timeout: NodeJS.Timeout | undefined
+    let heartbeat: NodeJS.Timeout | undefined
     let sensitive: string[] = []
-    const deadline = Date.now() + run.snapshot.agent.timeoutMinutes * 60000
+    const saved = this.recovery.get(run.id)
+    const checkpoint = saved ?? { launched: false, remainingMs: run.snapshot.agent.timeoutMinutes * 60000 }
+    const deadline = Date.now() + checkpoint.remainingMs
+    const checkpointBudget = () => {
+      checkpoint.remainingMs = Math.max(0, deadline - Date.now())
+      this.recovery.save(run.id, checkpoint)
+    }
     const sanitize = (text: string) => sensitive.reduce((value, secret) => value.replaceAll(secret, '[redacted]'), redact(text))
     try {
-      store.updateRun(run.id, { status: 'running', startedAt: Date.now(), accountWaitReason: null, codexAccountId: account?.accountId ?? null, codexAccountName: account ? this.service.accounts.get(account.accountId).name : null })
+      store.updateRun(run.id, { status: 'running', startedAt: run.startedAt ?? Date.now(), finishedAt: null, accountWaitReason: null, codexAccountId: account?.accountId ?? null, codexAccountName: account ? this.service.accounts.get(account.accountId).name : null })
       if (account)
         store.event(run.id, 'status', `Using Codex account: ${this.service.accounts.get(account.accountId).name}`)
       store.event(run.id, 'status', 'Preparing workspace')
@@ -201,19 +248,30 @@ export class Worker {
       const currentAgent = requireValue(store.get('agents', run.snapshot.agent.id))
       if (JSON.stringify(policy(currentAgent)) !== JSON.stringify(policy(run.snapshot.agent)))
         throw new AppError(409, 'Agent access changed after this run was queued. Run the task again with the current policy.')
-      const prepared = await prepareExecution(run, config, store.kv<string>(`agent-github:${run.snapshot.agent.id}`), account?.home)
+      if (saved && !saved.prepared)
+        checkpoint.generation = randomUUID().slice(0, 8)
+      checkpointBudget()
+      heartbeat = setInterval(checkpointBudget, 5000)
+      heartbeat.unref()
+      const prepared = checkpoint.prepared
+        ? await restoreExecution(run, checkpoint.prepared, config, store.kv<string>(`agent-github:${run.snapshot.agent.id}`))
+        : await prepareExecution(run, config, store.kv<string>(`agent-github:${run.snapshot.agent.id}`), account?.home, checkpoint.generation)
+      checkpoint.prepared = prepared
+      checkpointBudget()
+      const codexHome = prepared.isolated ? path.join(directory, 'home', '.codex') : path.join(directory, 'codex')
+      await mkdir(codexHome, { recursive: true, mode: 0o700 })
+      if (!prepared.isolated)
+        await prepareCodexHome(config, codexHome)
       if (account && prepared.isolated)
         await this.service.accounts.relocate(account, path.join(directory, 'home', '.codex'))
-      if (account && !prepared.isolated)
-        await prepareCodexHome(config, account.home)
       Object.assign(run, { workspace: prepared.cwd, workspaces: prepared.workspaces, isolated: prepared.isolated })
       store.updateRun(run.id, { workspace: run.workspace, workspaces: run.workspaces, isolated: run.isolated })
-      if (control.cancelled)
-        throw new Error('Cancelled before execution')
+      if (control.cancelled || control.stopping)
+        throw new Error('Execution stopped before launch')
       const output = prepared.output
       const env = prepared.isolated ? { ...process.env } : await toolkitEnvironment(config.home)
       env.HOME = config.home
-      env.CODEX_HOME = account?.home ?? path.join(config.home, '.codex')
+      env.CODEX_HOME = codexHome
       delete env.OPENAI_API_KEY
       delete env.CODEX_API_KEY
       delete env.CODEX_THREAD_ID
@@ -222,33 +280,53 @@ export class Worker {
       Object.assign(env, mcp.env)
       let total = 0
       const max = 5_000_000
-      let resumeSession: string | undefined
+      let resumeSession = checkpoint.launched ? await this.recovery.session(run, codexHome, prepared.cwd) : undefined
+      if (resumeSession) {
+        store.updateRun(run.id, { sessionId: resumeSession, resumeCount: (run.resumeCount ?? 0) + 1, resumeAvailable: true })
+        store.event(run.id, 'status', 'Resuming saved conversation and workspace')
+      }
       while (true) {
-        if (control.cancelled || Date.now() >= deadline) {
-          control.timedOut = !control.cancelled
+        if (control.cancelled || control.stopping || Date.now() >= deadline) {
+          control.timedOut = !control.cancelled && !control.stopping
           throw new Error(control.cancelled ? 'Run cancelled.' : 'Run exceeded its time limit.')
         }
         await rm(output, { force: true })
-        env.CODEX_HOME = account?.home ?? path.join(config.home, '.codex')
-        const prompt = resumeSession ? 'Continue the same task from the saved conversation and current workspace. The previous account exhausted its subscription usage. Preserve completed work and verify external effects before repeating any action.' : runPrompt(run)
+        env.CODEX_HOME = account?.home ?? codexHome
+        const prompt = resumeSession ? 'Continue the same task from the saved conversation and current workspace. Execution was interrupted. Resume the original task from its last completed step. Preserve completed work and verify external effects before repeating any action.' : runPrompt(run)
         let binary = config.codexBin
         let args = [...mcp.args, ...codexArgs(run, output, resumeSession)]
         if (prepared.isolated) {
+          checkpoint.runnerId = randomUUID()
+          checkpointBudget()
           const plans = path.join(config.dataDir, 'runner-plans')
           await mkdir(plans, { recursive: true, mode: 0o700 })
-          await writeFile(path.join(plans, `${run.id}.json`), JSON.stringify({ id: run.id, args, cwd: prepared.cwd, prompt: resumeSession ? prompt : runPrompt({ ...run, snapshot: { ...run.snapshot, skills: prepared.skills } }), mounts: prepared.mounts, expires: deadline, sandbox: policy(run.snapshot.agent).sandbox, mcpEnv: mcp.env }), { mode: 0o600 })
+          await writeFile(path.join(plans, `${checkpoint.runnerId}.json`), JSON.stringify({ id: checkpoint.runnerId, args, cwd: prepared.cwd, prompt: resumeSession ? prompt : runPrompt({ ...run, snapshot: { ...run.snapshot, skills: prepared.skills } }), mounts: prepared.mounts, expires: deadline, sandbox: policy(run.snapshot.agent).sandbox, mcpEnv: mcp.env }), { mode: 0o600 })
           env.RUNNER_URL = config.runnerUrl
           env.RUNNER_TOKEN = await runnerSecret(config.dataDir)
           binary = process.execPath
-          args = ['--import', import.meta.resolve('tsx'), path.join(import.meta.dirname, 'runner-client.ts'), run.id]
+          args = ['--import', import.meta.resolve('tsx'), path.join(import.meta.dirname, 'runner-client.ts'), checkpoint.runnerId]
         }
-        const child = spawn(binary, args, {
+        const child = spawn(process.execPath, ['--import', import.meta.resolve('tsx'), path.join(import.meta.dirname, 'run-supervisor.ts'), binary, ...args], {
           cwd: prepared.cwd,
           env,
-          stdio: ['pipe', 'pipe', 'pipe'],
+          stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
           detached: process.platform !== 'win32',
         })
         control.child = child
+        const completion = new Promise<number | null>((resolve, reject) => {
+          child.once('error', reject)
+          child.once('close', resolve)
+        })
+        void completion.catch(() => {})
+        // Record ownership before allowing the supervisor to launch Codex.
+        checkpoint.process = child.pid ? await processIdentity(child.pid) : undefined
+        checkpoint.launched = true
+        checkpoint.completed = false
+        checkpointBudget()
+        child.on('error', () => {})
+        if (!control.stopping && !control.cancelled)
+          child.send('start', () => {})
+        else this.kill(child)
         timeout = setTimeout(() => {
           control.timedOut = true
           this.kill(child)
@@ -264,10 +342,16 @@ export class Worker {
               event.type === 'thread.started'
               && typeof event.thread_id === 'string'
             ) {
-              store.updateRun(run.id, { sessionId: event.thread_id })
+              store.updateRun(run.id, { sessionId: event.thread_id, resumeAvailable: true })
             }
-            if (event.type === 'turn.completed' && event.usage)
-              store.updateRun(run.id, { usage: event.usage })
+            if (event.item?.type === 'agent_message' && typeof event.item.text === 'string')
+              checkpoint.lastMessage = sanitize(event.item.text).slice(0, 100000)
+            if (event.type === 'turn.completed') {
+              checkpoint.completed = true
+              checkpointBudget()
+              if (event.usage)
+                store.updateRun(run.id, { usage: event.usage })
+            }
             if (total >= max)
               return
             total += raw.length
@@ -311,16 +395,19 @@ export class Worker {
         })
         child.stdin?.on('error', () => {})
         child.stdin?.end(prompt)
-        const code = await new Promise<number | null>((resolve, reject) => {
-          child.once('error', reject)
-          child.once('close', resolve)
-        })
+        const code = await completion
         if (buffer)
           line(buffer)
         clearTimeout(timeout)
         control.child = null
+        delete checkpoint.process
+        if (checkpoint.runnerId)
+          await rm(path.join(config.dataDir, 'runner-plans', `${checkpoint.runnerId}.json`), { force: true }).catch(() => {})
+        checkpointBudget()
+        if (control.stopping && !control.cancelled && !checkpoint.completed)
+          throw new Error('Worker is restarting')
         const sessionId = store.run(run.id)?.sessionId
-        if (exhausted && code !== 0 && account && !control.cancelled && !control.timedOut && sessionId) {
+        if (exhausted && code !== 0 && account && !control.cancelled && !control.stopping && !control.timedOut && sessionId) {
           const previous = account
           this.service.accounts.markExhausted(previous.accountId, run.snapshot.agent.model)
           await this.service.accounts.release(previous)
@@ -328,7 +415,7 @@ export class Worker {
           store.updateRun(run.id, { accountWaitReason: 'Usage exhausted. Waiting for an available Codex account to resume.', codexAccountId: null, codexAccountName: null })
           store.event(run.id, 'status', 'Usage exhausted. Saving this session and switching accounts.')
           await this.service.accounts.refresh(previous.accountId)
-          while (!account && !control.cancelled && Date.now() < deadline) {
+          while (!account && !control.cancelled && !control.stopping && Date.now() < deadline) {
             try {
               account = await this.service.accounts.acquire(run.id, run.snapshot.agent.model)
             }
@@ -351,22 +438,25 @@ export class Worker {
           resumeSession = sessionId
           continue
         }
-        const summary = redact(await readSummary(output))
+        const summary = redact(await readSummary(output) || checkpoint.lastMessage || '')
         const status = control.cancelled
           ? 'cancelled'
           : control.timedOut
             ? 'failed'
-            : code === 0
+            : code === 0 || (control.stopping && checkpoint.completed)
               ? 'succeeded'
               : 'failed'
         store.updateRun(run.id, {
           status,
           finishedAt: Date.now(),
+          resumeAvailable: status !== 'succeeded' && !!store.run(run.id)?.sessionId,
           summary:
           sanitize(summary).slice(0, 100000)
-          || (control.timedOut
-            ? 'Run exceeded its time limit.'
-            : `Process exited with code ${code}.`),
+          || (control.cancelled
+            ? 'Run stopped. You can resume this conversation.'
+            : control.timedOut
+              ? 'Run exceeded its time limit.'
+              : `Process exited with code ${code}.`),
         })
         store.event(run.id, 'status', status)
         break
@@ -374,15 +464,37 @@ export class Worker {
     }
     catch (e) {
       store.updateRun(run.id, {
-        status: control.cancelled ? 'cancelled' : 'failed',
-        finishedAt: Date.now(),
+        status: control.cancelled ? 'cancelled' : control.stopping ? 'queued' : 'failed',
+        recoveryPending: control.stopping && !control.cancelled,
+        finishedAt: control.stopping && !control.cancelled ? null : Date.now(),
         summary: sanitize((e as Error).message),
-        accountWaitReason: null,
+        accountWaitReason: control.stopping && !control.cancelled ? 'Paused for worker restart. This run will resume automatically.' : null,
       })
-      store.event(run.id, 'error', sanitize((e as Error).message))
+      store.event(run.id, control.stopping ? 'status' : 'error', sanitize((e as Error).message))
     }
     finally {
-      if (account) {
+      clearInterval(heartbeat)
+      if (control.child) {
+        const stopped = new Promise<void>(resolve => control.child!.once('close', () => resolve()))
+        this.kill(control.child)
+        await stopped
+        control.child = null
+      }
+      let fenced = true
+      if (checkpoint.prepared?.isolated && checkpoint.runnerId) {
+        try {
+          await this.recovery.fence(store.run(run.id)!)
+        }
+        catch {
+          fenced = false
+          const current = store.run(run.id)!
+          if (current.status !== 'queued')
+            checkpoint.settled = { status: current.status, summary: current.summary, finishedAt: current.finishedAt }
+          store.updateRun(run.id, { status: 'queued', recoveryPending: true, finishedAt: null, accountWaitReason: 'Waiting for the previous isolated container to stop.' })
+        }
+      }
+      checkpointBudget()
+      if (account && fenced) {
         const releasedId = account.accountId
         await this.service.accounts.release(account).catch(() => {
           store.audit('codex.account.release_failed', { id: releasedId, runId: run.id })
@@ -391,9 +503,12 @@ export class Worker {
       this.service.mcps.revokeRun(run.id)
       if (timeout)
         clearTimeout(timeout)
-      // Per-run login copies are disposable; keep results and working files only.
-      await rm(path.join(config.dataDir, 'runs', run.id, 'home'), { recursive: true, force: true }).catch(() => {})
-      await rm(path.join(config.dataDir, 'runner-plans', `${run.id}.json`), { force: true }).catch(() => {})
+      if (fenced) {
+        for (const home of ['codex', 'home/.codex']) await rm(path.join(config.dataDir, 'runs', run.id, home, 'auth.json'), { force: true }).catch(() => {})
+        await rm(path.join(config.dataDir, 'runs', run.id, 'home', '.config', 'gh'), { recursive: true, force: true }).catch(() => {})
+      }
+      // Session history, isolated skills and working files survive shutdown and cancellation.
+      await rm(path.join(config.dataDir, 'runner-plans', `${checkpoint.runnerId ?? run.id}.json`), { force: true }).catch(() => {})
       this.active.delete(run.id)
     }
   }
@@ -421,13 +536,14 @@ export class Worker {
     const run = requireValue(this.service.store.run(id))
     if (!['queued', 'running'].includes(run.status))
       throw new AppError(409, 'This run has already finished.')
+    this.service.store.updateRun(id, { cancelRequestedAt: Date.now() })
     const active = this.active.get(id)
     if (active) {
       active.cancelled = true
       if (active.child)
         this.kill(active.child)
     }
-    else {
+    else if (!run.recoveryPending) {
       this.service.store.updateRun(id, {
         status: 'cancelled',
         finishedAt: Date.now(),
@@ -435,6 +551,24 @@ export class Worker {
       })
     }
     this.service.store.audit('run.cancelled', { id })
+  }
+
+  resume(id: string) {
+    const run = requireValue(this.service.store.run(id))
+    const checkpoint = this.recovery.get(id)
+    if (this.active.has(id))
+      throw new AppError(409, 'Wait for this run to finish stopping before resuming.')
+    if (!['failed', 'interrupted', 'cancelled'].includes(run.status) || !run.resumeAvailable || !checkpoint?.prepared || run.workspaceCleanedAt)
+      throw new AppError(409, 'This run has no saved conversation available to resume.')
+    if (this.service.store.active().some(active => active.taskId === run.taskId))
+      throw new AppError(409, 'This task already has an active run.')
+    checkpoint.remainingMs = run.snapshot.agent.timeoutMinutes * 60000
+    checkpoint.completed = false
+    delete checkpoint.settled
+    this.recovery.save(id, checkpoint)
+    this.service.store.updateRun(id, { status: 'queued', recoveryPending: true, cancelRequestedAt: null, finishedAt: null, accountWaitReason: 'Resuming saved conversation.' })
+    this.service.store.event(id, 'status', 'Resume requested')
+    return this.service.store.run(id)!
   }
 
   async cleanup(id: string) {
@@ -451,7 +585,8 @@ export class Worker {
     const managed = workspaces.filter(workspace => workspace.kind !== 'direct')
     if (!run.snapshot.task.worktree || !run.workspace || !managed.length)
       throw new AppError(409, 'This run has no managed worktree to clean up.')
-    const root = path.join(this.service.config.dataDir, 'runs', id, 'workspace')
+    const generation = this.recovery.get(id)?.generation
+    const root = path.join(this.service.config.dataDir, 'runs', id, generation ? `workspace-${generation}` : 'workspace')
     for (const workspace of managed) {
       if (workspace.path !== root && !workspace.path.startsWith(root + path.sep))
         throw new AppError(409, 'Workspace is outside this run’s managed directory.')
@@ -469,6 +604,7 @@ export class Worker {
     }
     this.service.store.updateRun(id, {
       workspace: null,
+      resumeAvailable: false,
       workspaceCleanedAt: Date.now(),
     })
     this.service.store.audit('run.workspace.cleaned', { id })
@@ -480,7 +616,7 @@ export class Worker {
     if (this.timer)
       clearInterval(this.timer)
     for (const value of this.active.values()) {
-      value.cancelled = true
+      value.stopping = true
       if (value.child)
         this.kill(value.child)
     }

@@ -9,7 +9,7 @@ export function dockerRequest(method: string, endpoint: string, body?: unknown) 
         return
       }
       response.resume()
-      reject(new Error(`Runner container operation failed (${response.statusCode}).`))
+      reject(Object.assign(new Error(`Runner container operation failed (${response.statusCode}).`), { statusCode: response.statusCode }))
     })
     request.on('error', reject)
     request.setTimeout(endpoint.endsWith('/wait') || endpoint.includes('/logs?') ? 0 : 30000, () => request.destroy(new Error('Container engine request timed out.')))

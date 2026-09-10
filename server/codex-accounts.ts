@@ -1,4 +1,5 @@
 import type { AccountLimits, CodexAccount, CodexAccountView } from '../shared/codex-accounts.ts'
+import type { Run } from '../shared/contracts.ts'
 import type { CodexSession } from './codex-rpc.ts'
 import type { Config } from './config.ts'
 import type { Store } from './store.ts'
@@ -105,6 +106,23 @@ export class CodexAccounts {
     await chmod(path.join(home, 'auth.json'), 0o600)
   }
 
+  private recovering(id: string) {
+    return this.store.active().some(run => run.recoveryPending && run.codexAccountId === id)
+  }
+
+  async recoverRun(run: Run) {
+    for (const relative of ['codex', 'home/.codex']) {
+      const home = path.join(this.config.dataDir, 'runs', run.id, relative)
+      if (run.codexAccountId && this.store.get('codexAccounts', run.codexAccountId))
+        await this.capture(run.codexAccountId, home).catch(() => {})
+      await rm(path.join(home, 'auth.json'), { force: true })
+    }
+    for (const [id, lease] of this.leases) {
+      if (lease.runId === run.id)
+        this.leases.delete(id)
+    }
+  }
+
   redactions(id: string) {
     const auth = this.vault.get<z.infer<typeof authSchema>>(credentialKey(id))
     return [auth?.tokens.access_token, auth?.tokens.refresh_token, auth?.tokens.id_token].filter((value): value is string => !!value)
@@ -133,6 +151,8 @@ export class CodexAccounts {
         if (!z.uuid().safeParse(id).success)
           continue
         const run = this.store.run(id)
+        if (run?.recoveryPending)
+          continue
         for (const relative of ['codex', 'home/.codex']) {
           const home = path.join(this.config.dataDir, 'runs', id, relative)
           if (run?.codexAccountId && this.store.get('codexAccounts', run.codexAccountId))
@@ -195,6 +215,8 @@ export class CodexAccounts {
   private async readUsage(id: string) {
     if (!this.store.get('codexAccounts', id) || (this.login?.accountId === id && this.login.controller.child))
       return
+    if (this.recovering(id))
+      return
     this.attempted.set(id, Date.now())
     const lease = this.leases.get(id)
     const home = lease?.home ?? path.join(this.config.dataDir, 'codex-monitor', id)
@@ -250,10 +272,10 @@ export class CodexAccounts {
 
   async remove(id: string) {
     this.get(id)
-    if (this.leases.has(id) || (this.login?.accountId === id && (this.login.controller.child || this.login.completion)))
+    if (this.recovering(id) || this.leases.has(id) || (this.login?.accountId === id && (this.login.controller.child || this.login.completion)))
       throw new AppError(409, 'Wait for this account’s run or sign-in to finish before removing it.')
     await this.exclusive(id, async () => {
-      if (this.leases.has(id) || this.connecting.has(id))
+      if (this.recovering(id) || this.leases.has(id) || this.connecting.has(id))
         throw new AppError(409, 'This account is in use.')
       this.vault.delete(credentialKey(id))
       this.store.remove('codexAccounts', id)
@@ -267,7 +289,7 @@ export class CodexAccounts {
       return null
     const stale = this.store.list('codexAccounts').filter(account => account.enabled && Date.now() - (this.attempted.get(account.id) ?? 0) > 60000 && (!account.checkedAt || Date.now() - account.checkedAt > 60000))
     await Promise.all(stale.map(account => this.refresh(account.id)))
-    const candidates = this.store.list('codexAccounts').filter(account => account.enabled && !account.exhausted && account.state === 'ready' && account.checkedAt && Date.now() - account.checkedAt <= 90000 && !this.leases.has(account.id) && !this.connecting.has(account.id) && !(this.login?.accountId === account.id && (this.login.controller.child || this.login.completion)) && account.limits && !usageBlocked(account.limits, model) && (remainingUsage(account.limits, model) ?? 0) > 0).sort((a, b) => remainingUsage(b.limits, model)! - remainingUsage(a.limits, model)! || (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0) || a.id.localeCompare(b.id))
+    const candidates = this.store.list('codexAccounts').filter(account => account.enabled && !account.exhausted && account.state === 'ready' && account.checkedAt && Date.now() - account.checkedAt <= 90000 && !this.recovering(account.id) && !this.leases.has(account.id) && !this.connecting.has(account.id) && !(this.login?.accountId === account.id && (this.login.controller.child || this.login.completion)) && account.limits && !usageBlocked(account.limits, model) && (remainingUsage(account.limits, model) ?? 0) > 0).sort((a, b) => remainingUsage(b.limits, model)! - remainingUsage(a.limits, model)! || (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0) || a.id.localeCompare(b.id))
     const account = candidates[0]
     if (!account)
       throw new AppError(409, 'Waiting for a Codex account with available usage. Usage is checked every minute.')
@@ -337,7 +359,7 @@ export class CodexAccounts {
     await this.initialize()
     if (this.login?.controller.child || this.login?.completion)
       throw new AppError(409, 'A Codex sign-in is already in progress.')
-    if (id && this.leases.has(id))
+    if (id && (this.recovering(id) || this.leases.has(id)))
       throw new AppError(409, 'Wait for this account’s run to finish before reconnecting it.')
     if (!id && this.store.list('codexAccounts').length >= 10)
       throw new AppError(400, 'A maximum of ten Codex accounts can be connected.')
