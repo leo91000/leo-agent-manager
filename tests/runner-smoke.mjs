@@ -18,7 +18,7 @@ async function main() {
   const runs = []
   let url = ''
   try {
-    for (const directory of ['data/runner-plans', 'home/.codex', 'project/.agents/skills/hidden', 'other-project'])
+    for (const directory of ['runner-state', 'data/runner-plans', 'home/.codex', 'project/.agents/skills/hidden', 'other-project'])
       await mkdir(path.join(root, directory), { recursive: true })
     await writeFile(path.join(root, 'data/runner-secret'), 'runner-smoke-secret')
     await writeFile(path.join(root, 'data/private'), 'private-manager-canary')
@@ -63,7 +63,7 @@ process.stdin.on('end', () => {
     docker('run', '-d', '--name', manager, '-v', `${root}:${root}`, '--entrypoint', '/usr/local/bin/node', image, '-e', 'setInterval(()=>{},1000)')
     // Match production volume ownership even when the CI host user is UID 1001.
     docker('exec', '--user', '0:0', manager, 'chown', '-R', '1000:1000', root)
-    docker('run', '-d', '--name', broker, '--user', '0:0', '-v', `${root}:${root}:ro`, '-v', '/var/run/docker.sock:/var/run/docker.sock', '-p', '127.0.0.1::4311', '-e', `DATA_DIR=${root}/data`, '-e', `RUNNER_MANAGER_CONTAINER=${manager}`, '-e', `RUNNER_APPARMOR_PROFILE=${apparmor ? 'leo-agent-sandbox' : ''}`, '--entrypoint', 'node', image, '--import', 'tsx', '/app/server/runner-broker.ts')
+    docker('run', '-d', '--name', broker, '--user', '0:0', '-v', `${root}:${root}:ro`, '-v', `${root}/runner-state:/runner-state`, '-v', '/var/run/docker.sock:/var/run/docker.sock', '-p', '127.0.0.1::4311', '-e', `DATA_DIR=${root}/data`, '-e', `RUNNER_MANAGER_CONTAINER=${manager}`, '-e', `RUNNER_APPARMOR_PROFILE=${apparmor ? 'leo-agent-sandbox' : ''}`, '--entrypoint', 'node', image, '--import', 'tsx', '/app/server/runner-broker.ts')
     url = `http://${docker('port', broker, '4311/tcp')}`
     let ready = false
     for (let attempt = 0; attempt < 150; attempt++) {
@@ -108,7 +108,7 @@ process.stdin.on('end', () => {
       assert.equal(inspect.HostConfig.ReadonlyRootfs, true)
       assert.deepEqual(inspect.HostConfig.CapDrop, ['ALL'])
       assert.ok(!inspect.Mounts.some(mount => mount.Source === '/var/run/docker.sock'))
-      await fetch(`${url}/runs/${id}`, { method: 'DELETE', headers })
+      assert.equal((await fetch(`${url}/runs/${id}`, { method: 'DELETE', headers })).status, 200)
       process.stdout.write(`${mode}: real container access restrictions passed\n`)
     }
     const clientId = randomUUID()
@@ -120,6 +120,16 @@ process.stdin.on('end', () => {
     assert.match(clientOutput, /Isolation assertions passed/)
     assert.throws(() => docker('inspect', `leo-run-${clientId}`))
     process.stdout.write('Remote client: streamed events, exit status, workspace module resolution, and container cleanup passed\n')
+    docker('restart', broker)
+    url = `http://${docker('port', broker, '4311/tcp')}`
+    for (let attempt = 0; attempt < 150; attempt++) {
+      if (await fetch(`${url}/health`).then(response => response.ok).catch(() => false))
+        break
+      await setTimeout(200)
+    }
+    assert.equal((await fetch(`${url}/runs/${clientId}`, { method: 'POST', headers })).status, 500)
+    assert.throws(() => docker('inspect', `leo-run-${clientId}`))
+    process.stdout.write('Broker restart: stopped attempt cannot start again; durable state survives\n')
     const id = randomUUID()
     runs.push(id)
     docker('exec', manager, 'node', '--import', 'tsx', '--input-type=module', '-e', prepare, JSON.stringify({ root, id, mode: 'yolo', hang: true }))

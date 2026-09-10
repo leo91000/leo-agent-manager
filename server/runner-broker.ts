@@ -66,7 +66,7 @@ async function removeRun(id: string) {
   })
 }
 async function main() {
-  const lifecycle = new RunnerLifecycle(path.join(dataDirectory, 'runner-stops'), createRun, removeRun)
+  const lifecycle = new RunnerLifecycle(process.env.RUNNER_STATE_DIR || '/runner-state', createRun, removeRun)
   const server = http.createServer(async (request, response) => {
     try {
       if (request.url === '/health') {

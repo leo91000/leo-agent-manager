@@ -33,12 +33,14 @@ services:
       RUNNER_APPARMOR_PROFILE: ${RUNNER_APPARMOR_PROFILE:-}
     volumes:
       - data:/data:ro
+      - runner-state:/runner-state
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:4311/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
     mem_limit: 256m
     cpus: 0.5
 volumes:
+  runner-state:
   data:
   agent-home:
   workspaces:
