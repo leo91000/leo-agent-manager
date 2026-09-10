@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { access, copyFile, cp, lstat, mkdir, readdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import process from 'node:process'
 import { promisify } from 'node:util'
 import YAML from 'yaml'
 import { AppError } from './errors.ts'
@@ -62,7 +63,13 @@ export async function prepareExecution(run: Run, config: Config, githubToken?: s
       target = !isIsolated && projects.length === 1 ? root : path.join(root, project.id)
       if (isIsolated) {
         kind = 'clone'
-        await exec('git', ['clone', '--no-hardlinks', '--no-local', '--branch', project.baseBranch, source, target], { timeout: 120000, maxBuffer: 100000 })
+        // Registered source checkouts are trusted: let upload-pack hydrate a partial
+        // clone from its promisor remote. Keep the run's clone fully independent.
+        await exec('git', ['clone', '--no-hardlinks', '--no-local', '--branch', project.baseBranch, source, target], {
+          timeout: 120000,
+          maxBuffer: 100000,
+          env: { ...process.env, GIT_NO_LAZY_FETCH: '0' },
+        })
         const remote = await exec('git', ['-C', source, 'config', '--get', 'remote.origin.url'], { timeout: 10000 }).catch(() => undefined)
         if (remote?.stdout.trim()) {
           let url = remote.stdout.trim()

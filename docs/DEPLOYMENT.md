@@ -71,6 +71,12 @@ Register `/workspaces/REPOSITORY` in Projects. Its base branch must already exis
 locally. Isolated runs branch from that local ref; tasks that need current remote
 state should fetch and update their isolated branch according to their instructions.
 The manager does not reset or update your primary checkout automatically.
+For a partial clone, workspace preparation downloads missing Git objects from its
+configured promisor remote before completing the independent run clone. That remote
+must be reachable using the manager's Git credentials. Register only trusted source
+checkouts: Git's lazy fetch uses the source repository's configuration and hooks.
+This exception is scoped to workspace cloning; it does not enable lazy fetching
+globally or run Git commands against a completed agent's clone during cleanup.
 
 The image includes Node 24, pnpm 12, Git, GitHub CLI, Codex CLI, Python, and native
 build tools. It also includes the OS libraries required by Chromium, Firefox, and
