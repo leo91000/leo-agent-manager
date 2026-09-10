@@ -1,0 +1,53 @@
+import { accountFixture, limits } from '../codex-account-fixture'
+import { expect, expectSingleScroll, test } from './fixtures'
+
+test('accounts show live usage, reset windows and accessible controls across themes and mobile sizes', async ({ page, workspace }, testInfo) => {
+  await workspace.service.accounts.close()
+  const data = await accountFixture({ service: workspace.service })
+  const personal = data.seed('Personal', limits(28, 37))
+  const work = data.seed('Work', limits(4, 18))
+  data.seed('Almost empty', limits(97, 32))
+  const paused = data.seed('Travel', limits(20, 50))
+  data.pool.update(paused.id, { name: paused.name, enabled: false })
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('/connections')
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  const card = page.getByRole('article', { name: 'Work', exact: true })
+  await expect(card.getByText('Next run', { exact: true })).toBeVisible()
+  await expect(card.getByRole('progressbar', { name: 'Work Weekly remaining' })).toHaveAttribute('aria-valuenow', '82')
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 1050 : 844 })
+      await expectSingleScroll(page)
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-accounts.png`), animations: 'disabled' })
+    }
+  }
+  await card.getByRole('button', { name: 'Pause Work', exact: true }).click()
+  await expect(card.getByText('Paused', { exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Personal', exact: true }).getByText('Next run', { exact: true })).toBeVisible()
+  data.responses.set(personal.id, limits(100, 37))
+  await page.getByRole('button', { name: 'Refresh Codex usage', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'Personal', exact: true }).getByText('Waiting for reset')).toBeVisible()
+  data.responses.set(personal.id, limits(0, 37))
+  await data.pool.poll()
+  await expect(page.getByRole('article', { name: 'Personal', exact: true }).getByText('Next run', { exact: true })).toBeVisible({ timeout: 8000 })
+  await card.getByRole('button', { name: 'Edit Work', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Account name', { exact: true }).fill('Work subscription')
+  await page.screenshot({ path: testInfo.outputPath('dark-mobile-edit.png'), animations: 'disabled' })
+  await dialog.getByRole('button', { name: 'Save account', exact: true }).click()
+  expect(data.pool.get(work.id).name).toBe('Work subscription')
+  await page.getByRole('button', { name: 'Add account', exact: true }).click()
+  await dialog.getByLabel('Account name', { exact: true }).fill('New subscription')
+  await dialog.getByRole('button', { name: 'Continue to sign in', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'New subscription', exact: true })).toBeVisible()
+  await expect.poll(() => data.pool.flow()?.state).toBe('complete')
+  await expect(page.getByRole('article', { name: 'New subscription', exact: true }).getByText('Ready', { exact: true })).toBeVisible({ timeout: 8000 })
+  await page.getByRole('button', { name: 'Remove New subscription', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Remove account', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'New subscription', exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})

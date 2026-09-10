@@ -13,6 +13,8 @@ export default defineConfig({
     { name: 'layout-webkit-scrolling', testMatch: 'scrolling.spec.ts', use: { browserName: 'webkit' } },
     { name: 'journeys', testMatch: 'workspace.spec.ts', grepInvert: /appearance follows|dark appearance settings/ },
     { name: 'journeys-appearance', testMatch: 'workspace.spec.ts', grep: /appearance follows|dark appearance settings/ },
+    { name: 'journeys-codex-accounts', testMatch: 'codex-accounts.spec.ts' },
+    { name: 'layout-webkit-codex-accounts', testMatch: 'codex-accounts.spec.ts', use: { browserName: 'webkit', isMobile: true, hasTouch: true } },
     { name: 'journeys-mcps', testMatch: 'mcps.spec.ts' },
     { name: 'layout-webkit-mcps', testMatch: 'mcps.spec.ts', use: { browserName: 'webkit', isMobile: true, hasTouch: true } },
     { name: 'journeys-task-focus', testMatch: 'task-focus.spec.ts' },

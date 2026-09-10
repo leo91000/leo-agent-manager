@@ -357,16 +357,16 @@ test('dark appearance settings, empty states and connection sign-in feedback', a
     { provider: 'github', installed: false, connected: false },
   ] }))
   // Synthetic feedback only: never initiate a real device login or capture a real code.
-  await page.route('**/api/connections/login', route => route.fulfill({ json: { state: 'pending', code: 'DEMO-CODE', url: 'https://example.com' } }))
+  await page.route('**/api/codex/accounts/login', route => route.fulfill({ json: { state: 'pending', code: 'DEMO-CODE', url: 'https://example.com' } }))
   await page.goto('/connections')
-  await page.getByRole('button', { name: /Connect account/ }).first().click()
+  // The persisted account flow is restored by the accounts panel on page load.
   await expect(page.getByText('DEMO-CODE', { exact: true })).toBeVisible()
   for (const width of [1440, 320]) {
     await page.setViewportSize({ width, height: width === 320 ? 568 : 1000 })
     await page.screenshot({ path: testInfo.outputPath(`${width}-connection-pending.png`), fullPage: true, animations: 'disabled' })
   }
-  await page.unroute('**/api/connections/login')
-  await page.route('**/api/connections/login', route => route.fulfill({ json: { state: 'failed', error: 'The verification code expired. Please try again.' } }))
+  await page.unroute('**/api/codex/accounts/login')
+  await page.route('**/api/codex/accounts/login', route => route.fulfill({ json: { state: 'failed', error: 'The verification code expired. Please try again.' } }))
   await expect(page.getByText('Sign-in needs another try', { exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('connection-failed.png'), fullPage: true, animations: 'disabled' })
 })

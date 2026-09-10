@@ -13,7 +13,7 @@ Run it on a VPS so schedules keep working when your laptop is off.
 - Schedule daily, weekly, or custom cron tasks with timezone previews and overlap protection.
 - Follow runs, inspect results and original instructions, cancel, retry, archive tasks, and clean up reviewed worktrees.
 - Edit global and project `.agents/skills`, including supporting files and Markdown previews.
-- Connect the official Codex and GitHub CLIs through device sign-in. Codex uses ChatGPT subscription authentication.
+- Connect multiple ChatGPT accounts through Codex device sign-in. Runs select available capacity automatically, resume across account exhaustion, and show live usage and reset windows. GitHub keeps its own device sign-in.
 - Add remote and command MCP servers from the UI, sign in with OAuth on any device, discover tools, and choose each agent’s connections and tool access.
 - Expose scoped tools through a **stateless MCP 2026-07-28** endpoint, with stateless compatibility for older Streamable HTTP clients, OAuth, PKCE, refresh rotation, and revocation.
 
@@ -43,6 +43,8 @@ For a remote server, use an HTTPS reverse proxy or an SSH tunnel for initial set
 [Agent toolkit, mise project versions, and automatic updates](docs/TOOLKIT.md)
 provide the complete installation procedure. [MCP and OAuth](docs/MCP.md) explain
 ChatGPT/Claude connection setup and the supported protocol boundary.
+
+[Codex accounts](docs/CODEX-ACCOUNTS.md) explains selection, natural resets, and automatic session handoffs.
 
 [MCP connections for agents](docs/MCP-CONNECTIONS.md) covers outbound servers,
 OAuth setup, tool permissions, and credential backups.

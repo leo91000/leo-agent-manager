@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import { CronExpressionParser } from 'cron-parser'
 import { agentInput, MAIN_AGENT_ID, projectInput, taskInput } from '../shared/contracts.ts'
+import { CodexAccounts } from './codex-accounts.ts'
 import { AppError, requireValue } from './errors.ts'
 import { McpConnections } from './mcp-connections.ts'
 import { workspaceDirectory } from './paths.ts'
@@ -56,11 +57,13 @@ export function nextOccurrences(
 export class Service {
   skills: Skills
   mcps: McpConnections
+  accounts: CodexAccounts
   constructor(
     public store: Store,
     public config: Config,
   ) {
     this.mcps = new McpConnections(store, config)
+    this.accounts = new CodexAccounts(store, config)
     this.skills = new Skills(config.home, config.workspaceRoots)
     this.store.transaction(() => {
       for (const agent of store.list('agents')) {

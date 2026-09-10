@@ -1,3 +1,4 @@
+import type { CodexAccount } from '../shared/codex-accounts.ts'
 import type {
   Agent,
   Project,
@@ -13,6 +14,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 interface Records {
+  codexAccounts: CodexAccount
   mcps: McpConnection
   agents: Agent
   projects: Project

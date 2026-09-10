@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
+import { createInterface } from 'node:readline'
 import activityEvents from './activity-events.json' with { type: 'json' }
 
 async function main() {
@@ -8,6 +10,24 @@ async function main() {
   if (args.includes('--version')) {
     process.stdout.write('fixture-codex 1.0\n')
     process.exit(0)
+  }
+  if (args.includes('app-server')) {
+    const lines = createInterface({ input: process.stdin })
+    for await (const line of lines) {
+      const request = JSON.parse(line)
+      if (request.id === undefined)
+        continue
+      let result = {}
+      const authPath = path.join(process.env.CODEX_HOME, 'auth.json')
+      const auth = existsSync(authPath) ? JSON.parse(readFileSync(authPath, 'utf8')) : null
+      const id = auth?.tokens.account_id ?? 'fixture'
+      if (request.method === 'account/read')
+        result = { account: auth ? { type: 'chatgpt', email: `${id}@example.test`, planType: 'plus' } : null }
+      if (request.method === 'account/rateLimits/read')
+        result = { ordinaryUsageAllowed: true, accountId: id, rateLimits: { limitId: 'codex', limitName: 'Codex', primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: Math.floor(Date.now() / 1000) + 7200 }, secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: Math.floor(Date.now() / 1000) + 172800 } } }
+      process.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`)
+    }
+    return
   }
   if (args[0] === 'login' && args[1] === 'status') {
     process.stderr.write('Logged in using ChatGPT\n')
@@ -17,13 +37,35 @@ async function main() {
     process.stdout.write(
       'Open https://auth.openai.com/codex/device and enter ABCD-12345\n',
     )
-    setTimeout(() => process.exit(0), 120)
+    setTimeout(() => {
+      mkdirSync(process.env.CODEX_HOME, { recursive: true })
+      const id = path.basename(path.dirname(process.env.CODEX_HOME))
+      writeFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), JSON.stringify({ tokens: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', account_id: id } }), { mode: 0o600 })
+      process.exit(0)
+    }, 120)
   }
   else {
     let prompt = ''
     for await (const chunk of process.stdin) prompt += chunk
     const emit = value => process.stdout.write(`${JSON.stringify(value)}\n`)
     emit({ type: 'thread.started', thread_id: 'fixture-session' })
+    const marker = path.join(process.env.CODEX_HOME, 'fixture-resume.json')
+    if (prompt.includes('fixture:exhaust')) {
+      mkdirSync(process.env.CODEX_HOME, { recursive: true })
+      const auth = JSON.parse(readFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), 'utf8'))
+      writeFileSync(marker, JSON.stringify({ account: auth.tokens.account_id, cwd: process.cwd() }))
+      writeFileSync(path.join(process.cwd(), 'preserved-work.txt'), 'work before exhaustion')
+      emit({ type: 'turn.failed', error: { message: 'You\'ve hit your usage limit. Try again later.' } })
+      process.exitCode = 1
+      return
+    }
+    if (args.includes('resume')) {
+      const previous = JSON.parse(readFileSync(marker, 'utf8'))
+      const auth = JSON.parse(readFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), 'utf8'))
+      if (previous.account === auth.tokens.account_id || previous.cwd !== process.cwd() || args[args.indexOf('resume') + 1] !== 'fixture-session' || readFileSync(path.join(process.cwd(), 'preserved-work.txt'), 'utf8') !== 'work before exhaustion')
+        throw new Error('Resume did not preserve context or switch accounts')
+      emit({ type: 'item.completed', item: { text: 'Resumed original session on another account with workspace intact' } })
+    }
     process.stdout.write('non-JSON diagnostic\n')
     emit({ type: 'item.completed', item: { text: 'Checking the project' } })
     if (prompt.includes('fixture:mcp')) {

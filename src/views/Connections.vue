@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api, notify } from '../api'
+import CodexAccounts from '../components/CodexAccounts.vue'
 import Icon from '../components/Icon.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
-import { ArrowUpRight, BrandOpenAI, CheckCircle2, Github, Link, RefreshCw } from '../icons'
+import { ArrowUpRight, CheckCircle2, Github, RefreshCw } from '../icons'
 import { buttonBase, buttonSizes, buttonVariants } from '../ui'
 
 const items = ref<any[]>([])
@@ -66,17 +67,17 @@ onBeforeUnmount(() => clearInterval(timer))
       <h1>Connections</h1>
     </div>
     <UiButton @click="load">
-      <Icon :name="RefreshCw" :size="16" />Check connections
+      <Icon :name="RefreshCw" :size="16" />Check GitHub
     </UiButton>
   </div>
   <UiAlert v-if="error">
     {{ error }}
   </UiAlert>
+  <CodexAccounts />
   <div class="connection-grid grid grid-cols-2 gap-5.5 tablet:grid-cols-1">
-    <article v-for="item in items" :key="item.provider" class="connection-card bg-surface border border-line rounded-card p-6.5 phone:p-5.5">
+    <article v-for="item in items.filter(item => item.provider === 'github')" :key="item.provider" class="connection-card bg-surface border border-line rounded-card p-6.5 phone:p-5.5">
       <div class="connection-brand flex items-center gap-[15px]">
-        <span><Icon v-if="item.provider === 'codex'" :name="BrandOpenAI" :size="26" /><Icon
-          v-else
+        <span><Icon
           :name="Github"
           :size="26"
         /></span>
@@ -151,17 +152,5 @@ onBeforeUnmount(() => clearInterval(timer))
     <UiButton v-if="flow.state === 'pending'" @click="cancel">
       Cancel sign-in
     </UiButton>
-  </section>
-  <section class="explanation-panel flex items-start gap-4.5 mt-[25px] rounded-xl text-subtle p-6.5 phone:px-1 phone:py-4.5">
-    <Icon :name="Link" :size="24" />
-    <div>
-      <h2>Connected once. Available to your agents.</h2>
-      <p>
-        Accounts are stored in the worker’s persistent home directory. Agents
-        use the official CLIs, and you can revoke access with the provider at
-        any time. Moving to another server requires connecting that worker
-        separately.
-      </p>
-    </div>
   </section>
 </template>

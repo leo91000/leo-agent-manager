@@ -68,6 +68,9 @@ export type Task = z.infer<typeof taskInput> & {
 export type RunStatus
   = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
 export interface Run {
+  codexAccountId?: string | null
+  codexAccountName?: string | null
+  accountWaitReason?: string | null
   id: string
   taskId: string
   projectId: string | null

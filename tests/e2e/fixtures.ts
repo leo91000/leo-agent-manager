@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test'
+import type { Service } from '../../server/service'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -6,6 +7,7 @@ import { test as base, expect } from '@playwright/test'
 import { buildApp } from '../../server/app'
 
 interface Workspace {
+  service: Service
   url: string
   projectPath: string
 }
@@ -49,7 +51,7 @@ export const test = base.extend<object, { workspace: Workspace }>({
         const cancelled = await service.enqueue(task.id)
         worker.cancel(cancelled.id)
       }
-      await use({ url, projectPath })
+      await use({ url, projectPath, service })
     }
     finally {
       await app.close()

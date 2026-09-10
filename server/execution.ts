@@ -2,7 +2,7 @@ import type { Run } from '../shared/contracts.ts'
 import type { Config } from './config.ts'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { access, copyFile, cp, lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { access, copyFile, cp, lstat, mkdir, readdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import YAML from 'yaml'
@@ -40,7 +40,7 @@ async function copyTree(source: string, target: string) {
   }
   await cp(source, target, { recursive: true, dereference: false })
 }
-export async function prepareExecution(run: Run, config: Config, githubToken?: string) {
+export async function prepareExecution(run: Run, config: Config, githubToken?: string, codexHome?: string) {
   const directory = path.join(config.dataDir, 'runs', run.id)
   const isIsolated = isolated(run.snapshot.agent)
   const accessPolicy = policy(run.snapshot.agent)
@@ -94,7 +94,7 @@ export async function prepareExecution(run: Run, config: Config, githubToken?: s
     return { cwd, output, workspaces, isolated: false, mounts, skills: run.snapshot.skills }
   const home = path.join(directory, 'home')
   await mkdir(path.join(home, '.codex'), { recursive: true, mode: 0o700 })
-  const auth = path.join(config.home, '.codex', 'auth.json')
+  const auth = path.join(codexHome ?? path.join(config.home, '.codex'), 'auth.json')
   await access(auth).catch(() => {
     throw new AppError(400, 'Connect Codex before starting an isolated agent.')
   })
@@ -136,4 +136,23 @@ export async function prepareExecution(run: Run, config: Config, githubToken?: s
     }
   }
   return { cwd, output, workspaces, isolated: true, mounts, skills }
+}
+
+// Unrestricted runs retain user configuration while auth and session state stay per run.
+export async function prepareCodexHome(config: Config, home: string) {
+  const source = path.join(config.home, '.codex')
+  for (const file of ['config.toml', 'AGENTS.md']) {
+    await copyFile(path.join(source, file), path.join(home, file)).catch((error) => {
+      if (error.code !== 'ENOENT')
+        throw error
+    })
+  }
+  for (const directory of ['rules', 'skills', 'plugins']) {
+    if (!await access(path.join(source, directory)).then(() => true).catch(() => false))
+      continue
+    await symlink(path.join(source, directory), path.join(home, directory), 'dir').catch((error) => {
+      if (error.code !== 'EEXIST')
+        throw error
+    })
+  }
 }

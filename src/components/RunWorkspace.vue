@@ -147,10 +147,13 @@ async function copy() {
             {{ run.snapshot.task.name }}
           </component>
           <div class="run-title-meta flex items-center gap-3 mt-3.5 text-subtle text-xs phone:flex-wrap phone:text-xs">
-            <Status :status="run.status" /><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
+            <Status :status="run.status" /><span v-if="run.codexAccountName">{{ run.codexAccountName }}</span><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
           </div>
         </div>
       </div>
+      <p v-if="run.accountWaitReason" role="status" class="mb-3 shrink-0 text-sm text-warning">
+        {{ run.accountWaitReason }}
+      </p>
       <section class="panel run-panel flex flex-1 min-h-0 flex-col overflow-hidden rounded-card border border-line bg-surface">
         <header class="run-panel-head flex shrink-0 items-center justify-between border-b border-line p-[7px] phone:p-[5px]">
           <UiSegments v-model="tab" label="Run view" :options="[{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Task brief' }]" />

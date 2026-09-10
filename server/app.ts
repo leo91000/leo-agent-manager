@@ -335,14 +335,38 @@ export async function buildApp(overrides: Partial<Config> = {}) {
     connections.status(
       (request.query as { refresh?: string }).refresh === 'true',
     ))
-  app.get('/api/connections/login', () => connections.flow ?? null)
-  app.post('/api/connections/login', request =>
-    connections.start(
-      z.object({ provider: z.enum(['codex', 'github']) }).parse(request.body)
-        .provider,
-    ))
-  app.delete('/api/connections/login', () => {
+  app.get('/api/codex/accounts', async () => {
+    await service.accounts.initialize()
+    return service.accounts.list()
+  })
+  app.post('/api/codex/accounts/refresh', async () => {
+    await service.accounts.poll()
+    return service.accounts.list()
+  })
+  app.get('/api/codex/accounts/login', () => service.accounts.flow())
+  app.post('/api/codex/accounts/login', async (request) => {
+    const input = z.object({ name: z.string().trim().min(1).max(100), id: z.uuid().optional() }).parse(request.body)
+    return service.accounts.startLogin(input.name, input.id)
+  })
+  app.delete('/api/codex/accounts/login', async () => {
+    await service.accounts.cancelLogin()
+    return { cancelled: true }
+  })
+  app.put<{ Params: { id: string } }>('/api/codex/accounts/:id', request => service.accounts.update(z.uuid().parse(request.params.id), request.body))
+  app.delete<{ Params: { id: string } }>('/api/codex/accounts/:id', async (request) => {
+    await service.accounts.remove(z.uuid().parse(request.params.id))
+    return { deleted: true }
+  })
+  let legacyCodexLogin = false
+  app.get('/api/connections/login', () => legacyCodexLogin ? service.accounts.flow() : connections.flow ?? null)
+  app.post('/api/connections/login', (request) => {
+    const { provider } = z.object({ provider: z.enum(['codex', 'github']) }).parse(request.body)
+    legacyCodexLogin = provider === 'codex'
+    return provider === 'codex' ? service.accounts.startLogin('Codex account') : connections.start(provider)
+  })
+  app.delete('/api/connections/login', async () => {
     connections.cancel()
+    await service.accounts.cancelLogin()
     return { cancelled: true }
   })
   app.get<{ Params: { id: string } }>('/api/agents/:id/github-token', (request) => {
@@ -472,9 +496,12 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   app.addHook('onClose', async () => {
     connections.cancel()
     await worker.close()
+    await service.accounts.close()
     store.close()
   })
-  if (config.workerEnabled)
+  if (config.workerEnabled) {
+    service.accounts.start()
     worker.start()
+  }
   return { app, service, worker, auth, connections }
 }
