@@ -9,6 +9,7 @@
     "node": ">=24.12"
   },
   "scripts": {
+    "prepare": "simple-git-hooks",
     "dev": "concurrently -k 'tsx watch server/index.ts' 'vite --host 127.0.0.1'",
     "build": "vue-tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
@@ -50,9 +51,14 @@
     "@vitejs/plugin-vue": "6.0.8",
     "concurrently": "10.0.5",
     "eslint": "10.10.0",
+    "simple-git-hooks": "2.14.0",
     "typescript": "6.0.3",
     "vite": "8.2.2",
     "vitest": "5.0.0",
     "vue-tsc": "3.3.11"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "node scripts/pre-commit.mjs",
+    "preserveUnused": true
   }
 }

@@ -52,6 +52,11 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
+`pnpm install` installs a pre-commit hook that runs `pnpm lint:fix` across the
+full project. Remaining lint errors block the commit. If auto-fixes change
+tracked files, review and stage those fixes, then retry the commit; the hook
+does not stage files automatically. Run `pnpm prepare` to reinstall the hook.
+
 The UI is at `http://localhost:5178`; the backend is at `http://localhost:4310`.
 By default, the worker uses your home directory and existing CLI accounts. Set
 `AGENT_HOME`, `DATA_DIR`, and `WORKSPACE_ROOTS` for a separate environment. See
