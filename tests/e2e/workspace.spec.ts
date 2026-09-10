@@ -84,6 +84,8 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
   await page.getByRole('button', { name: 'Preview next runs' }).click()
   await expect(page.getByRole('alert')).toContainText('IANA timezone')
   await page.getByLabel('Timezone').fill('Europe/Paris')
+  await page.getByLabel('Customize task scope').check()
+  await page.getByLabel('Use the agent’s available skills').uncheck()
   await page.getByLabel('review', { exact: true }).check()
   await page.getByLabel(/Use an isolated Git worktree/).uncheck()
   await page.getByRole('button', { name: 'Create task', exact: true }).click()

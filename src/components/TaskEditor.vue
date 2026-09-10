@@ -2,6 +2,7 @@
 import type { Task } from '../../shared/contracts'
 import { Bot, CalendarDays, CalendarRange, Clock, FolderGit2, Play } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
+import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, notify, refresh, state } from '../api'
 import Modal from './Modal.vue'
 import VirtualSelect from './VirtualSelect.vue'
@@ -11,9 +12,9 @@ const emit = defineEmits<{ close: [] }>()
 const form = ref({
   name: props.task?.name ?? '',
   prompt: props.task?.prompt ?? '',
-  agentId: props.task?.agentId ?? state.agents[0]?.id ?? '',
-  projectId: props.task?.projectId ?? state.projects[0]?.id ?? '',
-  skills: props.task?.skills ?? [],
+  agentId: props.task?.agentId ?? MAIN_AGENT_ID,
+  projectId: props.task?.projectId ?? null,
+  skills: props.task?.skills ?? null,
   tags: props.task?.tags ?? [],
   cron: props.task?.cron ?? (null as string | null),
   timezone:
@@ -24,7 +25,17 @@ const form = ref({
 })
 const cadence = ref(props.task?.cron ? 'custom' : 'once')
 const agents = computed(() => state.agents.map(agent => ({ value: agent.id, label: agent.name, description: agent.description || `${agent.model || 'Codex default'} · ${agent.reasoning} reasoning` })))
-const projects = computed(() => state.projects.map(project => ({ value: project.id, label: project.name, description: project.path })))
+const selectedAgent = computed(() => state.agents.find(agent => agent.id === form.value.agentId))
+const allowedProjects = computed(() => state.projects.filter(project => selectedAgent.value?.access?.projects === null || selectedAgent.value?.access.projects?.includes(project.id)))
+const projects = computed(() => [{ value: '', label: 'Let the agent choose', description: 'Work across its allowed projects' }, ...allowedProjects.value.map(project => ({ value: project.id, label: project.name, description: project.path }))])
+const projectChoice = computed({ get: () => form.value.projectId ?? '', set: (value: string) => {
+  form.value.projectId = value || null
+} })
+const advanced = ref(!!props.task?.projectId || !!props.task?.skills?.length)
+const inheritedSkills = computed({ get: () => form.value.skills === null, set: (value: boolean) => {
+  form.value.skills = value ? null : []
+} })
+const scopeDescription = computed(() => selectedAgent.value?.access.projects === null ? 'All projects' : `${allowedProjects.value.length} allowed ${allowedProjects.value.length === 1 ? 'project' : 'projects'}`)
 const cadences = [
   { value: 'once', label: 'One-off', description: 'Run when you’re ready', icon: Play, group: 'On demand' },
   { value: 'daily', label: 'Every day', description: 'Daily at 09:00 in your timezone', icon: CalendarDays, group: 'Recurring' },
@@ -46,7 +57,7 @@ const occurrences = ref<number[]>([])
 const available = computed(() =>
   state.skills.filter(
     s =>
-      s.valid && (s.scope === 'global' || s.scope === form.value.projectId),
+      s.valid && (s.scope === 'global' || (form.value.projectId ? s.scope === form.value.projectId : allowedProjects.value.some(project => project.id === s.scope))) && (selectedAgent.value?.access?.skills === null || selectedAgent.value?.access.skills?.includes(`${s.scope}/${s.name}`)),
   ),
 )
 watch(
@@ -56,12 +67,15 @@ watch(
   },
 )
 watch(
-  () => form.value.projectId,
+  () => [form.value.agentId, form.value.projectId],
   () => {
     const keys = new Set(
       available.value.map(skill => `${skill.scope}/${skill.name}`),
     )
-    form.value.skills = form.value.skills.filter(key => keys.has(key))
+    if (form.value.skills)
+      form.value.skills = form.value.skills.filter(key => keys.has(key))
+    if (!allowedProjects.value.some(project => project.id === form.value.projectId))
+      form.value.projectId = null
   },
 )
 watch(cadence, (value) => {
@@ -131,13 +145,15 @@ async function save() {
           placeholder="Describe the outcome, constraints, and how your agent should verify its work."
         /><small>Be specific about whether the agent may push, merge, or
           release.</small></label>
-        <VirtualSelect v-model="form.agentId" label="Agent" :options="agents" :icon="Bot" placeholder="Choose an agent" empty-text="Add an agent to get started" required />
-        <VirtualSelect v-model="form.projectId" label="Project" :options="projects" :icon="FolderGit2" placeholder="Choose a project" empty-text="Add a project to get started" required />
+        <VirtualSelect v-model="form.agentId" class="span-2" label="Agent" :options="agents" :icon="Bot" placeholder="Choose an agent" empty-text="Add an agent to get started" required />
+        <p v-if="selectedAgent" class="inline-note span-2 agent-scope-summary">
+          <Bot :size="17" /><span>{{ scopeDescription }} · {{ selectedAgent.access.skills === null ? 'All available skills' : `${selectedAgent.access.skills.length} selected ${selectedAgent.access.skills.length === 1 ? 'skill' : 'skills'}` }} · {{ selectedAgent.access.sandbox === 'yolo' ? 'YOLO' : selectedAgent.access.sandbox }}</span>
+        </p>
         <p
-          v-if="!state.agents.length || !state.projects.length"
+          v-if="!state.agents.length"
           class="inline-note span-2"
         >
-          Add an agent and a project before creating your first task.
+          Add an agent before creating your first task.
         </p>
         <div class="form-divider span-2" />
         <label class="span-2">Tags<input
@@ -164,22 +180,27 @@ async function save() {
             }).format(time)
           }}</span>
         </div>
-        <fieldset v-if="available.length" class="span-2">
-          <legend>
-            Skills <small>Optional instructions your agent can reuse</small>
-          </legend>
-          <div class="check-grid">
-            <label
-              v-for="skill in available"
-              :key="`${skill.scope}/${skill.name}`"
-              class="checkbox"
-            ><input
-              v-model="form.skills"
-              type="checkbox"
-              :value="`${skill.scope}/${skill.name}`"
-            >{{ skill.name }}</label>
-          </div>
-        </fieldset>
+        <label class="checkbox span-2"><input v-model="advanced" type="checkbox">Customize task scope</label>
+        <template v-if="advanced">
+          <VirtualSelect v-model="projectChoice" class="span-2" label="Project context" :options="projects" :icon="FolderGit2" />
+          <label class="checkbox span-2"><input v-model="inheritedSkills" type="checkbox">Use the agent’s available skills</label>
+          <fieldset v-if="!inheritedSkills && available.length" class="span-2">
+            <legend>
+              Skills <small>Optional instructions your agent can reuse</small>
+            </legend>
+            <div class="check-grid">
+              <label
+                v-for="skill in available"
+                :key="`${skill.scope}/${skill.name}`"
+                class="checkbox"
+              ><input
+                v-model="form.skills"
+                type="checkbox"
+                :value="`${skill.scope}/${skill.name}`"
+              >{{ skill.name }}</label>
+            </div>
+          </fieldset>
+        </template>
         <label class="checkbox span-2"><input v-model="form.worktree" type="checkbox">Use an isolated Git
           worktree
           <small>Keep changes separate from your main checkout.</small></label>
@@ -192,7 +213,7 @@ async function save() {
           Cancel
         </button><button
           class="button primary"
-          :disabled="busy || !state.agents.length || !state.projects.length"
+          :disabled="busy || !state.agents.length"
         >
           {{ busy ? "Saving…" : task ? "Save changes" : "Create task" }}
         </button>
@@ -200,3 +221,8 @@ async function save() {
     </form>
   </Modal>
 </template>
+
+<style scoped>
+.agent-scope-summary { display: flex; align-items: center; gap: .65rem; }
+.agent-scope-summary svg { flex-shrink: 0; }
+</style>

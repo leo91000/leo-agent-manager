@@ -15,6 +15,7 @@ export interface Config {
   concurrency: number
   logger: boolean
   workerEnabled: boolean
+  runnerUrl: string
 }
 export function config(overrides: Partial<Config> = {}): Config {
   const settings: Config = {
@@ -32,6 +33,7 @@ export function config(overrides: Partial<Config> = {}): Config {
     concurrency: Number(process.env.CONCURRENCY || 1),
     logger: process.env.NODE_ENV !== 'test',
     workerEnabled: true,
+    runnerUrl: process.env.RUNNER_URL || '',
     ...overrides,
   }
   if (

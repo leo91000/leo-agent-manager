@@ -134,7 +134,7 @@ async function copy() {
       </button>
     </div>
     <div class="run-facts">
-      <span>Project<strong>{{ run.snapshot.project.name }}</strong></span><span>Duration<strong>{{
+      <span>Project<strong>{{ run.snapshot.projects?.map(project => project.name).join(', ') || run.snapshot.project?.name || 'Agent workspace' }}</strong></span><span>Duration<strong>{{
         duration(run.startedAt, run.finishedAt)
       }}</strong></span><span>Triggered by<strong>{{ run.trigger }}</strong></span><span>Model<strong>{{
         run.snapshot.agent.model || "Codex default"
@@ -194,12 +194,15 @@ async function copy() {
             || (run.workspaceCleanedAt ? "Worktree cleaned up" : "Not prepared yet")
         }}</code>
         <button
-          v-if="!active && run.workspace && run.snapshot.task.worktree"
+          v-if="!active && run.workspace && run.snapshot.task.worktree && !run.isolated"
           class="button small"
           @click="confirmCleanup = true"
         >
           Clean up worktree
         </button>
+        <p v-if="!active && run.isolated && run.snapshot.task.worktree" class="muted">
+          Isolated clones are retained for review. Preserve your changes before removing their directories through the server terminal.
+        </p>
         <h3>Selected skills</h3>
         <p>
           {{
@@ -209,7 +212,8 @@ async function copy() {
         </p>
         <h3>Execution access</h3>
         <p>
-          YOLO mode ·
+          {{ run.snapshot.agent.access?.sandbox === 'workspace-write' ? 'Workspace write' : run.snapshot.agent.access?.sandbox === 'read-only' ? 'Read only' : 'YOLO mode' }} ·
+          {{ run.isolated ? 'Isolated container' : 'Shared workspace' }} ·
           {{ run.snapshot.agent.timeoutMinutes }} minute limit
         </p>
       </div>

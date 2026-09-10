@@ -31,7 +31,7 @@ export class Store {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     this.db = new DatabaseSync(path.join(directory, 'manager.db'))
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 2) {
+    if (version > 3) {
       this.db.close()
       throw new Error(
         'This database belongs to a newer application version. Restore a compatible backup or upgrade the application.',
@@ -54,6 +54,11 @@ export class Store {
     if (version < 2) {
       this.transaction(() => {
         this.db.exec('ALTER TABLE events ADD COLUMN payload TEXT; PRAGMA user_version=2;')
+      })
+    }
+    if (version < 3) {
+      this.transaction(() => {
+        this.db.exec('PRAGMA user_version=3;')
       })
     }
   }
@@ -146,7 +151,7 @@ export class Store {
       .run(
         run.id,
         run.taskId,
-        run.projectId,
+        run.projectId ?? '',
         run.status,
         run.createdAt,
         JSON.stringify(run),

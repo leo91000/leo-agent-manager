@@ -67,7 +67,7 @@ jobs:
         include:
           - group: journeys
             browser: chromium
-            projects: journeys
+            projects: journeys*
           - group: chromium
             browser: chromium
             projects: layout-chromium-*
@@ -146,7 +146,9 @@ jobs:
       - name: Smoke-test the exact image
         env:
           SMOKE_IMAGE: ${{ github.event_name == 'pull_request' && 'leo-agent-manager:test' || format('ghcr.io/{0}@{1}', github.repository, steps.build.outputs.digest) }}
-        run: node tests/container-smoke.mjs "$SMOKE_IMAGE"
+        run: |
+          node tests/container-smoke.mjs "$SMOKE_IMAGE"
+          node tests/runner-smoke.mjs "$SMOKE_IMAGE"
   publish:
     needs: [resolve, quality, browser, image]
     if: always() && !cancelled() && github.event_name != 'pull_request' && needs.resolve.outputs.reuse != 'true' && needs.quality.result == 'success' && needs.browser.result == 'success' && needs.image.result == 'success'

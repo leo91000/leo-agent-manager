@@ -34,6 +34,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
             'req.headers.cookie',
             'body.password',
             'body.setupToken',
+            'body.token',
           ],
         }
       : false,
@@ -264,7 +265,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
     '/api/skills/:scope/:name',
     async (request) => {
       const key = `${request.params.scope}/${request.params.name}`
-      if (store.list('tasks').some(task => task.skills.includes(key))) {
+      if (store.list('tasks').some(task => task.skills?.includes(key))) {
         throw new AppError(
           409,
           'This skill is selected by a task. Update that task first.',
@@ -324,6 +325,20 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   app.delete('/api/connections/login', () => {
     connections.cancel()
     return { cancelled: true }
+  })
+  app.get<{ Params: { id: string } }>('/api/agents/:id/github-token', (request) => {
+    requireValue(store.get('agents', request.params.id))
+    return { configured: !!store.kv(`agent-github:${request.params.id}`) }
+  })
+  app.put<{ Params: { id: string } }>('/api/agents/:id/github-token', (request) => {
+    requireValue(store.get('agents', request.params.id))
+    const { token } = z.object({ token: z.string().trim().max(500) }).parse(request.body)
+    const key = `agent-github:${request.params.id}`
+    if (token)
+      store.set(key, token)
+    else store.delete(key)
+    store.audit('agent.connection.updated', { agentId: request.params.id, provider: 'github' })
+    return { configured: !!token }
   })
   app.get('/api/settings', () => ({
     publicUrl: config.publicUrl,

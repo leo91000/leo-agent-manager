@@ -5,9 +5,10 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import { CronExpressionParser } from 'cron-parser'
-import { agentInput, projectInput, taskInput } from '../shared/contracts.ts'
+import { agentInput, MAIN_AGENT_ID, projectInput, taskInput } from '../shared/contracts.ts'
 import { AppError, requireValue } from './errors.ts'
 import { workspaceDirectory } from './paths.ts'
+import { allowedProjects, policy, runProjects, taskProjects, validateAccess } from './policy.ts'
 import { Skills } from './skills.ts'
 
 const exec = promisify(execFile)
@@ -58,6 +59,14 @@ export class Service {
     public config: Config,
   ) {
     this.skills = new Skills(config.home, config.workspaceRoots)
+    this.store.transaction(() => {
+      for (const agent of store.list('agents')) {
+        if (!agent.access)
+          store.put('agents', { ...agent, access: policy(agent) })
+      }
+      if (!store.get('agents', MAIN_AGENT_ID))
+        store.put('agents', { ...agentInput.parse({ name: 'Main agent', description: 'Your default agent, with access to every registered project, skill, and shared connection.' }), id: MAIN_AGENT_ID, createdAt: Date.now() })
+    })
   }
 
   agent(value: unknown, existingId?: string) {
@@ -70,6 +79,11 @@ export class Service {
       createdAt:
         this.store.get('agents', existingId ?? '')?.createdAt ?? Date.now(),
     }
+    validateAccess(item)
+    for (const projectId of item.access.projects ?? [])
+      requireValue(this.store.get('projects', projectId), 'Allowed project not found')
+    if (existingId === MAIN_AGENT_ID && (item.access.projects !== null || item.access.skills !== null || !item.access.github))
+      throw new AppError(400, 'The main agent always has access to all resources. Create another agent for restricted access.')
     this.store.put('agents', item)
     this.store.audit('agent.saved', { id: item.id })
     return item
@@ -100,11 +114,10 @@ export class Service {
     const input = taskInput.parse(value)
     if (input.cron)
       nextOccurrences(input.cron, input.timezone)
-    requireValue(this.store.get('agents', input.agentId), 'Agent not found')
-    requireValue(
-      this.store.get('projects', input.projectId),
-      'Project not found',
-    )
+    const agent = requireValue(this.store.get('agents', input.agentId), 'Agent not found')
+    taskProjects(agent, input as Task, this.store.list('projects'))
+    if (input.skills && policy(agent).skills !== null && input.skills.some(key => !policy(agent).skills!.includes(key)))
+      throw new AppError(400, 'A task cannot use skills outside its agent’s access.')
     if (existingId)
       requireValue(this.store.get('tasks', existingId))
     const item: Task = {
@@ -124,6 +137,10 @@ export class Service {
 
   remove(kind: 'agents' | 'projects' | 'tasks', id: string) {
     requireValue(this.store.get(kind, id))
+    if (kind === 'agents' && id === MAIN_AGENT_ID)
+      throw new AppError(409, 'The main agent cannot be removed.')
+    if (kind === 'projects' && this.store.list('agents').some(agent => policy(agent).projects?.includes(id)))
+      throw new AppError(409, 'This project is assigned to an agent. Update the agent first.')
     if (
       kind !== 'tasks'
       && this.store
@@ -144,7 +161,7 @@ export class Service {
           kind === 'tasks'
             ? r.taskId === id
             : kind === 'projects'
-              ? r.projectId === id
+              ? runProjects(r).some(project => project.id === id)
               : r.snapshot.agent.id === id,
         )
     ) {
@@ -153,8 +170,18 @@ export class Service {
         'This item has active work. Cancel or wait for the run first.',
       )
     }
+    if (kind === 'agents')
+      this.store.delete(`agent-github:${id}`)
     this.store.remove(kind, id)
     this.store.audit(`${kind}.deleted`, { id })
+  }
+
+  async agentSkills(agent: Agent) {
+    const access = policy(agent)
+    const available = await this.skills.list()
+    for (const project of allowedProjects(agent, this.store.list('projects')))
+      available.push(...await this.skills.list(project.id, project.path))
+    return available.filter(skill => access.skills === null || access.skills.includes(`${skill.scope}/${skill.name}`))
   }
 
   async enqueue(
@@ -169,25 +196,23 @@ export class Service {
     if (task.archived)
       throw new AppError(409, 'Restore this archived task before running it.')
     const agent = requireValue(this.store.get('agents', task.agentId))
-    const project = requireValue(this.store.get('projects', task.projectId))
-    const available = [
-      ...(await this.skills.list()),
-      ...(await this.skills.list(project.id, project.path)),
-    ]
-    const skills = task.skills.map((key) => {
+    const projects = taskProjects(agent, task, this.store.list('projects'))
+    const project = projects.length === 1 ? projects[0] : null
+    const access = policy(agent)
+    const available = (await this.agentSkills(agent)).filter(skill => skill.scope === 'global' || projects.some(project => project.id === skill.scope))
+    const keys = task.skills ?? available.filter(skill => skill.valid).map(skill => `${skill.scope}/${skill.name}`)
+    const skills = keys.map((key) => {
+      if (access.skills !== null && !access.skills.includes(key))
+        throw new AppError(400, `Skill outside agent access: ${key}`)
       const selected = available.find(s => `${s.scope}/${s.name}` === key)
       if (!selected?.valid)
         throw new AppError(400, `Skill unavailable or invalid: ${key}`)
-      return {
-        name: selected.name,
-        path: selected.path,
-        content: selected.content,
-      }
+      return { name: selected.name, path: selected.path, content: selected.content }
     })
     const run: Run = {
       id: randomUUID(),
       taskId,
-      projectId: project.id,
+      projectId: project?.id ?? null,
       status: 'queued',
       trigger,
       createdAt: Date.now(),
@@ -197,7 +222,7 @@ export class Service {
       sessionId: null,
       workspace: null,
       usage: null,
-      snapshot: { task, agent, project, skills },
+      snapshot: { task, agent, project, projects, skills },
     }
     try {
       this.store.addRun(run, dedupe)

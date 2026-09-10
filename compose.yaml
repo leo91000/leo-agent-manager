@@ -2,6 +2,7 @@ services:
   manager:
     image: ${LEO_IMAGE:-ghcr.io/leo91000/leo-agent-manager:latest}
     build: .
+    container_name: leo-manager
     init: true
     restart: unless-stopped
     stop_grace_period: 60s
@@ -9,6 +10,7 @@ services:
       - '127.0.0.1:4310:4310'
     environment:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4310}
+      RUNNER_URL: http://runner:4311
       CONCURRENCY: ${CONCURRENCY:-1}
     volumes:
       - data:/data
@@ -21,6 +23,21 @@ services:
       options:
         max-size: 10m
         max-file: '3'
+  runner:
+    image: ${LEO_IMAGE:-ghcr.io/leo91000/leo-agent-manager:latest}
+    user: '0:0'
+    entrypoint: [node, --import, tsx, /app/server/runner-broker.ts]
+    restart: unless-stopped
+    environment:
+      RUNNER_MANAGER_CONTAINER: leo-manager
+      RUNNER_APPARMOR_PROFILE: ${RUNNER_APPARMOR_PROFILE:-}
+    volumes:
+      - data:/data:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4311/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    mem_limit: 256m
+    cpus: 0.5
 volumes:
   data:
   agent-home:

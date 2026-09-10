@@ -34,7 +34,7 @@ export const test = base.extend<object, { workspace: Workspace }>({
     })
     try {
       await app.listen({ host: '127.0.0.1', port })
-      if (workerInfo.project.name.startsWith('layout-')) {
+      if (workerInfo.project.name !== 'journeys') {
         const setup = await app.inject({ method: 'POST', url: '/api/setup', payload: { setupToken: 'browser-test-setup', password: 'browser-password-long-enough' } })
         expect(setup.statusCode).toBe(200)
         const agent = service.agent({ name: 'Release engineer' })

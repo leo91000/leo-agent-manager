@@ -2,6 +2,13 @@ import { z } from 'zod'
 
 export const name = z.string().trim().min(1).max(100)
 export const id = z.string().uuid()
+export { MAIN_AGENT_ID } from './constants'
+export const accessPolicy = z.object({
+  projects: z.array(id).max(100).nullable().default(null),
+  skills: z.array(z.string().max(160)).max(100).nullable().default(null),
+  github: z.boolean().default(true),
+  sandbox: z.enum(['yolo', 'workspace-write', 'read-only']).default('yolo'),
+})
 export const agentInput = z.object({
   name,
   description: z.string().max(500).default(''),
@@ -9,6 +16,7 @@ export const agentInput = z.object({
   reasoning: z.enum(['low', 'medium', 'high', 'xhigh']).default('high'),
   instructions: z.string().max(20000).default(''),
   timeoutMinutes: z.number().int().min(1).max(720).default(120),
+  access: accessPolicy.default(() => accessPolicy.parse({})),
 })
 export const projectInput = z.object({
   name,
@@ -23,8 +31,8 @@ export const taskInput = z.object({
   name,
   prompt: z.string().trim().min(1).max(50000),
   agentId: id,
-  projectId: id,
-  skills: z.array(z.string().max(160)).max(20).default([]),
+  projectId: id.nullable().default(null),
+  skills: z.array(z.string().max(160)).max(100).nullable().default(null),
   tags: z.array(z.string().max(30)).max(10).default([]),
   cron: z.string().max(100).nullable().default(null),
   timezone: z.string().max(100).default('Europe/Paris'),
@@ -51,7 +59,7 @@ export type RunStatus
 export interface Run {
   id: string
   taskId: string
-  projectId: string
+  projectId: string | null
   status: RunStatus
   trigger: string
   createdAt: number
@@ -60,11 +68,14 @@ export interface Run {
   summary: string
   sessionId: string | null
   workspace: string | null
+  workspaces?: { projectId: string, path: string, kind: 'worktree' | 'clone' | 'direct' }[]
+  isolated?: boolean
   workspaceCleanedAt?: number
   snapshot: {
     task: Task
     agent: Agent
-    project: Project
+    project: Project | null
+    projects?: Project[]
     skills: { name: string, path: string, content: string }[]
   }
   usage: Record<string, number> | null

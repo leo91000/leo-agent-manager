@@ -186,8 +186,8 @@ async function duplicate(task: Task) {
       <div class="task-meta">
         <span><Bot :size="14" />{{
           state.agents.find((a) => a.id === task.agentId)?.name
-        }}</span><span><FolderGit2 :size="14" />{{
-          state.projects.find((p) => p.id === task.projectId)?.name
+        }}</span><span v-if="task.projectId"><FolderGit2 :size="14" />{{
+          state.projects.find((project) => project.id === task.projectId)?.name || 'Project'
         }}</span>
       </div>
       <div class="task-schedule">

@@ -25,7 +25,7 @@ ARG GH_VERSION=2.100.0
 ARG CODEX_VERSION=0.153.4
 ARG TARGETARCH
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4310 DATA_DIR=/data AGENT_HOME=/home/node WORKSPACE_ROOTS=/workspaces
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git ripgrep fd-find python3 build-essential \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git ripgrep fd-find python3 build-essential bubblewrap \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
 RUN arch="${TARGETARCH:-amd64}" \

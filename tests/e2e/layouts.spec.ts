@@ -212,6 +212,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
     description: `Maintains project ${index}`,
     model: '',
     reasoning: 'high',
+    access: { projects: null, skills: null, github: true, sandbox: 'yolo' },
   }))
   await page.route('**/api/agents', route => route.fulfill({ json: manyAgents }))
   await page.goto('/tasks')
@@ -241,7 +242,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
   await agentSelect.click()
   await agentSelect.press('Tab')
   await expect(page.getByRole('listbox')).not.toBeVisible()
-  await expect(page.getByRole('combobox', { name: 'Project', exact: true })).toBeFocused()
+  await expect(page.getByRole('textbox', { name: /^Tags/ })).toBeFocused()
   await page.keyboard.press('Escape')
   await page.unroute('**/api/agents')
   const legacyRoute = `**/api/runs/${run.id}/events?*`

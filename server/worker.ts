@@ -3,16 +3,18 @@ import type { Run } from '../shared/contracts.ts'
 import type { Service } from './service.ts'
 import { Buffer } from 'node:buffer'
 import { execFile, spawn } from 'node:child_process'
-import { mkdir, open } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { mkdir, open, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { AppError, requireValue } from './errors.ts'
-import { workspaceDirectory } from './paths.ts'
+import { prepareExecution, runnerSecret } from './execution.ts'
+import { policy, runProjects } from './policy.ts'
 
 const exec = promisify(execFile)
 async function readSummary(file: string) {
-  const handle = await open(file, 'r').catch(() => undefined)
+  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => undefined)
   if (!handle)
     return ''
   try {
@@ -52,7 +54,7 @@ export function redactPayload(value: unknown): unknown {
 export function codexArgs(run: Run, output: string) {
   const a = run.snapshot.agent
   return [
-    '--dangerously-bypass-approvals-and-sandbox',
+    ...(policy(a).sandbox === 'yolo' ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', policy(a).sandbox, '-a', 'never']),
     '-c',
     'forced_login_method="chatgpt"',
     'exec',
@@ -63,13 +65,16 @@ export function codexArgs(run: Run, output: string) {
     '-c',
     `model_reasoning_effort=${JSON.stringify(a.reasoning)}`,
     ...(a.model ? ['--model', a.model] : []),
+    ...(policy(a).sandbox === 'workspace-write' ? ['-c', 'sandbox_workspace_write.network_access=true'] : []),
+    ...(policy(a).sandbox === 'workspace-write' ? [path.dirname(output), ...run.workspaces?.map(workspace => workspace.path) ?? []].flatMap(directory => ['--add-dir', directory]) : []),
     '--output-last-message',
     output,
     '-',
   ]
 }
 export function runPrompt(run: Run) {
-  return `${run.snapshot.agent.instructions}\n\n${run.snapshot.task.prompt}\n\nSelected skills (use their supporting resources from the supplied paths):\n${run.snapshot.skills.map(s => `\n${s.path}\n${s.content}`).join('\n')}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. This unattended task cannot answer clarification questions; report a concrete blocker if required information is missing. All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.`
+  const projects = runProjects(run).map(project => `- ${project.name}: ${run.workspaces?.find(workspace => workspace.projectId === project.id)?.path ?? project.path}`).join('\n')
+  return `${run.snapshot.agent.instructions}\n\n${run.snapshot.task.prompt}\n\nAvailable project workspaces (choose the relevant projects for this task):\n${projects || 'No projects assigned; use the task workspace.'}\n\nSelected skills (use their supporting resources from the supplied paths):\n${run.snapshot.skills.map(s => `\n${s.path}\n${s.content}`).join('\n')}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. This unattended task cannot answer clarification questions; report a concrete blocker if required information is missing. All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.`
 }
 export class Worker {
   executions = new Set<Promise<void>>()
@@ -118,15 +123,16 @@ export class Worker {
         return
       const projects = new Set(
         [...this.active.keys()].map(
-          id => this.service.store.run(id)?.projectId,
-        ),
+          id => runProjects(this.service.store.run(id)!).map(project => project.id),
+        ).flat(),
       )
       for (const run of this.service.store.active()) {
         if (this.active.size >= this.service.config.concurrency)
           break
-        if (run.status !== 'queued' || projects.has(run.projectId))
+        if (run.status !== 'queued' || runProjects(run).some(project => projects.has(project.id)))
           continue
-        projects.add(run.projectId)
+        for (const project of runProjects(run))
+          projects.add(project.id)
         this.active.set(run.id, {
           child: null,
           cancelled: false,
@@ -156,47 +162,32 @@ export class Worker {
       store.event(run.id, 'status', 'Preparing workspace')
       const directory = path.join(config.dataDir, 'runs', run.id)
       await mkdir(directory, { recursive: true, mode: 0o700 })
-      let workspace = await workspaceDirectory(
-        run.snapshot.project.path,
-        config.workspaceRoots,
-      )
-      if (workspace !== run.snapshot.project.path) {
-        throw new AppError(
-          400,
-          'Project directory changed location after this run was queued. Register its new path before retrying.',
-        )
-      }
-      if (run.snapshot.task.worktree) {
-        workspace = path.join(directory, 'workspace')
-        await exec(
-          'git',
-          [
-            '-C',
-            run.snapshot.project.path,
-            'worktree',
-            'add',
-            '-b',
-            `feat/agent-${run.id.slice(0, 8)}`,
-            workspace,
-            run.snapshot.project.baseBranch,
-          ],
-          { timeout: 30000, maxBuffer: 100000 },
-        )
-      }
-      store.updateRun(run.id, { workspace })
+      const currentAgent = requireValue(store.get('agents', run.snapshot.agent.id))
+      if (JSON.stringify(policy(currentAgent)) !== JSON.stringify(policy(run.snapshot.agent)))
+        throw new AppError(409, 'Agent access changed after this run was queued. Run the task again with the current policy.')
+      const prepared = await prepareExecution(run, config, store.kv<string>(`agent-github:${run.snapshot.agent.id}`))
+      Object.assign(run, { workspace: prepared.cwd, workspaces: prepared.workspaces, isolated: prepared.isolated })
+      store.updateRun(run.id, { workspace: run.workspace, workspaces: run.workspaces, isolated: run.isolated })
       if (control.cancelled)
         throw new Error('Cancelled before execution')
-      const output = path.join(directory, 'result.md')
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        HOME: config.home,
-        CODEX_HOME: path.join(config.home, '.codex'),
-      }
+      const output = prepared.output
+      const env: NodeJS.ProcessEnv = { ...process.env, HOME: config.home, CODEX_HOME: path.join(config.home, '.codex') }
       delete env.OPENAI_API_KEY
       delete env.CODEX_API_KEY
       delete env.CODEX_THREAD_ID
-      const child = spawn(config.codexBin, codexArgs(run, output), {
-        cwd: workspace,
+      let binary = config.codexBin
+      let args = codexArgs(run, output)
+      if (prepared.isolated) {
+        const plans = path.join(config.dataDir, 'runner-plans')
+        await mkdir(plans, { recursive: true, mode: 0o700 })
+        await writeFile(path.join(plans, `${run.id}.json`), JSON.stringify({ id: run.id, args, cwd: prepared.cwd, prompt: runPrompt({ ...run, snapshot: { ...run.snapshot, skills: prepared.skills } }), mounts: prepared.mounts, expires: Date.now() + run.snapshot.agent.timeoutMinutes * 60000, sandbox: policy(run.snapshot.agent).sandbox }), { mode: 0o600 })
+        env.RUNNER_URL = config.runnerUrl
+        env.RUNNER_TOKEN = await runnerSecret(config.dataDir)
+        binary = process.execPath
+        args = ['--import', import.meta.resolve('tsx'), path.join(import.meta.dirname, 'runner-client.ts'), run.id]
+      }
+      const child = spawn(binary, args, {
+        cwd: prepared.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: process.platform !== 'win32',
@@ -296,6 +287,9 @@ export class Worker {
     finally {
       if (timeout)
         clearTimeout(timeout)
+      // Per-run login copies are disposable; keep results and working files only.
+      await rm(path.join(config.dataDir, 'runs', run.id, 'home'), { recursive: true, force: true }).catch(() => {})
+      await rm(path.join(config.dataDir, 'runner-plans', `${run.id}.json`), { force: true }).catch(() => {})
       this.active.delete(run.id)
     }
   }
@@ -347,30 +341,28 @@ export class Worker {
         'Wait for this run to finish before cleaning up.',
       )
     }
-    const expected = path.join(
-      this.service.config.dataDir,
-      'runs',
-      id,
-      'workspace',
-    )
-    if (!run.snapshot.task.worktree || run.workspace !== expected)
+    if (run.isolated)
+      throw new AppError(409, 'Isolated clones are retained for review. After preserving your work, remove their directory through the server terminal.')
+    const workspaces = run.workspaces ?? (run.workspace && run.snapshot.project ? [{ projectId: run.snapshot.project.id, path: run.workspace, kind: 'worktree' as const }] : [])
+    const managed = workspaces.filter(workspace => workspace.kind !== 'direct')
+    if (!run.snapshot.task.worktree || !run.workspace || !managed.length)
       throw new AppError(409, 'This run has no managed worktree to clean up.')
-    const status = await exec(
-      'git',
-      ['-C', expected, 'status', '--porcelain', '--ignored'],
-      { timeout: 10000, maxBuffer: 100000 },
-    )
-    if (status.stdout.trim()) {
-      throw new AppError(
-        409,
-        'This worktree contains changes or untracked files. Commit or move them before cleanup.',
-      )
+    const root = path.join(this.service.config.dataDir, 'runs', id, 'workspace')
+    for (const workspace of managed) {
+      if (workspace.path !== root && !workspace.path.startsWith(root + path.sep))
+        throw new AppError(409, 'Workspace is outside this run’s managed directory.')
+      const status = await exec('git', ['-C', workspace.path, 'status', '--porcelain', '--ignored'], { timeout: 10000, maxBuffer: 100000 })
+      if (status.stdout.trim())
+        throw new AppError(409, 'This worktree contains changes or untracked files. Commit or move them before cleanup.')
     }
-    await exec(
-      'git',
-      ['-C', run.snapshot.project.path, 'worktree', 'remove', expected],
-      { timeout: 10000, maxBuffer: 100000 },
-    )
+    for (const workspace of managed) {
+      if (workspace.kind === 'clone') {
+        await rm(workspace.path, { recursive: true })
+        continue
+      }
+      const project = requireValue(runProjects(run).find(project => project.id === workspace.projectId))
+      await exec('git', ['-C', project.path, 'worktree', 'remove', workspace.path], { timeout: 10000, maxBuffer: 100000 })
+    }
     this.service.store.updateRun(id, {
       workspace: null,
       workspaceCleanedAt: Date.now(),

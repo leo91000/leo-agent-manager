@@ -79,18 +79,18 @@ engines as the normal worker user, without custom library paths. This dependency
 layer is cached independently of application code; validated tags reuse the image.
 Install project-specific toolchains such as Rust in a derived image
 or in the persistent worker home before scheduling projects that require them.
-Every task runs Codex with `--dangerously-bypass-approvals-and-sandbox` (YOLO mode).
-Docker is the isolation boundary; there is no inner Codex sandbox or approval prompt.
-The container runs as a non-root user without privileged mode or a host Docker socket.
-Agents can use everything accessible to that user, including mounted workspaces,
-persistent credentials, and the network. Use a dedicated container and its volumes
-for this trusted, single-owner installation. Running the worker directly on a host
-gives tasks the same unrestricted access as that host user.
+YOLO is the default execution mode. Unrestricted YOLO agents use the shared manager
+container and its mounted resources. Restricted agents use disposable containers
+through the runner sidecar; workspace-write and read-only add the Codex sandbox.
+The Docker socket belongs only to the trusted runner sidecar. See
+[agent access and runner setup](AGENT-ACCESS.md), including the AppArmor profile
+required on Ubuntu hosts. Running an unrestricted worker directly on a host gives
+it the same access as that host user.
 
 ## Coolify
 
-Create an application from the public repository with the Dockerfile build pack,
-or use the published GHCR image. Set container port **4310**, `PUBLIC_URL` to the
+Create a Compose service from `compose.yaml`, using the published GHCR image for
+both manager and runner. Set container port **4310**, `PUBLIC_URL` to the
 chosen HTTPS domain, and persistent storage mounts for all three paths above.
 Use the healthcheck path `/health`, one replica, and a shutdown grace period of
 60 seconds. Point the domain's DNS record at the selected server and enable TLS.
@@ -123,7 +123,7 @@ The GitHub `production` environment needs:
 | `COOLIFY_SERVICE_UUID` | Variable | UUID of the Leo Compose service |
 | `LEO_PUBLIC_URL` | Variable | `https://agents.webdns.leo-coletta.fr` |
 
-In the Coolify service's raw Compose, set `services.manager.image` to
+In the Coolify service's raw Compose, set both `services.manager.image` and `services.runner.image` to
 `${LEO_IMAGE}` and create the `LEO_IMAGE` environment variable with the currently
 deployed image reference. The workflow updates only that variable to the image's
 immutable GHCR digest, requests a service restart, then waits up to ten minutes
