@@ -49,8 +49,7 @@ export class Chats {
     if (run?.workspaceCleanedAt)
       throw new AppError(409, 'This workspace has been cleaned up. Start a new chat.')
     // Model changes apply to the next turn; steering never silently changes a running model.
-    if (values.mode === 'steer' && values.model && run?.status === 'running' && values.model !== run.snapshot.agent.model)
-      throw new AppError(409, 'Queue this message to change model on the next turn.')
+    this.validateSteer(chat, values)
     return this.store.transaction(() => {
       this.store.put('chats', { ...chat, title: messages.length ? chat.title : values.text.replace(/\s+/g, ' ').slice(0, 90), updatedAt: Date.now() })
       return this.store.putChatMessage({ ...values, chatId: id, status: 'queued', createdAt: Date.now() })
@@ -58,7 +57,7 @@ export class Chats {
   }
 
   edit(id: string, messageId: string, input?: unknown) {
-    this.get(id)
+    const chat = this.get(id)
     const message = requireValue(this.store.chatMessages(id).find(message => message.id === messageId))
     if (message.status !== 'queued')
       throw new AppError(409, 'This message is already being sent.')
@@ -66,7 +65,15 @@ export class Chats {
       this.store.deleteChatMessage(id, messageId)
       return { deleted: true }
     }
-    return this.store.putChatMessage({ ...message, ...chatMessageInput.parse({ ...(input as object), id: messageId }) })
+    const values = chatMessageInput.parse({ ...(input as object), id: messageId })
+    this.validateSteer(chat, values)
+    return this.store.putChatMessage({ ...message, ...values })
+  }
+
+  private validateSteer(chat: Chat, message: { mode: string, model: string }) {
+    const run = chat.runId ? this.store.run(chat.runId) : undefined
+    if (message.mode === 'steer' && message.model && run && ['queued', 'running'].includes(run.status) && message.model !== run.snapshot.agent.model)
+      throw new AppError(409, 'Queue this message to change model on the next turn.')
   }
 
   pause(id: string, paused: boolean) {

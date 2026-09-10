@@ -63,6 +63,8 @@ describe('interactive chats', () => {
     const id = await running(chat.id)
     const workspace = ctx.service.store.run(id)!.workspace
     const queued = send(chat.id, 'Then add a test plan')
+    expect(() => ctx.service.chats.send(chat.id, { id: randomUUID(), text: 'Switch now', mode: 'steer', model: 'different-model' })).toThrow('next turn')
+    expect(() => ctx.service.chats.edit(chat.id, queued.id, { ...queued, mode: 'steer', model: 'different-model' })).toThrow('next turn')
     const steer = send(chat.id, 'Focus on accessibility, finish now', 'steer')
     await ctx.worker.tick()
     await finish(id)

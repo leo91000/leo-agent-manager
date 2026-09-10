@@ -37,6 +37,7 @@ export async function runChat(plan: ChatPlan, binary = 'codex') {
   })
   void completed.catch(() => {})
   const seen = new Set<string>()
+  const attempted = new Set<string>()
   const texts = new Map<string, string>()
   const acknowledge = (id: string) => {
     if (seen.has(id))
@@ -130,8 +131,9 @@ export async function runChat(plan: ChatPlan, binary = 'codex') {
       try {
         const messages: ChatMessage[] = JSON.parse(await readFile(`${plan.inputDirectory}/messages.json`, 'utf8'))
         for (const message of messages) {
-          if (finished || seen.has(message.id))
+          if (finished || seen.has(message.id) || attempted.has(message.id))
             continue
+          attempted.add(message.id)
           try {
             await rpc.request('turn/steer', { threadId, expectedTurnId: turnId, clientUserMessageId: message.id, input: input(message.text) })
             acknowledge(message.id)

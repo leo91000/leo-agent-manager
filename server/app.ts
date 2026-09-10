@@ -191,7 +191,10 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   })
   app.get('/api/chats', () => store.list('chats').map(chat => service.chats.view(chat)))
   app.post('/api/chats', request => service.chats.create(request.body))
-  app.get<{ Params: { id: string } }>('/api/chats/:id', request => ({ ...service.chats.detail(request.params.id), error: store.kv(`chat-error:${request.params.id}`) ?? null }))
+  app.get<{ Params: { id: string } }>('/api/chats/:id', (request) => {
+    const detail = service.chats.detail(request.params.id)
+    return { ...detail, messages: detail.messages.filter(message => message.status !== 'delivered'), error: store.kv(`chat-error:${request.params.id}`) ?? null }
+  })
   app.post<{ Params: { id: string } }>('/api/chats/:id/messages', request => service.chats.send(request.params.id, request.body))
   app.put<{ Params: { id: string, messageId: string } }>('/api/chats/:id/messages/:messageId', request => service.chats.edit(request.params.id, request.params.messageId, request.body))
   app.delete<{ Params: { id: string, messageId: string } }>('/api/chats/:id/messages/:messageId', request => service.chats.edit(request.params.id, request.params.messageId))
