@@ -14,6 +14,7 @@ import { Auth, OAuthError, safeEqual } from './auth.ts'
 import { config as loadConfig } from './config.ts'
 import { Connections } from './connections.ts'
 import { AppError, requireValue } from './errors.ts'
+import { deploymentLease, maintenanceActive, maintenanceToken } from './maintenance.ts'
 import { mountMcp } from './mcp.ts'
 import { nextOccurrences, Service } from './service.ts'
 import { Store } from './store.ts'
@@ -26,6 +27,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   const worker = new Worker(service)
   const auth = new Auth(store, config.publicUrl)
   const connections = new Connections(config)
+  const updateToken = await maintenanceToken(config.dataDir)
   const app = Fastify({
     logger: config.logger
       ? {
@@ -128,7 +130,17 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   }
   app.get('/health', (_request, reply) => {
     reply.header('Cache-Control', 'no-store')
-    return { status: 'ok', commit: process.env.APP_COMMIT || 'development' }
+    return { status: 'ok', commit: process.env.APP_COMMIT || 'development', runtimeId: process.env.APP_RUNTIME_ID || process.env.APP_COMMIT || 'development', baseImage: process.env.APP_BASE_IMAGE || null, tools: { codex: process.env.APP_CODEX_VERSION || null, gh: process.env.APP_GH_VERSION || null }, activeRuns: worker.active.size, maintenance: maintenanceActive(store) }
+  })
+  app.route<{ Body: { owner: string } }>({
+    method: ['POST', 'DELETE'],
+    url: '/internal/deployment-lease',
+    handler: (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      const { owner } = z.object({ owner: z.string().uuid() }).parse(request.body)
+      const result = deploymentLease(store, updateToken, request.headers.authorization, owner, request.method === 'DELETE')
+      return { ...result, activeRuns: worker.active.size }
+    },
   })
   app.get('/api/session', (request) => {
     const session = auth.read(request.cookies.leo_session)

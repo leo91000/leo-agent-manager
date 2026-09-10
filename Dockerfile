@@ -45,7 +45,7 @@ COPY --from=build --chown=node:node /app/package.json ./package.json
 RUN mkdir -p /data /workspaces /home/node/.agents/skills /home/node/.codex \
     && chown -R node:node /data /workspaces /home/node /app
 ARG VCS_REF=development
-ENV APP_COMMIT=$VCS_REF
+ENV APP_COMMIT=$VCS_REF APP_RUNTIME_ID=$VCS_REF APP_CODEX_VERSION=$CODEX_VERSION APP_GH_VERSION=$GH_VERSION
 USER node
 VOLUME ["/data", "/home/node", "/workspaces"]
 EXPOSE 4310

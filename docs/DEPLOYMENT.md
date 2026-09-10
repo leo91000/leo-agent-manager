@@ -178,3 +178,9 @@ cleanup refuses changes, including ignored/untracked files, and keeps Git branch
 
 See [Docker's volume documentation](https://docs.docker.com/engine/storage/volumes/)
 and [Codex authentication](https://learn.chatgpt.com/docs/auth) for the underlying tools.
+
+## Automatic CLI updates
+
+[Daily CLI updates](CLI-UPDATES.md) build and test new Codex/GitHub CLI versions,
+then replace both services when idle, with runtime verification and rollback.
+The VPS timer runs independently of your computer and does not change app versions.

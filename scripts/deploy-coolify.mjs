@@ -41,7 +41,7 @@ export async function deploy(config, { timeoutMs = 600000, intervalMs = 2000 } =
       })
       if (response.ok) {
         const health = await response.json()
-        if (health.status === 'ok' && health.commit === commit)
+        if (health.status === 'ok' && health.commit === commit && (!config.runtimeId || health.runtimeId === config.runtimeId))
           return { updateMs: updated - started, restartMs: restarted - updated, healthyMs: Date.now() - restarted, totalMs: Date.now() - started, polls }
       }
       else {
@@ -77,6 +77,7 @@ function configuration() {
     token: process.env.COOLIFY_TOKEN,
     image: process.env.DEPLOY_IMAGE,
     commit: process.env.DEPLOY_COMMIT,
+    runtimeId: process.env.DEPLOY_COMMIT,
     publicUrl: process.env.LEO_PUBLIC_URL,
   }
 }

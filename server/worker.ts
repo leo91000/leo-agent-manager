@@ -10,6 +10,7 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 import { AppError, requireValue } from './errors.ts'
 import { prepareExecution, runnerSecret } from './execution.ts'
+import { maintenanceActive } from './maintenance.ts'
 import { policy, runProjects } from './policy.ts'
 
 const exec = promisify(execFile)
@@ -119,7 +120,7 @@ export class Worker {
         this.lastMaintenance = Date.now()
       }
       await this.service.schedule()
-      if (this.closing)
+      if (this.closing || maintenanceActive(this.service.store))
         return
       const projects = new Set(
         [...this.active.keys()].map(

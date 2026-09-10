@@ -58,8 +58,9 @@ async function main() {
     assert.equal(health.headers.get('cache-control'), 'no-store')
     const version = await health.json()
     assert.equal(typeof version.commit, 'string')
-    if (process.env.GITHUB_SHA)
-      assert.equal(version.commit, process.env.GITHUB_SHA)
+    const expectedCommit = process.env.SMOKE_COMMIT || process.env.GITHUB_SHA
+    if (expectedCommit)
+      assert.equal(version.commit, expectedCommit)
     assert.equal((await fetch(`${url}/api/tasks`)).status, 401)
     const setup = await fetch(`${url}/api/setup`, {
       method: 'POST',
@@ -90,14 +91,10 @@ async function main() {
       (await docker('exec', name, 'pnpm', '--version')).stdout,
       /^12\./,
     )
-    assert.match(
-      (await docker('exec', name, 'codex', '--version')).stdout,
-      /codex-cli/,
-    )
-    assert.match(
-      (await docker('exec', name, 'gh', '--version')).stdout,
-      /gh version/,
-    )
+    const codexVersion = (await docker('exec', name, 'codex', '--version')).stdout.trim()
+    assert.equal(codexVersion, `codex-cli ${version.tools.codex}`)
+    const ghVersion = (await docker('exec', name, 'gh', '--version')).stdout
+    assert.ok(ghVersion.startsWith(`gh version ${version.tools.gh} `))
     const browserProbe = await readFile(new URL('./browser-smoke.mjs', import.meta.url), 'utf8')
     const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
     const browsers = await exec('docker', ['--context', 'default', 'exec', name, 'node', '--input-type=module', '-e', browserProbe, packageJson.devDependencies['@playwright/test']], { timeout: 240000, maxBuffer: 1024 * 1024 })
