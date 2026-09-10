@@ -49,7 +49,7 @@ export async function discover(config) {
   const versions = { codex: newer(health.tools?.codex, codex.version), gh: newer(health.tools?.gh, github.tag_name?.replace(/^v/, '')) }
   return { image, baseImage: validImage(health.baseImage || image, config.repository), commit: health.commit, previousRuntimeId: health.runtimeId, versions, changed: versions.codex !== health.tools.codex || versions.gh !== health.tools.gh }
 }
-export async function deployUpdate(config, plan, image, options = {}) {
+export async function deployUpdate(config, plan, image, options = { timeoutMs: 300000 }) {
   validImage(image, config.repository)
   const owner = randomUUID()
   const lease = method => json(`${config.publicUrl}/internal/deployment-lease`, { method, headers: { 'authorization': `Bearer ${config.maintenanceToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ owner }) })

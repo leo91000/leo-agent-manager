@@ -30,6 +30,8 @@ The updater verifies both the application commit and a unique runtime ID, so an
 old container with the same app version cannot falsely satisfy the health check.
 It restores and verifies the previous image if deployment fails. If someone has
 changed the image externally meanwhile, it does not overwrite that deployment.
+Candidate verification and rollback each have a five-minute health deadline,
+leaving time within the job timeout and worker lease to restore service.
 A provider outage or incompatible release leaves the previous working tools in use;
 inspect the failed workflow before retrying.
 
