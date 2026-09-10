@@ -47,6 +47,11 @@ describe('agent access and task inheritance', () => {
     await expect.poll(() => ctx.service.store.run(run.id)?.status).toBe('failed')
     expect(ctx.service.store.run(run.id)?.summary).toContain('access changed')
   })
+  it('preserves restrictions when older API clients omit access during profile edits', () => {
+    const agent = ctx.service.agent({ name: 'Restricted', access: { projects: [], skills: [], github: false, sandbox: 'read-only' } })
+    const updated = ctx.service.agent({ name: 'Renamed' }, agent.id)
+    expect(updated.access).toEqual(agent.access)
+  })
   it('fails closed when an isolated runner is unavailable', async () => {
     const agent = ctx.service.agent({ name: 'Restricted', access: { github: false } })
     const task = ctx.service.task({ ...ctx.task, agentId: agent.id })

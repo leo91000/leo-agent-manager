@@ -71,8 +71,9 @@ export class Service {
 
   agent(value: unknown, existingId?: string) {
     const input = agentInput.parse(value)
-    if (existingId)
-      requireValue(this.store.get('agents', existingId))
+    const existing = existingId ? requireValue(this.store.get('agents', existingId)) : undefined
+    if (existing && value && typeof value === 'object' && !Object.hasOwn(value, 'access'))
+      input.access = policy(existing)
     const item: Agent = {
       ...input,
       id: existingId ?? randomUUID(),
