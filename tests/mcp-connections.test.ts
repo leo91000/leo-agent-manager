@@ -167,6 +167,8 @@ describe('outbound MCP connection lifecycle', () => {
       expect(ctx.service.mcps.secrets(item.id).env).toEqual({})
       const legacy = { ...ctx.agent, access: { projects: [], skills: null, github: false, sandbox: 'yolo' } } as unknown as typeof ctx.agent
       expect(policy(legacy).mcps).toEqual([])
+      const legacyMain = { ...ctx.agent, id: MAIN_AGENT_ID, access: { projects: null, skills: null, github: true, sandbox: 'read-only' } } as unknown as typeof ctx.agent
+      expect(policy(legacyMain).mcps).toBeNull()
       await expect(ctx.service.mcps.save({ name: 'Unsafe', transport: 'stdio', command: 'node', env: { HOME: '/data' } })).rejects.toThrow('runtime')
       expect((await readFile(path.join(ctx.directory, 'data/mcp-encryption-key'))).length).toBe(32)
     }

@@ -1,10 +1,10 @@
 import type { Agent, Project, Run, Task } from '../shared/contracts.ts'
-import { accessPolicy } from '../shared/contracts.ts'
+import { accessPolicy, MAIN_AGENT_ID } from '../shared/contracts.ts'
 import { AppError } from './errors.ts'
 
 export function policy(agent: Agent) {
   const access = accessPolicy.parse(agent.access ?? {})
-  if (agent.access && !Object.hasOwn(agent.access, 'mcps') && (access.projects !== null || access.skills !== null || !access.github || access.sandbox !== 'yolo'))
+  if (agent.id !== MAIN_AGENT_ID && agent.access && !Object.hasOwn(agent.access, 'mcps') && (access.projects !== null || access.skills !== null || !access.github || access.sandbox !== 'yolo'))
     access.mcps = []
   return access
 }
