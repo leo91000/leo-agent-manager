@@ -13,7 +13,7 @@ COPY src ./src
 COPY shared ./shared
 COPY server ./server
 COPY public ./public
-RUN pnpm build && pnpm prune --prod
+RUN pnpm build && pnpm prune --prod --ignore-scripts
 
 FROM base AS runtime
 ARG PLAYWRIGHT_VERSION=1.63.0
