@@ -20,6 +20,15 @@ export const agentInput = z.object({
   timeoutMinutes: z.number().int().min(1).max(720).default(120),
   access: accessPolicy.default(() => accessPolicy.parse({})),
 })
+export const agentUpdate = z.object({
+  name: agentInput.shape.name.optional(),
+  description: agentInput.shape.description.removeDefault().optional(),
+  model: agentInput.shape.model.removeDefault().optional(),
+  reasoning: agentInput.shape.reasoning.removeDefault().optional(),
+  instructions: agentInput.shape.instructions.removeDefault().optional(),
+  timeoutMinutes: agentInput.shape.timeoutMinutes.removeDefault().optional(),
+  access: agentInput.shape.access.removeDefault().optional(),
+})
 export const projectInput = z.object({
   name,
   path: z.string().min(1).max(2000),

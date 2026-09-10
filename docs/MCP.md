@@ -56,12 +56,17 @@ hour, and refresh tokens after 30 days. Browser sessions are separate credential
 
 | Scope | Tools |
 | --- | --- |
-| `read` | `list_agents`, `list_projects`, `list_tasks`, `list_runs`, `get_run`, `list_skills` |
-| `manage` | `save_agent`, `save_project`, `create_task`, `update_task`, `save_skill` |
+| `read` | `list_agents`, `list_projects`, `list_tasks`, `list_runs`, `get_run`, `list_skills`, `list_mcps` |
+| `manage` | `save_agent`, `update_agent`, `save_project`, `create_task`, `update_task`, `save_skill`, `create_mcp`, `update_mcp`, `test_mcp`, `disconnect_mcp`, `delete_mcp` |
 | `run` | `run_task`, `cancel_run` |
 
 `save_agent` and `save_project` create new records. `update_task` replaces the
 existing task configuration; `save_skill` creates or replaces its SKILL.md.
+`update_agent` preserves omitted top-level fields; an explicit access policy
+replaces the complete policy. MCP connection tools share the UI's validation,
+encrypted credential storage and run-grant enforcement. See
+[connection management](MCP-CONNECTIONS.md#managing-connections-through-mcp)
+for configuration, OAuth sign-in and agent assignments.
 `list_runs` is paginated and omits full instructions/results; `get_run` returns the
 original snapshot, full summary, and an incremental event page. Calls return text
 and a structured `{ result }` object. Tool metadata includes OAuth scopes and
@@ -72,8 +77,9 @@ OAuth grants and 30-day personal tokens can be revoked from **Settings**. Person
 tokens are displayed once; put them in the client's secret storage, never its Git
 configuration. Dynamic registration is rate-limited and capped at 100 clients.
 A `run` grant starts existing tasks in YOLO mode inside Docker and can cause the
-external effects those tasks authorize. `manage` permits changing scheduled tasks, so it also
-requires trust in the connected assistant.
+external effects those tasks authorize. `manage` permits changing scheduled tasks
+and agent permissions, configuring external servers, and executing command
+servers through `test_mcp`, so it requires owner-level trust in the connected assistant.
 
 ## ChatGPT
 

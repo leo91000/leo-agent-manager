@@ -3,6 +3,42 @@
 Open **MCPs → Add MCP** to connect an external server. This is separate from the
 manager’s inbound `/mcp` endpoint described in [MCP.md](MCP.md).
 
+## Managing connections through MCP
+
+Agents and external clients can use the manager's own MCP tools:
+
+| Tool | Scope | Purpose |
+| --- | --- | --- |
+| `list_mcps` | `read` | Inspect connections, authentication state and discovered tools |
+| `create_mcp` | `manage` | Add an HTTP or command server |
+| `update_mcp` | `manage` | Replace connection settings, preserving omitted secrets |
+| `test_mcp` | `manage` | Connect and discover tools; command servers execute during testing |
+| `disconnect_mcp` | `manage` | Clear local credentials and invalidate remote grants |
+| `delete_mcp` | `manage` | Delete a connection and remove agent selections |
+| `update_agent` | `manage` | Assign connections and tool permissions to an existing agent |
+
+Create a connection, test it, and assign its ID through `update_agent` with
+`access.mcps`. Read the agent first and preserve its other access fields: an
+explicit `access` replaces the complete policy. Omitted top-level agent fields
+retain their values. The main agent always receives every enabled connection.
+
+For OAuth, creation returns a `managementUrl`. Open it in a signed-in browser
+and choose **Connect** on the saved connection. Consent stays bound to that
+browser session; MCP clients cannot bypass it. Refreshes are automatic after
+authorization. Bearer tokens, client secrets and command environment values
+are write-only and use the same encrypted vault as UI-created connections.
+
+`update_mcp` requires the complete non-secret configuration. Omit secret fields
+to retain saved values, or use `removeEnv` to remove individual environment
+variables. Changing the endpoint or authentication settings clears existing
+credentials. Access changes apply to new runs; connection changes can invalidate
+remote grants in active runs. Creating a connection does not execute it.
+
+An agent using the manager's own connection can manage other MCPs through it.
+Testing or changing that same self-connection while it serves a gateway request
+returns an actionable error instead of waiting on its own request lock. Use the
+MCPs UI once that request finishes to manage the self-connection itself.
+
 ## Remote servers
 
 Choose **Remote HTTP server**, enter its final Streamable HTTP endpoint, and

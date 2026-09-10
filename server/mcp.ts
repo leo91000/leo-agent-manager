@@ -5,7 +5,8 @@ import type { Worker } from './worker.ts'
 import { toNodeHandler } from '@modelcontextprotocol/node'
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server'
 import { z } from 'zod'
-import { agentInput, projectInput, taskInput } from '../shared/contracts.ts'
+import { agentInput, agentUpdate, projectInput, taskInput } from '../shared/contracts.ts'
+import { mcpInput } from '../shared/mcp.ts'
 import { version } from '../shared/version.ts'
 import { AppError, requireValue } from './errors.ts'
 
@@ -101,6 +102,72 @@ export function mountMcp(
           agentInput,
           'manage',
           args => service.agent(args),
+        )
+        tool(
+          'update_agent',
+          'Update an existing agent, including MCP connection and tool access. Omitted fields retain their current values; access, when supplied, replaces the entire access policy. Changes apply to new runs.',
+          z.object({ id: z.string().uuid(), agent: agentUpdate }),
+          'manage',
+          args => service.agent({ ...requireValue(service.store.get('agents', args.id)), ...args.agent }, args.id),
+        )
+        tool(
+          'list_mcps',
+          'List MCP connections, discovered tools, authentication state and saved credential indicators. Secret values are never returned.',
+          z.object({}),
+          'read',
+          () => service.mcps.list(),
+        )
+        tool(
+          'create_mcp',
+          'Add an HTTP or command MCP connection. Supports bearer tokens, OAuth and command environment credentials, stored encrypted and never returned. Does not connect or execute commands. For OAuth, open managementUrl and choose Connect in the signed-in browser. Use test_mcp to discover tools, then update_agent to grant access.',
+          mcpInput,
+          'manage',
+          async args => ({ ...await service.mcps.save(args), managementUrl: `${service.config.publicUrl}/mcps` }),
+        )
+        tool(
+          'update_mcp',
+          'Replace an existing MCP connection configuration; supply its complete non-secret settings. Omit token, clientSecret and env values to preserve saved credentials; removeEnv deletes selected variables. Changing authentication settings clears previous credentials. Invalidates active remote grants. OAuth sign-in is completed from managementUrl in the browser.',
+          z.object({ id: z.string().uuid(), connection: mcpInput }),
+          'manage',
+          async (args) => {
+            service.mcps.assertManagementAvailable(args.id)
+            return { ...await service.mcps.save(args.connection, args.id), managementUrl: `${service.config.publicUrl}/mcps` }
+          },
+        )
+        tool(
+          'test_mcp',
+          'Connect to an MCP server and discover its tools. Command servers execute in the manager environment; only test trusted commands. OAuth requiring user consent must first be connected in the MCPs UI. Returns connection state and safe diagnostics.',
+          z.object({ id: z.string().uuid() }),
+          'manage',
+          (args) => {
+            service.mcps.assertManagementAvailable(args.id)
+            return service.mcps.test(args.id)
+          },
+          true,
+        )
+        tool(
+          'disconnect_mcp',
+          'Remove locally stored MCP credentials and invalidate active remote grants while keeping the connection configuration. Provider-side consent is not revoked; running command processes retain their environment until they stop.',
+          z.object({ id: z.string().uuid() }),
+          'manage',
+          async (args) => {
+            service.mcps.assertManagementAvailable(args.id)
+            await service.mcps.disconnect(args.id)
+            return { disconnected: true }
+          },
+          true,
+        )
+        tool(
+          'delete_mcp',
+          'Delete an MCP connection and its credentials, remove agent selections, and invalidate active remote grants. Running command processes are not stopped.',
+          z.object({ id: z.string().uuid() }),
+          'manage',
+          async (args) => {
+            service.mcps.assertManagementAvailable(args.id)
+            await service.mcps.disconnect(args.id, true)
+            return { deleted: true }
+          },
+          true,
         )
         tool(
           'list_projects',

@@ -75,6 +75,16 @@ export class McpConnections {
   }
 
   list() { return this.store.list('mcps').map(item => this.view(item)) }
+
+  assertManagementAvailable(id: string) {
+    const item = this.get(id)
+    if (item.transport !== 'http' || !this.locks.has(id))
+      return
+    const url = new URL(item.url)
+    if (url.origin === this.config.publicUrl && url.pathname === '/mcp')
+      throw new AppError(409, 'This self-connection is serving an active request. Manage other connections here; test or change this connection directly from the MCPs UI after the request finishes.')
+  }
+
   async save(value: unknown, id: string = randomUUID()) {
     const input = mcpInput.parse(value)
     return this.exclusive(id, async () => {
