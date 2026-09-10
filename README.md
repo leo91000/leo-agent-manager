@@ -82,5 +82,7 @@ and is absent from the production image.
 [Detailed delivery plan](docs/PLAN.md) · [Validation record](docs/QA.md) ·
 [Performance measurements](docs/PERFORMANCE.md) · [Security](SECURITY.md)
 
-CI runs checks and browser tests before building and smoke-testing a non-root Docker
-image. Successful main/tag builds publish GHCR images with commit and version tags.
+CI runs quality checks and isolated browser suites alongside a container build and
+non-root smoke test. Image tags are published only after both jobs pass. Release
+tags reuse the exact image already validated on main, then verify the deployed
+commit. See the [CI measurements and release paths](docs/CI-PERFORMANCE.md).

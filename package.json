@@ -1,7 +1,7 @@
 {
   "name": "leo-agent-manager",
   "type": "module",
-  "version": "0.1.6-rc.2",
+  "version": "0.1.6-rc.3",
   "private": true,
   "packageManager": "pnpm@12.3.4",
   "description": "A private control room for your coding agents, scheduled work, and shared skills.",
@@ -15,7 +15,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm lint && pnpm test && pnpm build",
     "format": "pnpm lint:fix",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"

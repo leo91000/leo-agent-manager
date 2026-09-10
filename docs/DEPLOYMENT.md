@@ -99,8 +99,15 @@ does not establish that DNS, TLS, reverse-proxy routing, or cloud connectors wor
 ### Deploy version tags through GitHub Actions
 
 The `Quality and container` workflow deploys pushes of `v*` tags after quality,
-browser, and container smoke tests pass and the image is published. Main branch
-pushes publish images without deploying. Deployment jobs are serialized.
+browser, and container smoke tests pass. Main branch pushes validate and publish
+images without deploying. A tag at a successful main commit promotes that exact
+image digest without rebuilding or repeating the tests. If main CI is still
+running, the tag waits for it; missing, failed, expired, or mismatched validation
+falls back to the full pipeline. Deployment jobs are serialized.
+
+For the shortest tag-to-live time, tag a commit whose main CI has already passed.
+Pushing main and its tag together also works and shares the validation work.
+See [CI performance](CI-PERFORMANCE.md) for measurements and the evidence checks.
 
 The GitHub `production` environment needs:
 
