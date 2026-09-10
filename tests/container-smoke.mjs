@@ -11,7 +11,7 @@ const volumes = ['data', 'home', 'workspaces'].map(
   suffix => `${name}-${suffix}`,
 )
 function docker(...args) {
-  return exec('docker', ['--context', 'default', ...args], { timeout: 60000 })
+  return exec('docker', ['--context', 'default', ...args], { timeout: args[0] === 'run' ? 180000 : 60000 })
 }
 async function main() {
   try {
@@ -48,6 +48,11 @@ async function main() {
       throw new Error('Container did not become healthy')
     }
     await ready()
+    const healthDeadline = Date.now() + 15000
+    while ((await docker('inspect', '--format', '{{.State.Health.Status}}', name)).stdout.trim() !== 'healthy') {
+      assert.ok(Date.now() < healthDeadline, 'Docker health check did not become healthy promptly')
+      await setTimeout(200)
+    }
     const health = await fetch(`${url}/health`)
     assert.equal(health.headers.get('cache-control'), 'no-store')
     const version = await health.json()

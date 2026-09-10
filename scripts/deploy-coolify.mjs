@@ -2,7 +2,7 @@ import { appendFileSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout } from 'node:timers/promises'
 
-export async function deploy(config, { timeoutMs = 600000, intervalMs = 5000 } = {}) {
+export async function deploy(config, { timeoutMs = 600000, intervalMs = 2000 } = {}) {
   const { coolifyUrl, serviceUuid, token, image, commit, publicUrl } = config
   const servicePath = `/api/v1/services/${encodeURIComponent(serviceUuid)}`
   async function api(path, method, body) {
@@ -19,16 +19,21 @@ export async function deploy(config, { timeoutMs = 600000, intervalMs = 5000 } =
       throw new Error(`Coolify ${method} ${path} failed (HTTP ${response.status})`)
   }
 
+  const started = Date.now()
   await api(`${servicePath}/envs`, 'PATCH', {
     key: 'LEO_IMAGE',
     value: image,
     is_literal: true,
   })
+  const updated = Date.now()
   await api(`${servicePath}/restart`, 'POST')
+  const restarted = Date.now()
+  let polls = 0
 
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
+      polls++
       const response = await fetch(new URL('/health', publicUrl), {
         cache: 'no-store',
         redirect: 'error',
@@ -37,7 +42,7 @@ export async function deploy(config, { timeoutMs = 600000, intervalMs = 5000 } =
       if (response.ok) {
         const health = await response.json()
         if (health.status === 'ok' && health.commit === commit)
-          return
+          return { updateMs: updated - started, restartMs: restarted - updated, healthyMs: Date.now() - restarted, totalMs: Date.now() - started, polls }
       }
       else {
         await response.body?.cancel()
@@ -79,8 +84,8 @@ function configuration() {
 if (import.meta.main) {
   try {
     const config = configuration()
-    await deploy(config)
-    const result = `Deployed ${config.image}\nVerified commit ${config.commit} at ${config.publicUrl}\n`
+    const timings = await deploy(config)
+    const result = `Deployed ${config.image}\nVerified commit ${config.commit} at ${config.publicUrl}\nDeployment timings: ${JSON.stringify(timings)}\n`
     console.log(result)
     if (process.env.GITHUB_STEP_SUMMARY)
       appendFileSync(process.env.GITHUB_STEP_SUMMARY, result)

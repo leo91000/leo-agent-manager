@@ -5,11 +5,17 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      browser-workers:
+        description: Browser workers for performance comparisons
+        type: choice
+        options: ['2', '4', '5']
+        default: '5'
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
 jobs:
   resolve:
     runs-on: ubuntu-latest
@@ -35,7 +41,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.reuse != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: pnpm/setup@v2.1.0
@@ -45,7 +51,9 @@ jobs:
           cache: true
       - run: pnpm check
       - run: pnpm exec playwright install --with-deps chromium webkit
-      - run: pnpm test:e2e
+      - run: pnpm test:e2e --workers="$BROWSER_WORKERS"
+        env:
+          BROWSER_WORKERS: ${{ inputs.browser-workers || '5' }}
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -56,29 +64,63 @@ jobs:
             docs/screenshots/
           retention-days: 14
   image:
-    needs: [resolve, quality]
+    needs: resolve
     if: needs.resolve.outputs.reuse != 'true'
     outputs:
-      digest: ${{ steps.publish.outputs.digest }}
+      digest: ${{ steps.build.outputs.digest }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: docker/setup-buildx-action@v4.3.0
-      - uses: docker/build-push-action@v7.3.0
-        with:
-          context: .
-          load: true
-          tags: leo-agent-manager:test
-          build-args: VCS_REF=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - run: node tests/container-smoke.mjs
       - uses: docker/login-action@v4.6.0
         if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Read package version
+        id: package
+        run: node -e 'require("node:fs").appendFileSync(process.env.GITHUB_OUTPUT, `version=${require("./package.json").version}\n`)'
+      - uses: docker/metadata-action@v6.2.0
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          labels: org.opencontainers.image.version=${{ steps.package.outputs.version }}
+      # Publish only an untagged digest. Release/latest tags wait for all checks.
+      # PRs remain local and need no registry credentials or package writes.
+      - uses: docker/build-push-action@v7.3.0
+        id: build
+        with:
+          context: .
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ github.event_name == 'pull_request' && 'leo-agent-manager:test' || '' }}
+          outputs: ${{ github.event_name != 'pull_request' && format('type=image,name=ghcr.io/{0},push-by-digest=true,name-canonical=true,push=true', github.repository) || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VCS_REF=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true,timeout=2m
+          provenance: ${{ github.event_name != 'pull_request' && 'mode=max' || 'false' }}
+          sbom: ${{ github.event_name != 'pull_request' }}
+      - name: Smoke-test the exact image
+        env:
+          SMOKE_IMAGE: ${{ github.event_name == 'pull_request' && 'leo-agent-manager:test' || format('ghcr.io/{0}@{1}', github.repository, steps.build.outputs.digest) }}
+        run: node tests/container-smoke.mjs "$SMOKE_IMAGE"
+  publish:
+    needs: [resolve, quality, image]
+    if: always() && !cancelled() && github.event_name != 'pull_request' && needs.resolve.outputs.reuse != 'true' && needs.quality.result == 'success' && needs.image.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: docker/setup-buildx-action@v4.3.0
+      - uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -91,22 +133,20 @@ jobs:
             type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
-      - uses: docker/build-push-action@v7.3.0
-        id: publish
-        if: github.event_name != 'pull_request'
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: VCS_REF=${{ github.sha }}
-          cache-from: type=gha
-          provenance: mode=max
-          sbom: true
+      - name: Promote the tested digest
+        env:
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            args+=(--tag "$tag")
+          done <<< "$IMAGE_TAGS"
+          docker buildx imagetools create "${args[@]}" "ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}"
       - name: Record the validated image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
-          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
         run: |
           mkdir -p release-evidence
           node --input-type=module <<'JS'
@@ -121,8 +161,8 @@ jobs:
           retention-days: 90
           overwrite: true
   deploy:
-    if: always() && !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.resolve.result == 'success' && (needs.resolve.outputs.reuse == 'true' || (needs.quality.result == 'success' && needs.image.result == 'success'))
-    needs: [resolve, quality, image]
+    if: always() && !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.resolve.result == 'success' && (needs.resolve.outputs.reuse == 'true' || needs.publish.result == 'success')
+    needs: [resolve, image, publish]
     permissions:
       contents: read
       packages: write

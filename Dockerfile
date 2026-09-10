@@ -19,9 +19,7 @@ FROM base AS runtime
 ARG GH_VERSION=2.100.0
 ARG CODEX_VERSION=0.153.4
 ARG TARGETARCH
-ARG VCS_REF=development
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4310 DATA_DIR=/data AGENT_HOME=/home/node WORKSPACE_ROOTS=/workspaces
-ENV APP_COMMIT=$VCS_REF
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git ripgrep fd-find python3 build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
@@ -41,8 +39,10 @@ COPY --from=build --chown=node:node /app/shared ./shared
 COPY --from=build --chown=node:node /app/package.json ./package.json
 RUN mkdir -p /data /workspaces /home/node/.agents/skills /home/node/.codex \
     && chown -R node:node /data /workspaces /home/node /app
+ARG VCS_REF=development
+ENV APP_COMMIT=$VCS_REF
 USER node
 VOLUME ["/data", "/home/node", "/workspaces"]
 EXPOSE 4310
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s CMD node -e "fetch('http://127.0.0.1:4310/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --start-interval=1s CMD node -e "fetch('http://127.0.0.1:4310/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "--import", "tsx", "server/index.ts"]
