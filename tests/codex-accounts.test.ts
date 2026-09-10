@@ -64,7 +64,7 @@ describe('codex account pool', () => {
     await data.pool.release(lease)
   })
 
-  it('requires fresh usage to confirm natural resets and never consumes reset offers', async () => {
+  it('requires fresh usage to confirm natural resets when no banked resets are available', async () => {
     const account = data.seed('Empty', limits(100, 20))
     data.pool.markExhausted(account.id, '')
     const expired = limits(100, 20)

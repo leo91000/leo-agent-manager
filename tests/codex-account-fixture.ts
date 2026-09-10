@@ -16,14 +16,24 @@ export function credential(id: string) {
 export async function accountFixture(ctx: Pick<Awaited<ReturnType<typeof fixture>>, 'service'>) {
   const responses = new Map<string, AccountLimits | Error>()
   const calls: string[] = []
+  const redemptions: Array<{ id: string, params: { idempotencyKey: string, creditId?: string } }> = []
+  const consume = new Map<string, (params: { idempotencyKey: string, creditId?: string }) => unknown | Promise<unknown>>()
   const session: CodexSession = async (home, operation) => {
     const filename = path.join(home, 'auth.json')
     const auth = JSON.parse(await readFile(filename, 'utf8'))
     const id = auth.tokens.account_id
-    return operation({ request: async <T>(method: string) => {
+    return operation({ request: async <T>(method: string, params?: unknown) => {
       calls.push(method)
       if (method === 'account/read')
         return { account: { type: 'chatgpt', email: `${id}@example.test`, planType: 'plus' } } as T
+      if (method === 'account/rateLimitResetCredit/consume') {
+        const request = params as { idempotencyKey: string, creditId?: string }
+        redemptions.push({ id, params: request })
+        const handler = consume.get(id)
+        if (!handler)
+          throw new Error('Unexpected reset redemption')
+        return await handler(request) as T
+      }
       if (method !== 'account/rateLimits/read')
         throw new Error(`Unexpected mutating RPC: ${method}`)
       auth.tokens.refresh_token = `synthetic-rotated-${id}`
@@ -46,5 +56,5 @@ export async function accountFixture(ctx: Pick<Awaited<ReturnType<typeof fixture
     responses.set(id, value)
     return account
   }
-  return { pool, seed, responses, calls }
+  return { pool, seed, responses, calls, redemptions, consume }
 }

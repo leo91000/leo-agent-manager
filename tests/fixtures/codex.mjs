@@ -81,7 +81,7 @@ async function main() {
     if (prompt.includes('fixture:exhaust')) {
       mkdirSync(process.env.CODEX_HOME, { recursive: true })
       const auth = JSON.parse(readFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), 'utf8'))
-      writeFileSync(marker, JSON.stringify({ account: auth.tokens.account_id, cwd: process.cwd() }))
+      writeFileSync(marker, JSON.stringify({ account: auth.tokens.account_id, cwd: process.cwd(), allowSameAccount: prompt.includes('fixture:banked-reset') }))
       writeFileSync(path.join(process.cwd(), 'preserved-work.txt'), 'work before exhaustion')
       emit({ type: 'turn.failed', error: { message: 'You\'ve hit your usage limit. Try again later.' } })
       process.exitCode = 1
@@ -90,7 +90,7 @@ async function main() {
     if (args.includes('resume')) {
       const previous = JSON.parse(readFileSync(marker, 'utf8'))
       const auth = JSON.parse(readFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), 'utf8'))
-      if (previous.account === auth.tokens.account_id || previous.cwd !== process.cwd() || args[args.indexOf('resume') + 1] !== 'fixture-session' || readFileSync(path.join(process.cwd(), 'preserved-work.txt'), 'utf8') !== 'work before exhaustion')
+      if ((previous.account === auth.tokens.account_id && !previous.allowSameAccount) || previous.cwd !== process.cwd() || args[args.indexOf('resume') + 1] !== 'fixture-session' || readFileSync(path.join(process.cwd(), 'preserved-work.txt'), 'utf8') !== 'work before exhaustion')
         throw new Error('Resume did not preserve context or switch accounts')
       emit({ type: 'item.completed', item: { text: 'Resumed original session on another account with workspace intact' } })
     }

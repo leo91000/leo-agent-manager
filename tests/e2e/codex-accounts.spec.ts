@@ -7,7 +7,7 @@ test('accounts show live usage, reset windows and accessible controls across the
   await workspace.service.accounts.close()
   const data = await accountFixture({ service: workspace.service })
   const personal = data.seed('Personal', limits(28, 37))
-  const work = data.seed('Work', limits(4, 18))
+  const work = data.seed('Work', { ...limits(4, 18), rateLimitResetCredits: { availableCount: 3 } })
   data.seed('Almost empty', limits(97, 32))
   const paused = data.seed('Travel', limits(20, 50))
   data.pool.update(paused.id, { name: paused.name, enabled: false })
@@ -18,6 +18,7 @@ test('accounts show live usage, reset windows and accessible controls across the
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   const card = page.getByRole('article', { name: 'Work', exact: true })
   await expect(card.getByText('Next run', { exact: true })).toBeVisible()
+  await expect(card.getByText('Banked resets: 3 · Automatic at 2% remaining')).toBeVisible()
   await expect(card.getByRole('progressbar', { name: 'Work Weekly remaining' })).toHaveAttribute('aria-valuenow', '82')
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
@@ -25,10 +26,13 @@ test('accounts show live usage, reset windows and accessible controls across the
       await page.setViewportSize({ width, height: width === 1440 ? 1050 : 844 })
       await expectSingleScroll(page)
       await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-accounts.png`), animations: 'disabled' })
+      if (width === 390)
+        await card.screenshot({ path: testInfo.outputPath(`${theme}-mobile-banked-resets.png`), animations: 'disabled' })
     }
   }
   await card.getByRole('button', { name: 'Pause Work', exact: true }).click()
   await expect(card.getByText('Paused', { exact: true })).toBeVisible()
+  await expect(card.getByText('Banked resets: 3 · Automatic use paused')).toBeVisible()
   await expect(page.getByRole('article', { name: 'Personal', exact: true }).getByText('Next run', { exact: true })).toBeVisible()
   data.responses.set(personal.id, limits(100, 37))
   await page.getByRole('button', { name: 'Refresh Codex usage', exact: true }).click()

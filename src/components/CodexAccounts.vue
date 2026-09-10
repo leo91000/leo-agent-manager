@@ -174,7 +174,7 @@ onBeforeUnmount(() => clearInterval(timer))
           <h2 id="codex-accounts-title">
             Codex accounts <span class="ml-1.5 text-muted text-sm">{{ accounts.length }}</span>
           </h2><p class="text-xs text-muted">
-            Usage checked every minute
+            Usage checked automatically
           </p>
         </div>
       </div>
@@ -229,6 +229,12 @@ onBeforeUnmount(() => clearInterval(timer))
         <p v-if="account.error" class="mt-4 text-xs text-danger" role="status">
           {{ account.error }}
         </p>
+        <p v-if="account.limits?.rateLimitResetCredits" class="mt-4 text-xs text-muted">
+          Banked resets: {{ account.limits.rateLimitResetCredits.availableCount }} · {{ account.enabled ? 'Automatic at 2% remaining' : 'Automatic use paused' }}
+        </p>
+        <p v-if="account.resetError" class="mt-2 text-xs text-warning" role="status">
+          {{ account.resetError }}
+        </p>
         <p v-if="account.checkedAt" class="mt-4 text-2xs text-muted" :title="date(account.checkedAt)">
           Updated {{ Math.max(0, Math.floor((now - account.checkedAt) / 1000)) }}s ago
         </p>
@@ -252,7 +258,7 @@ onBeforeUnmount(() => clearInterval(timer))
       </article>
     </div>
     <p class="mt-4 text-xs text-muted">
-      New runs use the available account with the most capacity. Exhausted runs resume on another account; reset accounts return automatically. One run per account.
+      New runs use the available account with the most capacity. Enabled accounts use banked resets automatically at 2% remaining, even while idle. Exhausted runs resume when capacity returns or another account is available. One run per account.
     </p>
     <section v-if="flow?.state === 'pending' || flow?.state === 'failed'" class="mt-5 rounded-card border border-accent bg-surface p-5" aria-live="polite">
       <h3>{{ flow.state === 'failed' ? 'Sign-in needs another try' : 'Finish signing in to Codex' }}</h3>

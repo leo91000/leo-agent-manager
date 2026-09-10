@@ -419,7 +419,7 @@ export class Worker {
           await this.service.accounts.release(previous)
           account = null
           store.updateRun(run.id, { accountWaitReason: 'Usage exhausted. Waiting for an available Codex account to resume.', codexAccountId: null, codexAccountName: null })
-          store.event(run.id, 'status', 'Usage exhausted. Saving this session and switching accounts.')
+          store.event(run.id, 'status', 'Usage exhausted. Saving this session and restoring capacity or switching accounts.')
           await this.service.accounts.refresh(previous.accountId)
           while (!account && !control.cancelled && !control.stopping && Date.now() < deadline) {
             try {

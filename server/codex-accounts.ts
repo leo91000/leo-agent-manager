@@ -9,6 +9,7 @@ import { chmod, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises
 import path from 'node:path'
 import { z } from 'zod'
 import { remainingUsage, usageBlocked, usageRecovered } from '../shared/codex-accounts.ts'
+import { CodexAccountResets } from './codex-account-resets.ts'
 import { codexSession } from './codex-rpc.ts'
 import { Connections } from './connections.ts'
 import { AppError, requireValue } from './errors.ts'
@@ -18,7 +19,8 @@ const codexAccountInput = z.object({ name: z.string().trim().min(1).max(100), en
 const authSchema = z.object({ tokens: z.object({ access_token: z.string().min(1), refresh_token: z.string().optional(), id_token: z.string().optional(), account_id: z.string().optional() }).passthrough() }).passthrough()
 const windowSchema = z.object({ usedPercent: z.number().finite().min(0), windowDurationMins: z.number().nullable(), resetsAt: z.number().nullable() })
 const bucketSchema = z.object({ limitId: z.string().nullable(), limitName: z.string().nullable().default(null), normalModelSlug: z.string().nullable().optional(), primary: windowSchema.nullable(), secondary: windowSchema.nullable(), rateLimitReachedType: z.string().nullable().optional(), spendControlReached: z.boolean().nullable().optional() })
-const limitsSchema = z.object({ ordinaryUsageAllowed: z.boolean().nullable().optional(), accountId: z.string().nullable().optional(), rateLimits: bucketSchema, rateLimitsByLimitId: z.record(z.string(), bucketSchema).nullable().optional() })
+const resetCreditsSchema = z.object({ availableCount: z.number().int().min(0), credits: z.array(z.object({ id: z.string().min(1), resetType: z.string(), status: z.string(), expiresAt: z.number().nullable() })).nullable().optional() })
+const limitsSchema = z.object({ ordinaryUsageAllowed: z.boolean().nullable().optional(), accountId: z.string().nullable().optional(), rateLimits: bucketSchema, rateLimitsByLimitId: z.record(z.string(), bucketSchema).nullable().optional(), rateLimitResetCredits: resetCreditsSchema.nullable().optional() })
 function authSubject(token?: string): string {
   try {
     return JSON.parse(Buffer.from(token?.split('.')[1] || '', 'base64url').toString()).sub || ''
@@ -34,6 +36,7 @@ export interface AccountLease {
   accountId: string
   runId: string
   home: string
+  model: string
 }
 
 export class CodexAccounts {
@@ -41,6 +44,7 @@ export class CodexAccounts {
   readonly leases = new Map<string, AccountLease>()
   readonly refreshing = new Map<string, Promise<void>>()
   readonly session: CodexSession
+  private resets: CodexAccountResets
   private loginStarting = false
   private connecting = new Set<string>()
   private locks = new Map<string, Promise<unknown>>()
@@ -54,6 +58,7 @@ export class CodexAccounts {
   constructor(readonly store: Store, readonly config: Config, session?: CodexSession) {
     this.vault = new McpVault(store, config.dataDir)
     this.session = session ?? codexSession(config)
+    this.resets = new CodexAccountResets(store)
   }
 
   get(id: string) {
@@ -182,20 +187,20 @@ export class CodexAccounts {
 
   start() {
     this.timer = setInterval(() => {
-      void this.poll().catch(() => {})
-    }, 60000)
+      void this.poll(true).catch(() => {})
+    }, 15000)
     this.timer.unref()
     void this.poll().catch(() => {})
   }
 
-  async poll() {
+  async poll(onlyDue = false) {
     if (this.closing)
       return
     this.polling ??= (async () => {
       await this.initialize()
       const accounts = this.store.list('codexAccounts').filter(account => account.state !== 'pending')
       const imported = this.store.list('codexAccounts').filter(account => account.state === 'pending' && this.vault.get(credentialKey(account.id)))
-      const ids = [...accounts, ...imported].map(account => account.id)
+      const ids = [...accounts, ...imported].filter(account => !onlyDue || Date.now() - (this.attempted.get(account.id) ?? 0) >= this.resets.pollInterval(account, this.leases.get(account.id)?.model ?? account.exhausted?.model ?? '')).map(account => account.id)
       for (let index = 0; index < ids.length; index += 2)
         await Promise.all(ids.slice(index, index + 2).map(id => this.refresh(id)))
     })().finally(() => {
@@ -227,11 +232,15 @@ export class CodexAccounts {
         const identity = await rpc.request<{ account: { type: string, email: string | null, planType: string } | null }>('account/read', { refreshToken: false })
         if (identity.account?.type !== 'chatgpt')
           throw new AppError(400, 'Connect a ChatGPT subscription account. API keys are not supported here.')
-        const limits: AccountLimits = limitsSchema.parse(await rpc.request('account/rateLimits/read'))
-        let account = this.get(id)
         const auth = authSchema.parse(JSON.parse(await readFile(path.join(home, 'auth.json'), 'utf8')))
-        if (limits.accountId && auth.tokens.account_id && limits.accountId !== auth.tokens.account_id)
-          throw new AppError(409, 'Codex returned usage for a different account. Reconnect this account.')
+        const readLimits = async (): Promise<AccountLimits> => {
+          const limits = limitsSchema.parse(await rpc.request('account/rateLimits/read'))
+          if (limits.accountId && auth.tokens.account_id && limits.accountId !== auth.tokens.account_id)
+            throw new AppError(409, 'Codex returned usage for a different account. Reconnect this account.')
+          return limits
+        }
+        let limits = await readLimits()
+        let account = this.get(id)
         const subject = authSubject(auth.tokens.id_token) || identity.account.email || ''
         if (!subject)
           throw new AppError(400, 'Codex did not return an account identity. Reconnect this account.')
@@ -242,12 +251,18 @@ export class CodexAccounts {
         if (duplicate)
           throw new AppError(409, 'This account is already connected. Reconnect the existing account instead.')
         account = { ...account, identity: fingerprint, email: identity.account.email, plan: identity.account.planType, state: 'ready', checkedAt: Date.now(), error: '', limits }
+        if (account.exhausted && usageRecovered(account.exhausted.limits, limits, account.exhausted.model))
+          account.exhausted = null
         this.save(account)
+        const reset = await this.resets.refresh(account, lease?.model ?? account.exhausted?.model ?? '', rpc, readLimits)
+        limits = reset.limits
+        account = { ...this.get(id), limits, resetError: reset.resetError }
         // A timestamp alone does not restore capacity: require a fresh usage increase.
         if (account.exhausted) {
-          const recovered = usageRecovered(account.exhausted.limits, limits, account.exhausted.model)
-          this.save({ ...account, exhausted: recovered ? null : { ...account.exhausted, limits } })
+          const recovered = (reset.resetConfirmed && !usageBlocked(limits, account.exhausted.model) && (remainingUsage(limits, account.exhausted.model) ?? 0) > 0) || usageRecovered(account.exhausted.limits, limits, account.exhausted.model)
+          account = { ...account, exhausted: recovered ? null : { ...account.exhausted, limits } }
         }
+        this.save(account)
       })
       await this.capture(id, home)
     }
@@ -278,6 +293,7 @@ export class CodexAccounts {
       if (this.recovering(id) || this.leases.has(id) || this.connecting.has(id))
         throw new AppError(409, 'This account is in use.')
       this.vault.delete(credentialKey(id))
+      this.resets.remove(id)
       this.store.remove('codexAccounts', id)
       this.store.audit('codex.account.removed', { id })
     })
@@ -293,7 +309,7 @@ export class CodexAccounts {
     const account = candidates[0]
     if (!account)
       throw new AppError(409, 'Waiting for a Codex account with available usage. Usage is checked every minute.')
-    const lease = { accountId: account.id, runId, home: path.join(this.config.dataDir, 'runs', runId, 'codex') }
+    const lease = { accountId: account.id, runId, model, home: path.join(this.config.dataDir, 'runs', runId, 'codex') }
     this.leases.set(account.id, lease)
     try {
       await this.exclusive(account.id, () => this.materialize(account.id, lease.home))
