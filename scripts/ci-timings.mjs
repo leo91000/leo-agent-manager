@@ -3,7 +3,8 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 
 const exec = promisify(execFile)
-const seconds = (start, end) => Math.round((Date.parse(end) - Date.parse(start)) / 1000)
+const seconds = (start, end) => Math.max(0, Math.round((Date.parse(end) - Date.parse(start)) / 1000))
+const jobSeconds = job => job.conclusion === 'skipped' ? 0 : seconds(job.startedAt, job.completedAt)
 export function summarize(run) {
   const jobs = run.jobs.filter(job => job.startedAt && job.completedAt)
   return {
@@ -12,11 +13,11 @@ export function summarize(run) {
     commit: run.headSha,
     conclusion: run.conclusion,
     elapsedSeconds: seconds(run.createdAt, run.updatedAt),
-    runnerSeconds: jobs.reduce((sum, job) => sum + seconds(job.startedAt, job.completedAt), 0),
+    runnerSeconds: jobs.reduce((sum, job) => sum + jobSeconds(job), 0),
     jobs: jobs.map(job => ({
       name: job.name,
       conclusion: job.conclusion,
-      seconds: seconds(job.startedAt, job.completedAt),
+      seconds: jobSeconds(job),
       steps: job.steps.filter(step => step.startedAt && step.completedAt).map(step => ({ name: step.name, seconds: seconds(step.startedAt, step.completedAt) })),
     })),
   }

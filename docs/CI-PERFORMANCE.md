@@ -11,6 +11,7 @@ transfers vary. Elapsed time includes job scheduling; runner time sums job durat
 | [v0.1.5](https://github.com/leo91000/leo-agent-manager/actions/runs/34419219831) | Original serial quality, image build/load, smoke test, push, deploy | 10m19s |
 | [v0.1.6-rc.1](https://github.com/leo91000/leo-agent-manager/actions/runs/34421319030) | Reuse a completed main validation and its exact image | 1m34s |
 | [v0.1.6-rc.2](https://github.com/leo91000/leo-agent-manager/actions/runs/34421520389) | Tag deliberately pushed before main existed; full validation fallback | 5m23s |
+| [v0.1.6-rc.3](https://github.com/leo91000/leo-agent-manager/actions/runs/34422386090) | Atomic main + tag push; wait for main, then reuse | 5m00s |
 
 The fallback run includes the first cache population for the new Dockerfile.
 Main at the same commit completed in
@@ -18,10 +19,18 @@ Main at the same commit completed in
 The tag-only experiment confirms that reuse is optional: a release still gets all
 checks when there is no qualifying main run.
 
+The simultaneous-push experiment spent 239 seconds waiting for main in the
+resolver, then completed its deployment job in 48 seconds. Its own quality and
+image jobs were skipped. This verifies that a fresh main + tag push shares the
+validation; it is distinct from timing a tag after main has already passed.
+The original [v0.1.5 main run](https://github.com/leo91000/leo-agent-manager/actions/runs/34419217324)
+took **8m53s** (528 aggregate runner seconds), without deployment.
+
 ## Changes retained
 
 - Build and smoke-test the candidate image alongside quality checks. Push it by
-  immutable digest; publish release/latest tags only when both jobs succeed.
+  immutable digest; publish release/latest tags only when quality, every browser
+  group, and the image job succeed.
 - On a release, reuse only a successful `push` run of this workflow on this
   repository's `main`, at the exact commit. Its `validated-image` artifact must
   match the repository, commit, run ID, schema, and SHA-256 digest. PRs and manual
@@ -35,6 +44,9 @@ checks when there is no qualifying main run.
   production rate limiters. Keep ordered persistence journeys together; run the
   four Chromium/WebKit light/dark layout matrices independently. This removes
   deliberate waits for one shared rate limiter without weakening that limiter.
+- In CI, use three runners for journeys, Chromium layouts, and WebKit layouts, with
+  at most two workers per runner. Share the quality job's built frontend through
+  an artifact, install only each group's browser, and retain separate evidence.
 - Run TypeScript checking once through `pnpm build` inside `pnpm check`. Install
   the Chromium headless shell used by the tests, plus WebKit and their OS dependencies.
 - Set commit metadata after stable Docker tool layers. Keep all runtime tools,
@@ -62,14 +74,27 @@ establish the best CI worker count.
 A second same-commit hosted comparison took
 [129s with five workers](https://github.com/leo91000/leo-agent-manager/actions/runs/34422050574)
 and [136s with four](https://github.com/leo91000/leo-agent-manager/actions/runs/34422052319).
-Five remains the default: it won locally and in the repeat hosted pair, but the
-hosted samples overlap and do not establish a large advantage over four. Both are
-available through manual dispatch. Two was rejected after the slower local trial.
+Five was retained for local runs: it won locally and in the repeat hosted pair,
+but the hosted samples overlap and do not establish a large advantage over four.
+Two on one runner was rejected after the slower local trial. The historical
+single-runner workflow remains reproducible at the rc.2 tag.
 
 Those warm runs completed their image jobs in **85s** and **71s**, versus **174s**
 originally. Their actual build/push steps took **40s** and **34s**; the rest includes
 runner setup, pulling and smoke-testing the exact published digest, and cleanup.
 The existing GitHub Actions cache was retained after the warm measurements.
+
+Finally, [three browser runners](https://github.com/leo91000/leo-agent-manager/actions/runs/34422700748)
+completed main CI in **3m16s**, compared with
+[4m04s on one runner](https://github.com/leo91000/leo-agent-manager/actions/runs/34422386493)
+in the preceding configuration and **8m53s** originally. Aggregate runner time was
+**389s**, versus **357s** in the preceding experiment and **528s** originally.
+The selected configuration trades about 9% more runner time than that intermediate
+version for about 20% lower elapsed time, while both measures improve on the original.
+
+The three browser steps took **22s** (journeys), **50s** (Chromium layouts), and
+**91s** (WebKit layouts). All nine tests passed. WebKit is now the longest group;
+the measurements do not claim that further splitting would be cost-free or faster.
 
 The startup health experiment took **6.19s** before and **2.28s** after adding the
 startup interval. The original hypothesis that a 30-second health interval alone
@@ -84,9 +109,12 @@ still passing. Small single-run differences should be treated as approximate.
 ## Reproduce
 
 ```sh
-# Hosted same-commit browser comparison; neither manual run deploys.
-gh workflow run ci.yaml --ref main -f browser-workers=4
-gh workflow run ci.yaml --ref main -f browser-workers=5
+# Reproduce the historical single-runner comparison; manual runs do not deploy.
+gh workflow run ci.yaml --ref v0.1.6-rc.2 -f browser-workers=4
+gh workflow run ci.yaml --ref v0.1.6-rc.2 -f browser-workers=5
+
+# Current three-group workflow; compare one or two workers per group.
+gh workflow run ci.yaml --ref main -f browser-workers=2
 
 # Completed-run elapsed, aggregate runner, job, and step durations.
 node scripts/ci-timings.mjs 34419219831 34421319030 34421520389

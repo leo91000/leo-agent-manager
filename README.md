@@ -83,6 +83,6 @@ and is absent from the production image.
 [Performance measurements](docs/PERFORMANCE.md) · [Security](SECURITY.md)
 
 CI runs quality checks and isolated browser suites alongside a container build and
-non-root smoke test. Image tags are published only after both jobs pass. Release
+non-root smoke test. Image tags are published only after all checks pass. Release
 tags reuse the exact image already validated on main, then verify the deployed
 commit. See the [CI measurements and release paths](docs/CI-PERFORMANCE.md).
