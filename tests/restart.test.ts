@@ -11,6 +11,7 @@ import { processIdentity } from '../server/run-recovery.ts'
 import { Worker } from '../server/worker.ts'
 import { accountFixture, credential, limits } from './codex-account-fixture.ts'
 import { fixture } from './helpers.ts'
+import { runnerProvider } from './runner-provider.ts'
 
 describe('durable conversation recovery', () => {
   let ctx: Awaited<ReturnType<typeof fixture>>
@@ -105,6 +106,46 @@ describe('durable conversation recovery', () => {
     await restart()
     expect(ctx.service.store.run(run.id)?.status).toBe('cancelled')
     expect(ctx.service.store.events(run.id).filter(event => event.type === 'thread.started')).toHaveLength(1)
+  })
+
+  it('honors a queued cancellation even if shutdown interrupted the status update', async () => {
+    const run = await ctx.service.enqueue(ctx.task.id)
+    ctx.service.store.updateRun(run.id, { cancelRequestedAt: Date.now() })
+    await restart()
+    expect(ctx.service.store.run(run.id)?.status).toBe('cancelled')
+    expect(ctx.service.store.events(run.id).filter(event => event.type === 'thread.started')).toHaveLength(0)
+  })
+
+  it('resumes isolated execution only after the old container stops and retains its private home', async () => {
+    const provider = await runnerProvider(ctx.service.config.dataDir)
+    const data = await accountFixture(ctx)
+    data.seed('Private account')
+    ctx.service.config.runnerUrl = provider.url
+    const agent = ctx.service.agent({ name: 'Isolated recovery', access: { projects: [ctx.project.id], skills: [], github: false } })
+    const task = ctx.service.task({ ...ctx.task, agentId: agent.id, prompt: 'fixture:restart' }, ctx.task.id)
+    const run = await ctx.service.enqueue(task.id)
+    try {
+      await ctx.worker.tick()
+      await waitForWork(run.id)
+      provider.control.available = false
+      await ctx.worker.close()
+      const home = path.join(ctx.service.config.dataDir, 'runs', run.id, 'home', '.codex')
+      expect(await readFile(path.join(home, 'auth.json'), 'utf8')).toContain('synthetic')
+      const worker = await restart()
+      expect(ctx.service.store.run(run.id)).toMatchObject({ status: 'queued', recoveryPending: true })
+      expect(provider.attempts.size).toBe(1)
+      provider.control.available = true
+      await worker.tick()
+      await succeeded(run.id)
+      await expect.poll(() => worker.active.size).toBe(0)
+      expect(provider.attempts.size).toBe(2)
+      expect([...provider.attempts.values()].every(attempt => attempt.closed)).toBe(true)
+      expect(await readFile(path.join(home, 'fixture-conversation.json'), 'utf8')).toContain('fixture-session')
+      await expect(readFile(path.join(home, 'auth.json'))).rejects.toThrow()
+    }
+    finally {
+      await provider.close()
+    }
   })
 
   it('discovers a saved thread if its first notification was lost', async () => {

@@ -225,4 +225,4 @@ Live ChatGPT/Claude linking, marketplace listing, and Coolify deployment require
 final reachable deployment/account configuration and are not established by local
 SDK/browser tests. Platform submission requirements are documented in [MCP.md](MCP.md).
 
-Restart recovery is covered by `tests/restart.test.ts` (real SIGTERM/SIGKILL process loss, session retention/discovery, cancellation, timeout, policy changes, account selection, runner fencing) and `tests/runner-lifecycle.test.ts` (in-flight/delayed container starts). `tests/e2e/task-focus.spec.ts` checks automatic browser reconnection and manual conversation resume, with mobile dark and desktop light screenshots.
+Restart recovery is covered by `tests/restart.test.ts` (real SIGTERM/SIGKILL process loss, session retention/discovery, cancellation, timeout, policy changes, account selection, runner fencing, and the real isolated-run client with a controlled broker outage) and `tests/runner-lifecycle.test.ts` (in-flight/delayed container starts). `tests/e2e/task-focus.spec.ts` checks automatic browser reconnection and manual conversation resume, with mobile dark and desktop light screenshots.

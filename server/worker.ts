@@ -111,8 +111,11 @@ export class Worker {
       return
     this.initialized = true
     for (const run of this.service.store.active()) {
-      if (run.status !== 'running')
+      if (run.status !== 'running') {
+        if (run.cancelRequestedAt)
+          this.service.store.updateRun(run.id, { recoveryPending: true })
         continue
+      }
       const checkpoint = this.recovery.get(run.id)
       if (!checkpoint && run.startedAt) {
         this.service.store.updateRun(run.id, { status: 'interrupted', finishedAt: Date.now(), summary: 'This older run has no restart checkpoint. Review its working files before retrying.' })
@@ -162,20 +165,20 @@ export class Worker {
             await this.recovery.fence(run)
             this.service.mcps.revokeRun(run.id)
             await this.service.accounts.recoverRun(run)
-            this.service.store.updateRun(run.id, { recoveryPending: false })
             if (this.service.store.run(run.id)?.cancelRequestedAt) {
-              this.service.store.updateRun(run.id, { status: 'cancelled', finishedAt: Date.now(), accountWaitReason: null })
+              this.service.store.updateRun(run.id, { status: 'cancelled', finishedAt: Date.now(), accountWaitReason: null, recoveryPending: false })
               continue
             }
             const checkpoint = this.recovery.get(run.id)
             if (checkpoint?.settled) {
-              this.service.store.updateRun(run.id, { ...checkpoint.settled, accountWaitReason: null })
+              this.service.store.updateRun(run.id, { ...checkpoint.settled, accountWaitReason: null, recoveryPending: false })
               continue
             }
             if (checkpoint?.completed) {
-              this.service.store.updateRun(run.id, { status: 'succeeded', finishedAt: Date.now(), resumeAvailable: false, accountWaitReason: null, summary: checkpoint.lastMessage || 'Conversation completed before worker restart. See Activity for the recorded result.' })
+              this.service.store.updateRun(run.id, { status: 'succeeded', finishedAt: Date.now(), resumeAvailable: false, accountWaitReason: null, recoveryPending: false, summary: checkpoint.lastMessage || 'Conversation completed before worker restart. See Activity for the recorded result.' })
               continue
             }
+            this.service.store.updateRun(run.id, { recoveryPending: false })
           }
           catch {
             const message = 'Waiting for the previous execution to stop before recovery.'
@@ -239,6 +242,7 @@ export class Worker {
     }
     const sanitize = (text: string) => sensitive.reduce((value, secret) => value.replaceAll(secret, '[redacted]'), redact(text))
     try {
+      checkpointBudget()
       store.updateRun(run.id, { status: 'running', startedAt: run.startedAt ?? Date.now(), finishedAt: null, accountWaitReason: null, codexAccountId: account?.accountId ?? null, codexAccountName: account ? this.service.accounts.get(account.accountId).name : null })
       if (account)
         store.event(run.id, 'status', `Using Codex account: ${this.service.accounts.get(account.accountId).name}`)
@@ -404,6 +408,8 @@ export class Worker {
         if (checkpoint.runnerId)
           await rm(path.join(config.dataDir, 'runner-plans', `${checkpoint.runnerId}.json`), { force: true }).catch(() => {})
         checkpointBudget()
+        if (prepared.isolated)
+          await this.recovery.fence(store.run(run.id)!)
         if (control.stopping && !control.cancelled && !checkpoint.completed)
           throw new Error('Worker is restarting')
         const sessionId = store.run(run.id)?.sessionId
@@ -463,12 +469,19 @@ export class Worker {
       }
     }
     catch (e) {
+      const status = control.cancelled ? 'cancelled' : control.stopping ? 'queued' : 'failed'
+      const needsFence = !!checkpoint.prepared?.isolated && !!checkpoint.runnerId
+      const summary = sanitize((e as Error).message)
+      if (needsFence && status !== 'queued') {
+        checkpoint.settled = { status, summary, finishedAt: Date.now() }
+        checkpointBudget()
+      }
       store.updateRun(run.id, {
-        status: control.cancelled ? 'cancelled' : control.stopping ? 'queued' : 'failed',
-        recoveryPending: control.stopping && !control.cancelled,
-        finishedAt: control.stopping && !control.cancelled ? null : Date.now(),
-        summary: sanitize((e as Error).message),
-        accountWaitReason: control.stopping && !control.cancelled ? 'Paused for worker restart. This run will resume automatically.' : null,
+        status: needsFence ? 'queued' : status,
+        recoveryPending: needsFence || status === 'queued',
+        finishedAt: needsFence || status === 'queued' ? null : Date.now(),
+        summary,
+        accountWaitReason: needsFence ? 'Waiting for the previous isolated container to stop.' : status === 'queued' ? 'Paused for worker restart. This run will resume automatically.' : null,
       })
       store.event(run.id, control.stopping ? 'status' : 'error', sanitize((e as Error).message))
     }
@@ -494,6 +507,8 @@ export class Worker {
         }
       }
       checkpointBudget()
+      if (fenced && checkpoint.settled)
+        store.updateRun(run.id, { ...checkpoint.settled, recoveryPending: false, accountWaitReason: null })
       if (account && fenced) {
         const releasedId = account.accountId
         await this.service.accounts.release(account).catch(() => {
