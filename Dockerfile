@@ -22,12 +22,14 @@ ARG PLAYWRIGHT_VERSION=1.63.0
 RUN npm exec --yes --package="playwright@${PLAYWRIGHT_VERSION}" -- playwright install-deps chromium firefox webkit \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 ARG GH_VERSION=2.100.0
-ARG CODEX_VERSION=0.153.4
+ARG CODEX_VERSION=0.154.0
 ARG TARGETARCH
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4310 DATA_DIR=/data AGENT_HOME=/home/node WORKSPACE_ROOTS=/workspaces
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git ripgrep fd-find python3 build-essential bubblewrap \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/bin/fdfind /usr/local/bin/fd
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl wget git git-lfs openssh-client python3 build-essential bubblewrap \
+    zip unzip xz-utils zstd bzip2 rsync file less tree sqlite3 postgresql-client \
+    dnsutils iproute2 iputils-ping netcat-openbsd procps lsof strace patch diffutils \
+    pkg-config libssl-dev libffi-dev ninja-build poppler-utils imagemagick ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 RUN arch="${TARGETARCH:-amd64}" \
     && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz" -o /tmp/gh.tar.gz \
     && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_checksums.txt" -o /tmp/gh-checksums.txt \
@@ -37,6 +39,13 @@ RUN arch="${TARGETARCH:-amd64}" \
     && cp "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/bin/gh \
     && rm -rf /tmp/gh*
 RUN pnpm add --global "@openai/codex@${CODEX_VERSION}"
+COPY deploy/toolkit /opt/leo-toolkit
+RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN /usr/local/bin/node /opt/leo-toolkit/manage.mjs install
+# Keep the Codex npm launcher on the manager runtime even in older Node projects.
+RUN ln -s /usr/local/bin/node /pnpm/bin/node
+COPY deploy/toolkit/profile.sh /etc/profile.d/leo-toolkit.sh
+ENV LEO_TOOLKIT_DIR=/opt/leo-toolkit
+ENV PATH=/home/node/.local/share/mise/shims:/usr/local/share/mise/shims:$PATH
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/server ./server
@@ -49,5 +58,5 @@ ENV APP_COMMIT=$VCS_REF APP_RUNTIME_ID=$VCS_REF APP_CODEX_VERSION=$CODEX_VERSION
 USER node
 VOLUME ["/data", "/home/node", "/workspaces"]
 EXPOSE 4310
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --start-interval=1s CMD node -e "fetch('http://127.0.0.1:4310/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "--import", "tsx", "server/index.ts"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --start-interval=1s CMD /usr/local/bin/node -e "fetch('http://127.0.0.1:4310/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["/usr/local/bin/node", "--import", "tsx", "server/index.ts"]

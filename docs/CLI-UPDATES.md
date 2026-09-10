@@ -1,7 +1,7 @@
 # Automatic Codex and GitHub CLI updates
 
 The VPS checks daily at 04:23 UTC, with up to five minutes of jitter. It dispatches
-the **Update Codex and GitHub CLI** workflow using the manager's existing GitHub
+the **Update agent tools** workflow using the manager's existing GitHub
 login. The computer used to configure it can be off. A systemd timer is used
 because GitHub disables schedules in inactive public repositories after 60 days.
 
@@ -34,6 +34,9 @@ Candidate verification and rollback each have a five-minute health deadline,
 leaving time within the job timeout and worker lease to restore service.
 A provider outage or incompatible release leaves the previous working tools in use;
 inspect the failed workflow before retrying.
+
+The update workflow also maintains mise, global runtimes and the agent toolbox.
+See [Agent toolkit](TOOLKIT.md) for the catalogue, project overrides and update policy.
 
 ## Setup
 

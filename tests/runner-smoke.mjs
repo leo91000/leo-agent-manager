@@ -82,14 +82,14 @@ process.stdin.on('end', () => {
       const run={id,snapshot:{agent,task,project,projects:[project],skills:[]}};
       const prepared=await prepareExecution(run,{dataDir:root+'/data',home:root+'/home',workspaceRoots:[root],runnerUrl:'http://runner'});
       run.workspace=prepared.cwd; run.workspaces=prepared.workspaces;
-      const args=probe ? ['sandbox','-c','sandbox_mode="workspace-write"','--','node','-e', 'const fs=require("fs"),a=require("assert/strict");fs.writeFileSync("sandbox-allowed","ok");a.throws(()=>fs.writeFileSync("/home/node/sandbox-denied","bad"));console.log("Real Codex sandbox denied out-of-workspace write")'] : codexArgs(run,prepared.output);
+      const args=probe ? ['sandbox','-c','sandbox_mode='+JSON.stringify(mode),'--','node','-e', 'const fs=require("fs"),a=require("assert/strict"),cp=require("child_process");'+(mode==='read-only' ? 'a.throws(()=>fs.writeFileSync("sandbox-forbidden","bad"));' : 'fs.writeFileSync("sandbox-allowed","ok");')+'a.throws(()=>fs.writeFileSync("/home/node/sandbox-denied","bad"));for(const bin of ["rg","fd","jq","python","uv","cargo"])cp.execFileSync(bin,["--version"],{stdio:"inherit"});console.log("Real Codex sandbox denied out-of-workspace write; toolkit available")'] : codexArgs(run,prepared.output);
       if(!probe) prepared.mounts.push({source:root+'/codex-fixture',target:'/pnpm/bin/codex',readOnly:true});
       await writeFile(root+'/data/runner-plans/'+id+'.json',JSON.stringify({id,args,cwd:prepared.cwd,prompt:task.prompt,mounts:prepared.mounts,expires:Date.now()+120000,sandbox:mode}));
     `
-    for (const mode of ['yolo', 'read-only', 'workspace-write']) {
+    for (const [mode, probe] of [['yolo', false], ['read-only', false], ['workspace-write', true], ['read-only', true]]) {
       const id = randomUUID()
       runs.push(id)
-      docker('exec', manager, 'node', '--import', 'tsx', '--input-type=module', '-e', prepare, JSON.stringify({ root, id, mode, probe: mode === 'workspace-write' }))
+      docker('exec', manager, 'node', '--import', 'tsx', '--input-type=module', '-e', prepare, JSON.stringify({ root, id, mode, probe }))
       const start = await fetch(`${url}/runs/${id}`, { method: 'POST', headers })
       assert.equal(start.status, 200, await start.text())
       const result = await fetch(`${url}/runs/${id}/wait`, { method: 'POST', headers }).then(response => response.json())

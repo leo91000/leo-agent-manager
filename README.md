@@ -38,6 +38,8 @@ Open `http://localhost:4310`, create your administrator password, then visit
 For a remote server, use an HTTPS reverse proxy or an SSH tunnel for initial setup.
 
 [Deployment, CLI login, project setup, backups, and Coolify](docs/DEPLOYMENT.md)
+
+[Agent toolkit, mise project versions, and automatic updates](docs/TOOLKIT.md)
 provide the complete installation procedure. [MCP and OAuth](docs/MCP.md) explain
 ChatGPT/Claude connection setup and the supported protocol boundary.
 

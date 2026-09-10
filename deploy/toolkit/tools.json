@@ -1,0 +1,22 @@
+{
+  "node": "lts",
+  "pnpm": "12",
+  "python": "3",
+  "uv": "latest",
+  "ripgrep": "latest",
+  "fd": "latest",
+  "jq": "latest",
+  "yq": "latest",
+  "ast-grep": "latest",
+  "shellcheck": "latest",
+  "shfmt": "latest",
+  "actionlint": "latest",
+  "just": "latest",
+  "hyperfine": "latest",
+  "delta": "latest",
+  "bat": "latest",
+  "ruff": "latest",
+  "go": "latest",
+  "rust": "latest",
+  "cmake": "latest"
+}

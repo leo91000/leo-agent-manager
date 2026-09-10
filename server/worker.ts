@@ -12,6 +12,7 @@ import { AppError, requireValue } from './errors.ts'
 import { prepareExecution, runnerSecret } from './execution.ts'
 import { maintenanceActive } from './maintenance.ts'
 import { policy, runProjects } from './policy.ts'
+import { toolkitEnvironment } from './toolkit.ts'
 
 const exec = promisify(execFile)
 async function readSummary(file: string) {
@@ -75,7 +76,7 @@ export function codexArgs(run: Run, output: string) {
 }
 export function runPrompt(run: Run) {
   const projects = runProjects(run).map(project => `- ${project.name}: ${run.workspaces?.find(workspace => workspace.projectId === project.id)?.path ?? project.path}`).join('\n')
-  return `${run.snapshot.agent.instructions}\n\n${run.snapshot.task.prompt}\n\nAvailable project workspaces (choose the relevant projects for this task):\n${projects || 'No projects assigned; use the task workspace.'}\n\nSelected skills (use their supporting resources from the supplied paths):\n${run.snapshot.skills.map(s => `\n${s.path}\n${s.content}`).join('\n')}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. This unattended task cannot answer clarification questions; report a concrete blocker if required information is missing. All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.`
+  return `${run.snapshot.agent.instructions}\n\n${run.snapshot.task.prompt}\n\nAvailable project workspaces (choose the relevant projects for this task):\n${projects || 'No projects assigned; use the task workspace.'}\n\nTooling: mise manages project runtimes and global tools. Prefer rg and fd for search. Respect mise.toml, .tool-versions, .nvmrc, .node-version, .python-version, rust-toolchain.toml, and package.json packageManager pins. Use mise exec -- <command> when project environment variables are needed; use uv for Python environments. Do not upgrade project pins unless the task requests it.\n\nSelected skills (use their supporting resources from the supplied paths):\n${run.snapshot.skills.map(s => `\n${s.path}\n${s.content}`).join('\n')}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. This unattended task cannot answer clarification questions; report a concrete blocker if required information is missing. All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.`
 }
 export class Worker {
   executions = new Set<Promise<void>>()
@@ -172,7 +173,9 @@ export class Worker {
       if (control.cancelled)
         throw new Error('Cancelled before execution')
       const output = prepared.output
-      const env: NodeJS.ProcessEnv = { ...process.env, HOME: config.home, CODEX_HOME: path.join(config.home, '.codex') }
+      const env = prepared.isolated ? { ...process.env } : await toolkitEnvironment(config.home)
+      env.HOME = config.home
+      env.CODEX_HOME = path.join(config.home, '.codex')
       delete env.OPENAI_API_KEY
       delete env.CODEX_API_KEY
       delete env.CODEX_THREAD_ID

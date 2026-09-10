@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { appendFile, readFile, writeFile } from 'node:fs/promises'
 import process from 'node:process'
@@ -47,7 +48,7 @@ export async function discover(config) {
   if (github.draft || github.prerelease)
     throw new Error('GitHub CLI latest release is not stable.')
   const versions = { codex: newer(health.tools?.codex, codex.version), gh: newer(health.tools?.gh, github.tag_name?.replace(/^v/, '')) }
-  return { image, baseImage: validImage(health.baseImage || image, config.repository), commit: health.commit, previousRuntimeId: health.runtimeId, versions, changed: versions.codex !== health.tools.codex || versions.gh !== health.tools.gh }
+  return { installedToolkit: health.toolkit || null, image, baseImage: validImage(health.baseImage || image, config.repository), commit: health.commit, previousRuntimeId: health.runtimeId, versions, changed: versions.codex !== health.tools.codex || versions.gh !== health.tools.gh }
 }
 export async function deployUpdate(config, plan, image, options = { timeoutMs: 300000 }) {
   validImage(image, config.repository)
@@ -77,6 +78,18 @@ export async function deployUpdate(config, plan, image, options = { timeoutMs: 3
     await lease('DELETE')
   }
 }
+export function toolkitUpdate(plan, available, now = Date.now()) {
+  const installed = plan.installedToolkit
+  if (Object.keys(installed.tools).sort().join() !== Object.keys(available.tools).sort().join())
+    throw new Error('Toolkit update does not match the deployed tool catalogue.')
+  const toolkit = { mise: newer(installed.mise, available.mise), tools: {} }
+  let changed = plan.changed || toolkit.mise !== installed.mise || now - installed.builtAt >= 7 * 86400000
+  for (const [tool, version] of Object.entries(available.tools)) {
+    toolkit.tools[tool] = newer(installed.tools[tool], version)
+    changed ||= toolkit.tools[tool] !== installed.tools[tool]
+  }
+  return { toolkit, changed }
+}
 function configuration() {
   for (const key of ['COOLIFY_URL', 'COOLIFY_SERVICE_UUID', 'COOLIFY_TOKEN', 'LEO_PUBLIC_URL', 'GITHUB_REPOSITORY']) {
     if (!process.env[key])
@@ -94,6 +107,10 @@ if (import.meta.main) {
     const config = configuration()
     if (process.argv[2] === 'check') {
       const plan = await discover(config)
+      if (plan.installedToolkit) {
+        const available = JSON.parse(execFileSync('docker', ['run', '--rm', '--env', 'GITHUB_TOKEN', '--entrypoint', '/usr/local/bin/node', plan.image, '/opt/leo-toolkit/manage.mjs', 'resolve'], { env: { ...process.env, GITHUB_TOKEN: config.githubToken || '' }, encoding: 'utf8', timeout: 240000, maxBuffer: 1024 * 1024 }))
+        Object.assign(plan, toolkitUpdate(plan, available))
+      }
       await writeFile('cli-update-plan.json', JSON.stringify(plan, null, 2))
       if (process.env.GITHUB_OUTPUT)
         await appendFile(process.env.GITHUB_OUTPUT, `changed=${plan.changed}\nbase_image=${plan.baseImage}\ncommit=${plan.commit}\ncodex=${plan.versions.codex}\ngh=${plan.versions.gh}\n`)

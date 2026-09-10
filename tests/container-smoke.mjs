@@ -19,6 +19,7 @@ async function main() {
     await docker(
       'run',
       '-d',
+      ...(process.env.GITHUB_TOKEN ? ['-e', 'GITHUB_TOKEN'] : []),
       '--name',
       name,
       '-p',
@@ -95,6 +96,11 @@ async function main() {
     assert.equal(codexVersion, `codex-cli ${version.tools.codex}`)
     const ghVersion = (await docker('exec', name, 'gh', '--version')).stdout
     assert.ok(ghVersion.startsWith(`gh version ${version.tools.gh} `))
+    if (version.toolkit) {
+      const toolkitProbe = await readFile(new URL('./toolkit-probe.mjs', import.meta.url), 'utf8')
+      const result = await exec('docker', ['--context', 'default', 'exec', name, '/usr/local/bin/node', '--import', 'tsx', '--input-type=module', '-e', toolkitProbe], { timeout: 240000, maxBuffer: 1024 * 1024 })
+      process.stdout.write(result.stdout)
+    }
     const browserProbe = await readFile(new URL('./browser-smoke.mjs', import.meta.url), 'utf8')
     const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
     const browsers = await exec('docker', ['--context', 'default', 'exec', name, 'node', '--input-type=module', '-e', browserProbe, packageJson.devDependencies['@playwright/test']], { timeout: 240000, maxBuffer: 1024 * 1024 })

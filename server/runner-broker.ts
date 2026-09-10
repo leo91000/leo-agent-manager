@@ -36,7 +36,7 @@ async function createRun(id: string) {
   await dockerJson('POST', `/containers/create?name=${containerName(id)}`, {
     Image: host.Image,
     User: '1000:1000',
-    Entrypoint: ['node', '--import', 'tsx', '/app/server/runner-entry.ts'],
+    Entrypoint: ['/usr/local/bin/node', '--import', 'tsx', '/app/server/runner-entry.ts'],
     Cmd: [],
     Env: ['HOME=/home/node', 'CODEX_HOME=/home/node/.codex', 'NODE_ENV=production', 'PATH=/pnpm/bin:/pnpm:/usr/local/bin:/usr/bin:/bin'],
     WorkingDir: '/app',

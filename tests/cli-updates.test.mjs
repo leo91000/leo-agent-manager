@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { currentImage, deployUpdate, newer } from '../scripts/cli-updates.mjs'
+import { currentImage, deployUpdate, newer, toolkitUpdate } from '../scripts/cli-updates.mjs'
 
 describe('cLI update deployment and rollback', () => {
   let server
@@ -92,5 +92,23 @@ describe('cLI update deployment and rollback', () => {
     expect(selectedImage).toBe(previous)
     expect(restarts).toBe(2)
     expect(releases).toBe(1)
+  })
+})
+
+describe('global toolkit update selection', () => {
+  const now = 1800000000000
+  const installedToolkit = { mise: '2026.9.4', tools: { node: '24.21.0', pnpm: '12.4.0' }, builtAt: now }
+  const available = { mise: '2026.9.4', tools: { node: '24.21.0', pnpm: '12.4.0' } }
+  it('skips unchanged tools and refreshes OS packages weekly', () => {
+    expect(toolkitUpdate({ changed: false, installedToolkit }, available, now).changed).toBe(false)
+    expect(toolkitUpdate({ changed: false, installedToolkit }, available, now + 7 * 86400000).changed).toBe(true)
+  })
+  it('detects mise or tool releases while preserving newer installed versions', () => {
+    const result = toolkitUpdate({ changed: false, installedToolkit }, { mise: '2026.9.5', tools: { node: '24.22.0', pnpm: '12.3.0' } }, now)
+    expect(result).toEqual({ changed: true, toolkit: { mise: '2026.9.5', tools: { node: '24.22.0', pnpm: '12.4.0' } } })
+  })
+  it('rejects unexpected tool sets and prereleases', () => {
+    expect(() => toolkitUpdate({ installedToolkit }, { ...available, tools: {} }, now)).toThrow(/catalogue/)
+    expect(() => toolkitUpdate({ installedToolkit }, { ...available, mise: '2026.9.5-beta' }, now)).toThrow(/stable/)
   })
 })

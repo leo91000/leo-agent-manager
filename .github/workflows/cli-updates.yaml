@@ -1,15 +1,16 @@
-name: Update Codex and GitHub CLI
+name: Update agent tools
 on:
   workflow_dispatch:
 permissions:
   contents: read
+  packages: read
 concurrency:
   group: cli-updates
   cancel-in-progress: false
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     environment: production
     outputs:
       changed: ${{ steps.check.outputs.changed }}
@@ -24,6 +25,11 @@ jobs:
           runtime: node@24
           require-lockfile: true
           install: false
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - id: check
         run: node scripts/cli-updates.mjs check
         env:
@@ -55,6 +61,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: cli-update-plan
       - uses: docker/build-push-action@v7.3.0
         id: build
         with:
@@ -67,10 +76,12 @@ jobs:
             CODEX_VERSION=${{ needs.check.outputs.codex }}
             GH_VERSION=${{ needs.check.outputs.gh }}
             UPDATE_ID=cli-${{ github.run_id }}-${{ github.run_attempt }}
+          secrets: github_token=${{ github.token }}
           provenance: mode=max
           sbom: true
       - name: Verify the candidate image before deployment
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           SMOKE_IMAGE: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
           SMOKE_COMMIT: ${{ needs.check.outputs.commit }}
         run: |
