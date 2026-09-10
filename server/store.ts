@@ -7,11 +7,13 @@ import type {
   RunStatus,
   Task,
 } from '../shared/contracts.ts'
+import type { McpConnection } from '../shared/mcp.ts'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 interface Records {
+  mcps: McpConnection
   agents: Agent
   projects: Project
   tasks: Task

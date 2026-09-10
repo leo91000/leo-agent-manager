@@ -1,0 +1,56 @@
+.mcp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 22px; }
+.mcp-card { min-width: 0; border: 1px solid var(--line); border-radius: 15px; background: light-dark(#fff, var(--dark-surface)); padding: 22px; }
+.mcp-card:hover { border-color: light-dark(#c2beef, #70698f); }
+.mcp-card.disabled { opacity: .7; }
+.mcp-card > header { display: flex; align-items: center; gap: 13px; }
+.mcp-card > header > div { min-width: 0; flex: 1; }
+.mcp-card h2 { font-size: 17px; overflow-wrap: anywhere; margin: 0 0 5px; }
+.mcp-mark { display: grid; place-items: center; width: 45px; height: 45px; flex-shrink: 0; color: var(--green); background: var(--soft); border-radius: 12px; border: 1px solid var(--line); }
+.mcp-transport { color: var(--muted); font-size: 11px; }
+.mcp-endpoint { color: var(--muted); font: 11px/1.8 ui-monospace, monospace; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; margin: 22px 0 17px; }
+.mcp-state { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.mcp-state > span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.mcp-state[data-state="connected"] > span { background: #7c74fa; box-shadow: 0 0 0 4px #8c82ff1a; }
+.mcp-state[data-state="error"] > span { background: #db785f; }
+.mcp-state[data-state="needs-auth"] > span { background: #e5b542; }
+.mcp-state svg { margin-left: auto; color: var(--muted); }
+.mcp-state small { font-size: 10px; }
+.mcp-error { font-size: 11px; line-height: 1.7; margin: 14px 0 0; color: light-dark(#a24538, #efac9b); }
+.mcp-tool-summary { display: flex; align-items: center; gap: 8px; margin-top: 23px; padding: 14px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.mcp-tool-summary strong { color: var(--ink); }
+.mcp-tool-summary button { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--green); min-height: 36px; }
+.mcp-card > footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); padding-top: 15px; }
+.mcp-card > footer > small { margin-right: auto; flex: 1 1 100px; font-size: 9px; }
+.mcp-form { display: grid; gap: 20px; }
+.mcp-form .search-field { width: 100%; }
+.mcp-form input, .mcp-form textarea { min-width: 0; }
+.mcp-form small { font-size: 11px; line-height: 1.6; }
+.mcp-oauth-note { display: flex; gap: 10px; align-items: center; background: var(--soft); border: 1px solid var(--line); color: var(--green); border-radius: 10px; padding: 14px; font-size: 12px; }
+.mcp-oauth-note svg { flex-shrink: 0; }
+.mcp-advanced { border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.mcp-advanced > summary { cursor: pointer; font-size: 12px; }
+.mcp-advanced > label { margin-top: 16px; }
+.mcp-env { display: grid; gap: 10px; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.mcp-env legend { font-size: 12px; }
+.mcp-env-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px; gap: 7px; }
+.mcp-env-row input { width: 100%; font-size: 11px; }
+.mcp-env > button { justify-self: start; }
+.mcp-tool-list { max-height: 45dvh; overflow: auto; overscroll-behavior: contain; display: grid; gap: 10px; }
+.mcp-tool { display: flex; align-items: flex-start; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+.mcp-tool > input, .mcp-tool > svg { flex-shrink: 0; width: 16px; margin-top: 3px; color: var(--green); }
+.mcp-tool > span { min-width: 0; }
+.mcp-tool strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
+.mcp-tool code { display: block; color: var(--muted); font-size: 10px; margin: 5px 0; overflow-wrap: anywhere; }
+.mcp-tool p { color: var(--muted); font-size: 11px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; margin: 7px 0 0; }
+.mcp-agent-tools { margin: 7px 0 16px 24px; font-size: 12px; }
+.mcp-agent-tools summary { cursor: pointer; color: var(--green); margin-bottom: 10px; }
+.mcp-agent-tools label { margin-top: 8px; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .mcp-card { padding: 18px; }
+  .mcp-card h2 { font-size: 16px; }
+  .mcp-card > footer > small { flex-basis: 100%; margin-bottom: 6px; }
+  .mcp-card > footer > button { flex: 1; justify-content: center; }
+  .mcp-env-row { grid-template-columns: minmax(0, 1fr) 36px; }
+  .mcp-env-row input:nth-child(2) { grid-column: 1; }
+  .mcp-env-row button { grid-column: 2; grid-row: 1 / span 2; }
+}

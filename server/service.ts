@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { CronExpressionParser } from 'cron-parser'
 import { agentInput, MAIN_AGENT_ID, projectInput, taskInput } from '../shared/contracts.ts'
 import { AppError, requireValue } from './errors.ts'
+import { McpConnections } from './mcp-connections.ts'
 import { workspaceDirectory } from './paths.ts'
 import { allowedProjects, policy, runProjects, taskProjects, validateAccess } from './policy.ts'
 import { Skills } from './skills.ts'
@@ -54,14 +55,16 @@ export function nextOccurrences(
 }
 export class Service {
   skills: Skills
+  mcps: McpConnections
   constructor(
     public store: Store,
     public config: Config,
   ) {
+    this.mcps = new McpConnections(store, config)
     this.skills = new Skills(config.home, config.workspaceRoots)
     this.store.transaction(() => {
       for (const agent of store.list('agents')) {
-        if (!agent.access)
+        if (!agent.access || !Object.hasOwn(agent.access, 'mcps'))
           store.put('agents', { ...agent, access: policy(agent) })
       }
       if (!store.get('agents', MAIN_AGENT_ID))
@@ -83,8 +86,14 @@ export class Service {
     validateAccess(item)
     for (const projectId of item.access.projects ?? [])
       requireValue(this.store.get('projects', projectId), 'Allowed project not found')
-    if (existingId === MAIN_AGENT_ID && (item.access.projects !== null || item.access.skills !== null || !item.access.github))
+    if (existingId === MAIN_AGENT_ID && (item.access.projects !== null || item.access.skills !== null || !item.access.github || item.access.mcps !== null || Object.keys(item.access.mcpTools).length > 0))
       throw new AppError(400, 'The main agent always has access to all resources. Create another agent for restricted access.')
+    for (const id of item.access.mcps ?? []) this.mcps.get(id)
+    for (const id of Object.keys(item.access.mcpTools)) {
+      this.mcps.get(id)
+      if (item.access.mcps !== null && !item.access.mcps.includes(id))
+        throw new AppError(400, 'Tool permissions require access to the MCP connection.')
+    }
     this.store.put('agents', item)
     this.store.audit('agent.saved', { id: item.id })
     return item

@@ -26,6 +26,22 @@ async function main() {
     emit({ type: 'thread.started', thread_id: 'fixture-session' })
     process.stdout.write('non-JSON diagnostic\n')
     emit({ type: 'item.completed', item: { text: 'Checking the project' } })
+    if (prompt.includes('fixture:mcp')) {
+      const { Client, StreamableHTTPClientTransport } = await import('@modelcontextprotocol/client')
+      const configuration = args.find(arg => arg.startsWith('mcp_servers.') && arg.includes('"url"='))
+      const url = JSON.parse(configuration.match(/"url"=("[^"]+")/)[1])
+      const client = new Client({ name: 'fixture-worker', version: '1' })
+      try {
+        await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${process.env.LEO_MCP_RUN_TOKEN}` } } }))
+        const result = await client.callTool({ name: 'echo', arguments: { message: `MCP subprocess passed: ${process.env.LEO_MCP_RUN_TOKEN}` } })
+        emit({ type: 'item.completed', item: { text: result.content[0].text } })
+        writeFileSync(args[args.indexOf('--output-last-message') + 1], result.content[0].text)
+      }
+      finally {
+        await client.close()
+      }
+      return
+    }
     if (prompt.includes('fixture:activity')) {
       for (const event of activityEvents)
         emit(event)

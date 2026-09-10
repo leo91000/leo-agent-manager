@@ -16,6 +16,7 @@ import { config as loadConfig } from './config.ts'
 import { Connections } from './connections.ts'
 import { AppError, requireValue } from './errors.ts'
 import { deploymentLease, maintenanceActive, maintenanceToken } from './maintenance.ts'
+import { mountMcpConnections } from './mcp-routes.ts'
 import { mountMcp } from './mcp.ts'
 import { nextOccurrences, Service } from './service.ts'
 import { Store } from './store.ts'
@@ -35,6 +36,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   const app = Fastify({
     logger: config.logger
       ? {
+          serializers: { req: request => ({ method: request.method, url: request.url?.split('?')[0], hostname: request.hostname }) },
           redact: [
             'req.headers.authorization',
             'req.headers.cookie',
@@ -442,6 +444,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
     auth.revokeToken(input.token, input.client_id)
     return {}
   })
+  mountMcpConnections(app, service.mcps, auth)
   mountMcp(app, service, worker, auth)
   const dist = path.resolve('dist')
   if (existsSync(path.join(dist, 'index.html'))) {

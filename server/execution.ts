@@ -19,6 +19,7 @@ export interface RunnerPlan {
   mounts: { source: string, target: string, readOnly: boolean }[]
   expires: number
   sandbox: string
+  mcpEnv?: { LEO_MCP_RUN_TOKEN?: string }
 }
 export async function runnerSecret(dataDir: string) {
   const filename = path.join(dataDir, 'runner-secret')

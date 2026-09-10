@@ -5,7 +5,7 @@ registered projects, available skills, and shared connections, including future
 additions. Its model, instructions, timeout, and execution mode are editable;
 its resource access cannot be reduced and it cannot be deleted.
 
-Other agents can select projects and skills and disable the shared GitHub
+Other agents can select projects, skills, MCP connections and tools, and disable the shared GitHub
 connection. New agents default to full access and YOLO. A task inherits its
 agent's resources, or can narrow its project context and skills under **Customize
 task scope**. Task overrides cannot expand agent access. A task needs no project;
@@ -45,10 +45,15 @@ worktrees, an allowed project's mounted files are shared with its checkout.
 
 Only selected skill directories and supporting files are copied. Symbolic links
 in skill resources are rejected. Project Codex configuration and skill discovery
-directories are masked; shared home configuration, MCP connections, SSH keys, and
+directories are masked; shared home configuration, unmanaged MCP connections, SSH keys, and
 unselected global skills are not copied. Skill selection controls supplied
 instructions, not the ability to write equivalent code. Secrets already committed
 or stored inside an allowed project remain accessible with that project.
+
+MCP connections configured in the UI are supplied separately according to the
+agent's allowlist. Remote credentials stay in the manager; isolated runs receive
+a temporary gateway credential. See [MCP connections](MCP-CONNECTIONS.md) for
+tool permissions and revocation behavior.
 
 A temporary copy of the shared ChatGPT subscription login authenticates Codex.
 Per-run home and plan files are removed when execution finishes; results and project

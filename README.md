@@ -14,6 +14,7 @@ Run it on a VPS so schedules keep working when your laptop is off.
 - Follow runs, inspect results and original instructions, cancel, retry, archive tasks, and clean up reviewed worktrees.
 - Edit global and project `.agents/skills`, including supporting files and Markdown previews.
 - Connect the official Codex and GitHub CLIs through device sign-in. Codex uses ChatGPT subscription authentication.
+- Add remote and command MCP servers from the UI, sign in with OAuth on any device, discover tools, and choose each agent’s connections and tool access.
 - Expose scoped tools through a **stateless MCP 2026-07-28** endpoint, with stateless compatibility for older Streamable HTTP clients, OAuth, PKCE, refresh rotation, and revocation.
 
 The application serves one private owner workspace. The repository is public;
@@ -42,6 +43,9 @@ For a remote server, use an HTTPS reverse proxy or an SSH tunnel for initial set
 [Agent toolkit, mise project versions, and automatic updates](docs/TOOLKIT.md)
 provide the complete installation procedure. [MCP and OAuth](docs/MCP.md) explain
 ChatGPT/Claude connection setup and the supported protocol boundary.
+
+[MCP connections for agents](docs/MCP-CONNECTIONS.md) covers outbound servers,
+OAuth setup, tool permissions, and credential backups.
 
 ## Develop with pnpm 12
 

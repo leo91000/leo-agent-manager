@@ -6,6 +6,8 @@ export { MAIN_AGENT_ID } from './constants'
 export const accessPolicy = z.object({
   projects: z.array(id).max(100).nullable().default(null),
   skills: z.array(z.string().max(160)).max(100).nullable().default(null),
+  mcps: z.array(id).max(100).nullable().default(null),
+  mcpTools: z.record(id, z.array(z.string().min(1).max(200)).max(500)).default({}),
   github: z.boolean().default(true),
   sandbox: z.enum(['yolo', 'workspace-write', 'read-only']).default('yolo'),
 })

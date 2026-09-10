@@ -40,15 +40,15 @@ export function redact(text: string) {
       '$1[redacted]',
     )
 }
-export function redactPayload(value: unknown): unknown {
+export function redactPayload(value: unknown, secrets: string[] = []): unknown {
   if (typeof value === 'string')
-    return redact(value)
+    return secrets.reduce((text, secret) => text.replaceAll(secret, '[redacted]'), redact(value))
   if (Array.isArray(value))
-    return value.map(redactPayload)
+    return value.map(item => redactPayload(item, secrets))
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [
       key,
-      /^(?:access_token|refresh_token|id_token|OPENAI_API_KEY|CODEX_API_KEY)$/i.test(key) ? '[redacted]' : redactPayload(item),
+      /^(?:access_token|refresh_token|id_token|OPENAI_API_KEY|CODEX_API_KEY)$/i.test(key) ? '[redacted]' : redactPayload(item, secrets),
     ]))
   }
   return value
@@ -159,6 +159,8 @@ export class Worker {
     const { store, config } = this.service
     const control = this.active.get(run.id)!
     let timeout: NodeJS.Timeout | undefined
+    let sensitive: string[] = []
+    const sanitize = (text: string) => sensitive.reduce((value, secret) => value.replaceAll(secret, '[redacted]'), redact(text))
     try {
       store.updateRun(run.id, { status: 'running', startedAt: Date.now() })
       store.event(run.id, 'status', 'Preparing workspace')
@@ -180,11 +182,14 @@ export class Worker {
       delete env.CODEX_API_KEY
       delete env.CODEX_THREAD_ID
       let binary = config.codexBin
-      let args = codexArgs(run, output)
+      const mcp = this.service.mcps.runConfiguration(run)
+      sensitive = mcp.redactions
+      Object.assign(env, mcp.env)
+      let args = [...mcp.args, ...codexArgs(run, output)]
       if (prepared.isolated) {
         const plans = path.join(config.dataDir, 'runner-plans')
         await mkdir(plans, { recursive: true, mode: 0o700 })
-        await writeFile(path.join(plans, `${run.id}.json`), JSON.stringify({ id: run.id, args, cwd: prepared.cwd, prompt: runPrompt({ ...run, snapshot: { ...run.snapshot, skills: prepared.skills } }), mounts: prepared.mounts, expires: Date.now() + run.snapshot.agent.timeoutMinutes * 60000, sandbox: policy(run.snapshot.agent).sandbox }), { mode: 0o600 })
+        await writeFile(path.join(plans, `${run.id}.json`), JSON.stringify({ id: run.id, args, cwd: prepared.cwd, prompt: runPrompt({ ...run, snapshot: { ...run.snapshot, skills: prepared.skills } }), mounts: prepared.mounts, expires: Date.now() + run.snapshot.agent.timeoutMinutes * 60000, sandbox: policy(run.snapshot.agent).sandbox, mcpEnv: mcp.env }), { mode: 0o600 })
         env.RUNNER_URL = config.runnerUrl
         env.RUNNER_TOKEN = await runnerSecret(config.dataDir)
         binary = process.execPath
@@ -226,12 +231,12 @@ export class Worker {
           store.event(
             run.id,
             event.type ?? 'output',
-            redact(typeof text === 'string' ? text : JSON.stringify(text)),
-            redactPayload(event) as Record<string, unknown>,
+            sanitize(typeof text === 'string' ? text : JSON.stringify(text)),
+            redactPayload(event, sensitive) as Record<string, unknown>,
           )
         }
         catch {
-          store.event(run.id, 'output', redact(raw))
+          store.event(run.id, 'output', sanitize(raw))
         }
       }
       child.stdout?.on('data', (chunk) => {
@@ -251,7 +256,7 @@ export class Worker {
         if (total >= max)
           return
         total += chunk.length
-        store.event(run.id, 'diagnostic', redact(chunk.toString()))
+        store.event(run.id, 'diagnostic', sanitize(chunk.toString()))
       })
       child.stdin?.on('error', () => {})
       child.stdin?.end(runPrompt(run))
@@ -273,7 +278,7 @@ export class Worker {
         status,
         finishedAt: Date.now(),
         summary:
-          summary.slice(0, 100000)
+          sanitize(summary).slice(0, 100000)
           || (control.timedOut
             ? 'Run exceeded its time limit.'
             : `Process exited with code ${code}.`),
@@ -284,11 +289,12 @@ export class Worker {
       store.updateRun(run.id, {
         status: control.cancelled ? 'cancelled' : 'failed',
         finishedAt: Date.now(),
-        summary: redact((e as Error).message),
+        summary: sanitize((e as Error).message),
       })
-      store.event(run.id, 'error', redact((e as Error).message))
+      store.event(run.id, 'error', sanitize((e as Error).message))
     }
     finally {
+      this.service.mcps.revokeRun(run.id)
       if (timeout)
         clearTimeout(timeout)
       // Per-run login copies are disposable; keep results and working files only.

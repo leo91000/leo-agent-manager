@@ -1,21 +1,16 @@
 <script setup lang="ts">
-import {
-  Bot,
-  FolderGit2,
-  Pencil,
-  Plus,
-  ShieldCheck,
-  Sparkles,
-  Trash2,
-} from '@lucide/vue'
+import { Bot, FolderGit2, Pencil, Plus, ShieldCheck, Sparkles, Trash2 } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, notify, refresh, state } from '../api'
 import Empty from '../components/Empty.vue'
 import Modal from '../components/Modal.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
+import '../mcp.css'
 
-const props = defineProps<{ kind: 'agents' | 'projects' }>()
+const props = defineProps<{
+  kind: 'agents' | 'projects'
+}>()
 const isAgent = computed(() => props.kind === 'agents')
 const items = computed(() => [...state[props.kind]].sort((a, b) => Number(b.id === MAIN_AGENT_ID) - Number(a.id === MAIN_AGENT_ID)))
 const editing = ref<string | null>(null)
@@ -43,6 +38,19 @@ const allProjects = computed({ get: () => form.value.access?.projects === null, 
   if (!value)
     form.value.access.github = false
 } })
+const allMcps = computed({ get: () => form.value.access?.mcps === null, set: (value: boolean) => {
+  form.value.access.mcps = value ? null : []
+  form.value.access.mcpTools = {}
+} })
+function toggleMcp(id: string, enabled: boolean) {
+  if (enabled) {
+    form.value.access.mcps.push(id)
+  }
+  else {
+    form.value.access.mcps = form.value.access.mcps.filter((value: string) => value !== id)
+    delete form.value.access.mcpTools[id]
+  }
+}
 const allSkills = computed({ get: () => form.value.access?.skills === null, set: (value: boolean) => {
   form.value.access.skills = value ? null : []
 } })
@@ -62,7 +70,7 @@ async function edit(item?: any) {
           reasoning: 'high',
           instructions: '',
           timeoutMinutes: 120,
-          access: { projects: null, skills: null, github: true, sandbox: 'yolo' },
+          access: { projects: null, skills: null, mcps: null, mcpTools: {}, github: true, sandbox: 'yolo' },
         }
       : { name: '', description: '', path: '', baseBranch: 'main' }
   error.value = ''
@@ -74,7 +82,9 @@ async function edit(item?: any) {
       if (editing.value === id)
         githubConfigured.value = connection.configured
     }
-    catch (e) { error.value = (e as Error).message }
+    catch (e) {
+      error.value = (e as Error).message
+    }
   }
 }
 async function save() {
@@ -224,10 +234,25 @@ async function remove() {
               <fieldset v-if="!allSkills" class="access-choices">
                 <legend>Allowed skills</legend><label v-for="skill in permittedSkills" :key="skill.path" class="checkbox"><input v-model="form.access.skills" type="checkbox" :value="`${skill.scope}/${skill.name}`">{{ skill.name }}</label>
               </fieldset>
+              <label class="checkbox"><input v-model="allMcps" type="checkbox">All MCP connections, including future connections</label>
+              <fieldset class="access-choices">
+                <legend>MCP permissions</legend>
+                <div v-for="connection in state.mcps" :key="connection.id">
+                  <label class="checkbox"><input type="checkbox" :checked="allMcps || form.access.mcps.includes(connection.id)" :disabled="allMcps" @change="toggleMcp(connection.id, ($event.target as HTMLInputElement).checked)">{{ connection.name }}</label>
+                  <details v-if="allMcps || form.access.mcps.includes(connection.id)" class="mcp-agent-tools">
+                    <summary>Tool access</summary>
+                    <label class="checkbox"><input type="checkbox" :checked="!(connection.id in form.access.mcpTools)" @change="($event.target as HTMLInputElement).checked ? delete form.access.mcpTools[connection.id] : form.access.mcpTools[connection.id] = []">All enabled tools</label>
+                    <template v-if="connection.id in form.access.mcpTools">
+                      <label v-for="tool in connection.tools" :key="tool.name" class="checkbox"><input v-model="form.access.mcpTools[connection.id]" type="checkbox" :value="tool.name">{{ tool.name }}</label><small v-if="!connection.tools.length">Test this connection in MCPs to discover its tools.</small>
+                    </template>
+                  </details>
+                </div>
+                <small v-if="!state.mcps.length">Add connections in MCPs first.</small>
+              </fieldset>
               <label class="checkbox"><input v-model="form.access.github" type="checkbox" :disabled="!allProjects">Shared GitHub connection</label>
               <label v-if="!form.access.github">Dedicated GitHub token<input v-model="githubToken" type="password" autocomplete="new-password" :placeholder="githubConfigured ? 'Saved token · leave blank to keep' : 'Optional fine-grained GitHub token'"><small>Select only this agent’s repositories and permissions when creating the token on GitHub. Its remote permissions are determined by the token.</small></label>
               <label v-if="githubConfigured && !form.access.github" class="checkbox"><input v-model="removeGithub" type="checkbox">Remove saved GitHub token</label>
-              <small>Shared GitHub credentials can access other repositories, so they are available only to agents with all-project access. Restricted agents receive no shared GitHub or MCP credentials.</small>
+              <small>Shared GitHub credentials can access other repositories, so they are available only to agents with all-project access. Restricted agents receive only their selected MCP connections.</small>
             </template>
             <p v-else>
               The main agent has access to all registered projects, skills, and shared connections.

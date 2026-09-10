@@ -41,6 +41,7 @@ process.stdin.on('end', () => {
     assert.throws(() => fs.readFileSync(file));
   assert.ok(!process.env.RUNNER_TOKEN);
   assert.ok(!process.env.GITHUB_TOKEN);
+  assert.equal(process.env.LEO_MCP_RUN_TOKEN, 'fixture-run-scoped-token');
   assert.ok(!fs.readFileSync('/home/node/.codex/config.toml', 'utf8').includes('private'));
   if (plan.sandbox === 'read-only') {
     assert.throws(() => fs.writeFileSync(plan.cwd + '/forbidden', 'bad'));
@@ -88,7 +89,7 @@ process.stdin.on('end', () => {
       run.workspace=prepared.cwd; run.workspaces=prepared.workspaces;
       const args=probe ? ['sandbox','-c','sandbox_mode='+JSON.stringify(mode),'--','node','-e', 'const fs=require("fs"),a=require("assert/strict"),cp=require("child_process");'+(mode==='read-only' ? 'a.throws(()=>fs.writeFileSync("sandbox-forbidden","bad"));' : 'fs.writeFileSync("sandbox-allowed","ok");')+'a.throws(()=>fs.writeFileSync("/home/node/sandbox-denied","bad"));for(const bin of ["rg","fd","jq","python","uv","cargo"])cp.execFileSync(bin,["--version"],{stdio:"inherit"});console.log("Real Codex sandbox denied out-of-workspace write; toolkit available")'] : codexArgs(run,prepared.output);
       if(!probe) prepared.mounts.push({source:root+'/codex-fixture',target:'/pnpm/bin/codex',readOnly:true});
-      await writeFile(root+'/data/runner-plans/'+id+'.json',JSON.stringify({id,args,cwd:prepared.cwd,prompt:task.prompt,mounts:prepared.mounts,expires:Date.now()+120000,sandbox:mode}));
+      await writeFile(root+'/data/runner-plans/'+id+'.json',JSON.stringify({id,args,cwd:prepared.cwd,prompt:task.prompt,mounts:prepared.mounts,expires:Date.now()+120000,sandbox:mode,mcpEnv:{LEO_MCP_RUN_TOKEN:'fixture-run-scoped-token'}}));
     `
     for (const [mode, probe] of [['yolo', false], ['read-only', false], ['workspace-write', true], ['read-only', true]]) {
       const id = randomUUID()

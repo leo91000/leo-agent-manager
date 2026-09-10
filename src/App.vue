@@ -46,6 +46,7 @@ const nav = [
   { to: '/agents', label: 'Agents', icon: Bot },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
   { to: '/skills', label: 'Skills', icon: BookOpen },
+  { to: '/mcps', label: 'MCPs', icon: Plug },
 ]
 const results = computed(() =>
   [

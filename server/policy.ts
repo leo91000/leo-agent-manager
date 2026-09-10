@@ -3,11 +3,14 @@ import { accessPolicy } from '../shared/contracts.ts'
 import { AppError } from './errors.ts'
 
 export function policy(agent: Agent) {
-  return accessPolicy.parse(agent.access ?? {})
+  const access = accessPolicy.parse(agent.access ?? {})
+  if (agent.access && !Object.hasOwn(agent.access, 'mcps') && (access.projects !== null || access.skills !== null || !access.github || access.sandbox !== 'yolo'))
+    access.mcps = []
+  return access
 }
 export function isolated(agent: Agent) {
   const access = policy(agent)
-  return access.projects !== null || access.skills !== null || !access.github || access.sandbox !== 'yolo'
+  return access.projects !== null || access.skills !== null || !access.github || access.sandbox !== 'yolo' || access.mcps !== null || Object.keys(access.mcpTools).length > 0
 }
 export function allowedProjects(agent: Agent, projects: Project[]) {
   const access = policy(agent)

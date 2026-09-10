@@ -11,6 +11,8 @@ export default defineConfig({
   projects: [
     { name: 'journeys', testMatch: 'workspace.spec.ts', grepInvert: /appearance follows|dark appearance settings/ },
     { name: 'journeys-appearance', testMatch: 'workspace.spec.ts', grep: /appearance follows|dark appearance settings/ },
+    { name: 'journeys-mcps', testMatch: 'mcps.spec.ts' },
+    { name: 'layout-webkit-mcps', testMatch: 'mcps.spec.ts', use: { browserName: 'webkit', isMobile: true, hasTouch: true } },
     { name: 'journeys-task-focus', testMatch: 'task-focus.spec.ts' },
     { name: 'journeys-agent-access', testMatch: 'agent-access.spec.ts' },
     ...(['chromium', 'webkit'] as const).flatMap(browserName =>

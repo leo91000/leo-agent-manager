@@ -11,6 +11,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/tasks' },
+    { path: '/mcps', component: () => import('./views/Mcps.vue') },
     { path: '/tasks', component: () => import('./views/Tasks.vue') },
     { path: '/runs', component: () => import('./views/Runs.vue') },
     { path: '/runs/:id', component: () => import('./views/RunDetail.vue') },

@@ -1,4 +1,5 @@
 import type { Agent, Project, Skill, Task } from '../shared/contracts'
+import type { McpView } from '../shared/mcp'
 import { reactive } from 'vue'
 
 export const state = reactive({
@@ -10,6 +11,7 @@ export const state = reactive({
   projects: [] as Project[],
   tasks: [] as Task[],
   skills: [] as Skill[],
+  mcps: [] as McpView[],
   toast: '',
   error: '',
 })
@@ -47,13 +49,14 @@ export async function session() {
   state.ready = true
 }
 export async function refresh() {
-  const [agents, projects, tasks, skills] = await Promise.all([
+  const [agents, projects, tasks, skills, mcps] = await Promise.all([
     api<Agent[]>('/agents'),
     api<Project[]>('/projects'),
     api<Task[]>('/tasks'),
     api<Skill[]>('/skills'),
+    api<McpView[]>('/mcps'),
   ])
-  Object.assign(state, { agents, projects, tasks, skills })
+  Object.assign(state, { agents, projects, tasks, skills, mcps })
 }
 export function date(value: number | null | undefined) {
   return value

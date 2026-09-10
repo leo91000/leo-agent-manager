@@ -4,12 +4,17 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deviceDetails } from '../server/connections.ts'
-import { codexArgs, redact } from '../server/worker.ts'
+import { codexArgs, redact, redactPayload } from '../server/worker.ts'
 import { fixture } from './helpers.ts'
+import { mcpProvider } from './mcp-provider.ts'
 
 const exec = promisify(execFile)
 const binary = path.resolve('tests/fixtures/codex.mjs')
 describe('real worker subprocess lifecycle', () => {
+  it('redacts configured secrets with JSON escapes while preserving structured output', () => {
+    const secret = 'secret-"with\\escapes\nand newlines'
+    expect(redactPayload({ nested: [{ text: `Result ${secret}` }] }, [secret])).toEqual({ nested: [{ text: 'Result [redacted]' }] })
+  })
   let ctx: Awaited<ReturnType<typeof fixture>>
   beforeEach(async () => {
     ctx = await fixture({ codexBin: binary, concurrency: 2 })
@@ -24,6 +29,27 @@ describe('real worker subprocess lifecycle', () => {
       .toMatch(/queued|running/)
     return ctx.service.store.run(id)!
   }
+
+  it('passes run-scoped MCP access to the subprocess and redacts and revokes its credential', async () => {
+    const provider = await mcpProvider()
+    try {
+      await ctx.app.listen({ host: '127.0.0.1', port: 0 })
+      ctx.service.config.publicUrl = `http://127.0.0.1:${(ctx.app.server.address() as { port: number }).port}`
+      await ctx.service.mcps.save({ name: 'Worker tools', url: `${provider.origin}/mcp`, auth: 'bearer', token: 'fixture-access-token', allowPrivateNetwork: true })
+      ctx.service.task({ ...ctx.task, prompt: 'fixture:mcp' }, ctx.task.id)
+      const run = await ctx.service.enqueue(ctx.task.id)
+      await ctx.worker.tick()
+      const result = await finished(run.id)
+      expect(result.status, result.summary).toBe('succeeded')
+      expect(result.summary).toBe('MCP subprocess passed: [redacted]')
+      const event = ctx.service.store.events(run.id).find(event => event.text.startsWith('MCP subprocess'))
+      expect(event?.payload).toMatchObject({ item: { text: 'MCP subprocess passed: [redacted]' } })
+      expect(ctx.service.store.keys('mcp-grant:')).toEqual([])
+    }
+    finally {
+      await provider.close()
+    }
+  })
 
   it('executes stdin instructions, streams events, saves usage and redacts credentials', async () => {
     const run = await ctx.service.enqueue(ctx.task.id)
