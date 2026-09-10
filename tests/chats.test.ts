@@ -36,7 +36,7 @@ describe('interactive chats', () => {
   }
   const finish = async (id: string) => {
     await expect.poll(() => ctx.service.store.run(id)?.status, { timeout: 10000 }).toBe('succeeded')
-    await expect.poll(() => ctx.worker.active.has(id)).toBe(false)
+    await expect.poll(() => (restarted ?? ctx.worker).active.has(id)).toBe(false)
   }
   it('defaults project chat to Main agent, validates access, and keeps chats out of tasks', () => {
     const chat = ctx.service.chats.create({ projectId: ctx.project.id })
