@@ -1,0 +1,88 @@
+.search-field:focus-within {
+  border-color: light-dark(#7c77ae, var(--dark-border));
+  box-shadow: 0 0 0 3px light-dark(#e0dff0, #a7a2da2b);
+}
+
+.search-field input {
+  border: 0;
+  box-shadow: none !important;
+  width: 180px;
+  padding: 10px 0;
+  font-size: 12px;
+  background: transparent;
+  outline: none;
+  min-width: 0;
+  flex: 1;
+}
+
+.copy-field input {
+  border: 0 !important;
+  background: light-dark(#fff, var(--dark-inset)) !important;
+}
+
+.modal.wide {
+  max-width: min(720px, calc(100vw - 28px));
+}
+
+.modal::backdrop {
+  background: light-dark(#1716277a, #020208b3);
+  backdrop-filter: blur(4px);
+}
+
+.modal-head h2 {
+  font-size: 18px;
+}
+
+.token-form > * + * {
+  margin-top: 20px;
+}
+
+.checkbox input {
+  width: 14px;
+  height: 14px;
+  accent-color: light-dark(#4a4583, var(--dark-accent));
+  flex-shrink: 0;
+}
+
+.checkbox small {
+  font-size: 12px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 900px) {
+  .checkbox small {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .search-field input {
+    width: 100%;
+  }
+  input, textarea, select, .search-field input {
+    font-size: 16px;
+  }
+  .modal-actions > .button {
+    flex: 1 1 auto;
+  }
+  .modal-head h2 {
+    font-size: 16px;
+  }
+}
+
+.modal .skill-preview {
+  height: auto;
+  min-height: 160px;
+  overflow: visible;
+}

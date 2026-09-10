@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { Task } from '../../shared/contracts'
-import { Bot, CalendarDays, CalendarRange, Clock, FolderGit2, Play } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, notify, refresh, state } from '../api'
+import { Bot, CalendarDays, CalendarRange, Clock, FolderGit2, Play } from '../icons'
+import Icon from './Icon.vue'
 import Modal from './Modal.vue'
+import UiAlert from './UiAlert.vue'
+import UiButton from './UiButton.vue'
 import VirtualSelect from './VirtualSelect.vue'
 
 const props = defineProps<{ task?: Task }>()
@@ -132,32 +135,32 @@ async function save() {
     @close="emit('close')"
   >
     <form @submit.prevent="save">
-      <div class="modal-body form-grid">
-        <label class="span-2">Task name<input
+      <div class="modal-body form-grid grid grid-cols-[1fr_1fr] gap-5 phone:grid-cols-1 phone:gap-4.5 px-6.5 py-6 phone:p-5">
+        <label class="span-2 col-span-2 phone:col-span-1">Task name<input
           v-model="form.name"
           required
           maxlength="100"
           autofocus
           placeholder="e.g. Keep CSS Baseline up to date"
-        ></label><label class="span-2">What should happen?<textarea
+        ></label><label class="span-2 col-span-2 phone:col-span-1">What should happen?<textarea
           v-model="form.prompt"
           required
           rows="5"
           placeholder="Describe the outcome, constraints, and how your agent should verify its work."
         /><small>Be specific about whether the agent may push, merge, or
           release.</small></label>
-        <VirtualSelect v-model="form.agentId" class="span-2" label="Agent" :options="agents" :icon="Bot" placeholder="Choose an agent" empty-text="Add an agent to get started" required />
-        <p v-if="selectedAgent" class="inline-note span-2 agent-scope-summary">
-          <Bot :size="17" /><span>{{ scopeDescription }} · {{ selectedAgent.access.skills === null ? 'All available skills' : `${selectedAgent.access.skills.length} selected ${selectedAgent.access.skills.length === 1 ? 'skill' : 'skills'}` }} · {{ selectedAgent.access.sandbox === 'yolo' ? 'YOLO' : selectedAgent.access.sandbox }}</span>
+        <VirtualSelect v-model="form.agentId" class="span-2 col-span-2 phone:col-span-1" label="Agent" :options="agents" :icon="Bot" placeholder="Choose an agent" empty-text="Add an agent to get started" required />
+        <p v-if="selectedAgent" class="inline-note bg-surface rounded-lg text-xs leading-[1.7] text-muted span-2 col-span-2 phone:col-span-1 agent-scope-summary px-[15px] py-[13px]">
+          <Icon :name="Bot" :size="17" /><span>{{ scopeDescription }} · {{ selectedAgent.access.skills === null ? 'All available skills' : `${selectedAgent.access.skills.length} selected ${selectedAgent.access.skills.length === 1 ? 'skill' : 'skills'}` }} · {{ selectedAgent.access.sandbox === 'yolo' ? 'YOLO' : selectedAgent.access.sandbox }}</span>
         </p>
         <p
           v-if="!state.agents.length"
-          class="inline-note span-2"
+          class="inline-note bg-surface rounded-lg text-xs leading-[1.7] text-muted span-2 col-span-2 phone:col-span-1 px-[15px] py-[13px]"
         >
           Add an agent before creating your first task.
         </p>
-        <div class="form-divider span-2" />
-        <label class="span-2">Tags<input
+        <div class="form-divider h-[1px] bg-line span-2 col-span-2 phone:col-span-1" />
+        <label class="span-2 col-span-2 phone:col-span-1">Tags<input
           v-model="tagText"
           placeholder="maintenance, release"
         ><small>Separate tags with commas, up to ten.</small></label>
@@ -165,15 +168,15 @@ async function save() {
           v-model="form.timezone"
           required
           placeholder="Europe/Paris"
-        ></label><label v-if="cadence === 'custom'" class="span-2">Cron expression<input
+        ></label><label v-if="cadence === 'custom'" class="span-2 col-span-2 phone:col-span-1">Cron expression<input
           v-model="form.cron"
           placeholder="0 9 * * 1"
           required
         ><small>Minute · hour · day · month · weekday</small></label>
-        <div v-if="cadence !== 'once'" class="span-2 schedule-preview">
-          <button type="button" class="button small" @click="preview">
+        <div v-if="cadence !== 'once'" class="span-2 col-span-2 phone:col-span-1 schedule-preview flex items-start gap-2 flex-wrap">
+          <UiButton type="button" size="small" @click="preview">
             Preview next runs
-          </button><span v-for="time in occurrences" :key="time">{{
+          </UiButton><span v-for="time in occurrences" :key="time">{{
             new Intl.DateTimeFormat(undefined, {
               timeZone: form.timezone,
               dateStyle: "medium",
@@ -181,19 +184,19 @@ async function save() {
             }).format(time)
           }}</span>
         </div>
-        <label class="checkbox span-2"><input v-model="advanced" type="checkbox">Customize task scope</label>
+        <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] span-2 col-span-2 phone:col-span-1 mx-0 my-[9px]"><input v-model="advanced" type="checkbox">Customize task scope</label>
         <template v-if="advanced">
-          <VirtualSelect v-model="projectChoice" class="span-2" label="Project context" :options="projects" :icon="FolderGit2" />
-          <label class="checkbox span-2"><input v-model="inheritedSkills" type="checkbox">Use the agent’s available skills</label>
-          <fieldset v-if="!inheritedSkills && available.length" class="span-2">
+          <VirtualSelect v-model="projectChoice" class="span-2 col-span-2 phone:col-span-1" label="Project context" :options="projects" :icon="FolderGit2" />
+          <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] span-2 col-span-2 phone:col-span-1 mx-0 my-[9px]"><input v-model="inheritedSkills" type="checkbox">Use the agent’s available skills</label>
+          <fieldset v-if="!inheritedSkills && available.length" class="span-2 col-span-2 phone:col-span-1">
             <legend>
               Skills <small>Optional instructions your agent can reuse</small>
             </legend>
-            <div class="check-grid">
+            <div class="check-grid flex gap-3 flex-wrap">
               <label
                 v-for="skill in available"
                 :key="`${skill.scope}/${skill.name}`"
-                class="checkbox"
+                class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"
               ><input
                 v-model="form.skills"
                 type="checkbox"
@@ -202,22 +205,22 @@ async function save() {
             </div>
           </fieldset>
         </template>
-        <label class="checkbox span-2"><input v-model="form.worktree" type="checkbox">Use an isolated Git
+        <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] span-2 col-span-2 phone:col-span-1 mx-0 my-[9px]"><input v-model="form.worktree" type="checkbox">Use an isolated Git
           worktree
           <small>Keep changes separate from your main checkout.</small></label>
-        <p v-if="error" class="error span-2" role="alert">
+        <UiAlert v-if="error" class="col-span-2 phone:col-span-1">
           {{ error }}
-        </p>
+        </UiAlert>
       </div>
-      <footer class="modal-actions">
-        <button type="button" class="button" @click="emit('close')">
+      <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
+        <UiButton type="button" @click="emit('close')">
           Cancel
-        </button><button
-          class="button primary"
+        </UiButton><UiButton
+          variant="primary" type="submit"
           :disabled="busy || !state.agents.length"
         >
           {{ busy ? "Saving…" : task ? "Save changes" : "Create task" }}
-        </button>
+        </UiButton>
       </footer>
     </form>
   </Modal>

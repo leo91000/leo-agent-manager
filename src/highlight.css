@@ -1,9 +1,0 @@
-.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section { color: light-dark(#865998, var(--dark-purple)); }
-.hljs-string, .hljs-attribute, .hljs-addition { color: light-dark(#3e3977, var(--dark-accent)); }
-.hljs-number, .hljs-symbol, .hljs-bullet { color: light-dark(#a16527, var(--dark-warn)); }
-.hljs-comment, .hljs-quote { color: light-dark(#706e8e, var(--dark-muted)); font-style: italic; }
-.hljs-title, .hljs-built_in, .hljs-type { color: light-dark(#3b7590, var(--dark-blue)); }
-.hljs-variable, .hljs-template-variable, .hljs-attr { color: light-dark(#926749, var(--dark-danger)); }
-.hljs-deletion { color: light-dark(#af574d, var(--dark-danger)); background: light-dark(#faebe5, var(--dark-danger-surface)); }
-.hljs-addition { background: light-dark(#e1dff2, var(--dark-surface)); }
-.hljs-meta { color: light-dark(#5c597b, var(--dark-muted)); }

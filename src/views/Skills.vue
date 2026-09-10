@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import type { Skill } from '../../shared/contracts'
-import { BookOpen, Code, Eye, FileCode, FolderGit2, Globe, Layers, Pencil, Plus, Search, Trash2 } from '@lucide/vue'
+import { twMerge } from 'tailwind-merge'
 import { computed, ref } from 'vue'
 import { api, notify, refresh, state } from '../api'
 import Empty from '../components/Empty.vue'
+import Icon from '../components/Icon.vue'
 import Markdown from '../components/Markdown.vue'
 import Modal from '../components/Modal.vue'
+import UiAlert from '../components/UiAlert.vue'
+import UiButton from '../components/UiButton.vue'
+import UiSegments from '../components/UiSegments.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
+import { BookOpen, Code, Eye, FileCode, FolderGit2, Globe, Layers, Pencil, Plus, Search, Trash2 } from '../icons'
+import { iconButton } from '../ui'
 
 const query = ref('')
 const scopeFilter = ref('all')
@@ -112,58 +118,58 @@ async function remove() {
 </script>
 
 <template>
-  <div class="page-heading">
+  <div class="page-heading flex items-center justify-between gap-5 mb-[27px] phone:gap-2.5 phone:flex-wrap phone:mb-[21px]">
     <div>
       <h1>Skills library</h1>
     </div>
-    <button class="button primary" @click="edit()">
-      <Plus :size="17" />New skill
-    </button>
+    <UiButton variant="primary" @click="edit()">
+      <Icon :name="Plus" :size="17" />New skill
+    </UiButton>
   </div>
-  <div class="toolbar">
-    <div class="inline-label">
+  <div class="toolbar flex items-center justify-between gap-5 mb-[23px] tablet:items-start tablet:flex-wrap phone:gap-4 phone:min-w-0">
+    <div class="inline-label flex flex-row items-center gap-2.5 text-xs text-muted whitespace-nowrap min-w-0 max-w-full">
       <span>Scope</span><VirtualSelect v-model="scopeFilter" label="Scope" :options="scopeFilters" compact hide-label />
-    </div><label class="search-field"><Search :size="17" /><input
+    </div><label class="search-field flex flex-row items-center gap-[7px] text-subtle bg-raised border border-line rounded-[7px] min-w-0 phone:w-full px-2.5 py-0"><Icon :name="Search" :size="17" /><input
       v-model="query"
       placeholder="Search skills"
       aria-label="Search skills"
     ></label>
   </div>
-  <p v-if="error && !open" class="error">
+  <UiAlert v-if="error && !open">
     {{ error }}
-  </p>
-  <div v-if="items.length" class="skill-grid">
+  </UiAlert>
+  <div v-if="items.length" class="skill-grid grid grid-cols-3 gap-5 compact:grid-cols-2 phone:grid-cols-1">
     <article
       v-for="skill in items"
       :key="`${skill.scope}/${skill.name}`"
-      class="skill-card"
+      class="skill-card bg-surface border border-line rounded-card p-[21px]"
     >
-      <div class="skill-card-top">
-        <span class="skill-symbol"><BookOpen :size="21" /></span><span class="pill" :class="{ 'error-pill': !skill.valid }">{{
+      <div class="skill-card-top flex items-center gap-2 mb-[17px]">
+        <span class="skill-symbol text-muted bg-surface w-[35px] h-[35px] grid place-items-center rounded-[9px]"><Icon :name="BookOpen" :size="21" /></span><span class="pill inline-flex bg-soft text-accent rounded-[5px] text-xs font-[650] whitespace-nowrap px-2 py-1" :class="{ 'error-pill': !skill.valid }">{{
           !skill.valid
             ? "Needs attention"
             : skill.scope === "global"
               ? "Global"
               : state.projects.find((p) => p.id === skill.scope)?.name
         }}</span><button
-          class="icon-button"
+          :class="twMerge(iconButton, 'icon-button')"
           :aria-label="`Edit ${skill.name}`"
           @click="edit(skill)"
         >
-          <Pencil :size="16" />
+          <Icon :name="Pencil" :size="16" />
         </button>
       </div>
-      <button class="skill-title" @click="edit(skill)">
+      <button class="skill-title font-heading [font-size:15px] font-[650] text-left wrap-anywhere p-0" @click="edit(skill)">
         {{ skill.name }}
       </button>
       <p>{{ skill.description }}</p>
       <footer>
         <code>.agents/skills</code><button
-          class="icon-button"
+          :class="twMerge(iconButton, 'icon-button')"
           :aria-label="`Delete ${skill.name}`"
           @click="deleting = skill"
         >
-          <Trash2 :size="15" />
+          <Icon :name="Trash2" :size="15" />
         </button>
       </footer>
     </article>
@@ -173,9 +179,9 @@ async function remove() {
     title="Your playbook starts here"
     description="Add repeatable instructions for reviews, releases, research, and the work you do often."
   >
-    <button class="button" @click="edit()">
-      <Plus :size="16" />Create your first skill
-    </button>
+    <UiButton @click="edit()">
+      <Icon :name="Plus" :size="16" />Create your first skill
+    </UiButton>
   </Empty><Modal
     v-if="open"
     :title="original ? 'Edit skill' : 'Add to your playbook'"
@@ -183,8 +189,8 @@ async function remove() {
     @close="open = false"
   >
     <form @submit.prevent="save">
-      <div class="modal-body">
-        <div class="form-grid">
+      <div class="modal-body px-6.5 py-6 phone:p-5">
+        <div class="form-grid grid grid-cols-[1fr_1fr] gap-5 phone:grid-cols-1 phone:gap-4.5">
           <label>Name<input
             v-model="name"
             aria-label="Skill name"
@@ -194,50 +200,36 @@ async function remove() {
             placeholder="my-skill"
           ><small>Match the name in your YAML frontmatter.</small></label><VirtualSelect v-model="scope" label="Scope" :options="scopes" :disabled="!!original" />
         </div>
-        <div class="editor-toolbar">
+        <div class="editor-toolbar flex justify-between items-center mt-4.5 mb-2.5 text-xs text-muted phone:flex-wrap phone:gap-2.5">
           <VirtualSelect v-if="original" :model-value="file" label="Skill file" :options="fileOptions" compact hide-label @update:model-value="readFile" /><span v-else>SKILL.md</span>
-          <div class="tabs">
-            <button
-              type="button"
-              :class="{ selected: !preview }"
-              @click="preview = false"
-            >
-              <Code :size="15" />Write
-            </button><button
-              type="button"
-              :class="{ selected: preview }"
-              @click="preview = true"
-            >
-              <Eye :size="15" />Preview
-            </button>
-          </div>
+          <UiSegments v-model="preview" label="Skill editor view" compact :options="[{ value: false, label: 'Write', icon: Code }, { value: true, label: 'Preview', icon: Eye }]" />
         </div>
-        <div v-if="preview" class="skill-preview">
+        <div v-if="preview" class="skill-preview h-82.5 overflow-auto border border-line rounded-lg p-5">
           <Markdown :content="file === 'SKILL.md' ? content : fileContent" />
         </div>
         <textarea
           v-else-if="file === 'SKILL.md'"
           v-model="content"
-          class="code-editor"
+          class="code-editor font-mono! leading-[1.8]! text-xs! [tab-size:2]"
           rows="15"
           spellcheck="false"
           aria-label="Skill content"
         /><textarea
           v-else
           v-model="fileContent"
-          class="code-editor"
+          class="code-editor font-mono! leading-[1.8]! text-xs! [tab-size:2]"
           rows="15"
           spellcheck="false"
           aria-label="Supporting file content"
         />
-        <div v-if="original" class="supporting-file">
+        <div v-if="original" class="supporting-file flex gap-2.5 mt-3.5 phone:flex-wrap">
           <input
             v-model="newFile"
             placeholder="Add supporting file, e.g. checklist.md"
             aria-label="New supporting file"
-          ><button
+          ><UiButton
             type="button"
-            class="button small"
+            size="small"
             :disabled="!newFile"
             @click="
               file = newFile;
@@ -247,18 +239,18 @@ async function remove() {
             "
           >
             Add file
-          </button>
+          </UiButton>
         </div>
-        <p v-if="error" class="error" role="alert">
+        <UiAlert v-if="error">
           {{ error }}
-        </p>
+        </UiAlert>
       </div>
-      <footer class="modal-actions">
-        <button type="button" class="button" @click="open = false">
+      <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
+        <UiButton type="button" @click="open = false">
           Cancel
-        </button><button class="button primary" :disabled="busy">
+        </UiButton><UiButton variant="primary" type="submit" :disabled="busy">
           {{ busy ? "Saving…" : "Save skill" }}
-        </button>
+        </UiButton>
       </footer>
     </form>
   </Modal><Modal
@@ -266,18 +258,18 @@ async function remove() {
     title="Remove this skill?"
     @close="deleting = undefined"
   >
-    <div class="modal-body">
+    <div class="modal-body px-6.5 py-6 phone:p-5">
       <p>
         This removes “{{ deleting.name }}” and its supporting files from disk.
         Existing run snapshots remain available.
       </p>
     </div>
-    <footer class="modal-actions">
-      <button class="button" @click="deleting = undefined">
+    <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
+      <UiButton @click="deleting = undefined">
         Cancel
-      </button><button class="button danger" @click="remove">
+      </UiButton><UiButton variant="danger" @click="remove">
         Remove skill
-      </button>
+      </UiButton>
     </footer>
   </Modal>
 </template>

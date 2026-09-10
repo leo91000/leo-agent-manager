@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { Bot, FolderGit2, Pencil, Plus, ShieldCheck, Sparkles, Trash2 } from '@lucide/vue'
+import { twMerge } from 'tailwind-merge'
 import { computed, ref } from 'vue'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, notify, refresh, state } from '../api'
 import Empty from '../components/Empty.vue'
+import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
+import UiAlert from '../components/UiAlert.vue'
+import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import '../mcp.css'
+import { Bot, FolderGit2, Pencil, Plus, ShieldCheck, Sparkles, Trash2 } from '../icons'
+import { iconButton } from '../ui'
 
 const props = defineProps<{
   kind: 'agents' | 'projects'
@@ -123,34 +127,34 @@ async function remove() {
 </script>
 
 <template>
-  <div class="page-heading">
+  <div class="page-heading flex items-center justify-between gap-5 mb-[27px] phone:gap-2.5 phone:flex-wrap phone:mb-[21px]">
     <div>
       <h1>{{ isAgent ? "Agents" : "Projects" }}</h1>
     </div>
-    <button class="button primary" @click="edit()">
-      <Plus :size="17" />{{ isAgent ? "New agent" : "Add project" }}
-    </button>
+    <UiButton variant="primary" @click="edit()">
+      <Icon :name="Plus" :size="17" />{{ isAgent ? "New agent" : "Add project" }}
+    </UiButton>
   </div>
-  <p v-if="error && !open" class="error" role="alert">
+  <UiAlert v-if="error && !open">
     {{ error }}
-  </p>
-  <div v-if="items.length" class="resource-grid">
-    <article v-for="item in items" :key="item.id" class="resource-card">
-      <div class="resource-top">
-        <span class="resource-avatar"><Bot v-if="isAgent" :size="25" /><FolderGit2 v-else :size="25" /></span>
+  </UiAlert>
+  <div v-if="items.length" class="resource-grid grid grid-cols-2 gap-5.5 tablet:grid-cols-1">
+    <article v-for="item in items" :key="item.id" class="resource-card min-w-0 wrap-anywhere bg-surface border border-line rounded-card p-6 phone:p-5.5">
+      <div class="resource-top flex justify-between items-center mb-5">
+        <span class="resource-avatar w-11.5 h-11.5 bg-soft text-accent grid place-items-center rounded-xl border border-line"><Icon v-if="isAgent" :name="Bot" :size="25" /><Icon v-else :name="FolderGit2" :size="25" /></span>
         <div>
           <button
-            class="icon-button"
+            :class="twMerge(iconButton, 'icon-button')"
             :aria-label="`Edit ${item.name}`"
             @click="edit(item)"
           >
-            <Pencil :size="17" />
+            <Icon :name="Pencil" :size="17" />
           </button><button
             v-if="item.id !== MAIN_AGENT_ID"
-            class="icon-button" :aria-label="`Delete ${item.name}`"
+            :class="twMerge(iconButton, 'icon-button')" :aria-label="`Delete ${item.name}`"
             @click="deleting = item"
           >
-            <Trash2 :size="16" />
+            <Icon :name="Trash2" :size="16" />
           </button>
         </div>
       </div>
@@ -164,19 +168,19 @@ async function remove() {
         }}
       </p>
       <template v-if="'reasoning' in item">
-        <div class="resource-facts">
+        <div class="resource-facts grid grid-cols-[1fr_1fr] text-xs text-subtle">
           <span>Access<strong>{{ item.access.projects === null ? 'All projects' : `${item.access.projects.length} projects` }}</strong></span><span>Model<strong>{{ item.model || "Codex default" }}</strong></span><span>Reasoning<strong>{{ item.reasoning }}</strong></span>
         </div>
-        <div class="resource-bottom">
-          <ShieldCheck :size="15" />{{ item.access.sandbox === 'yolo' ? 'YOLO mode' : item.access.sandbox }}<span>{{ item.timeoutMinutes }} min limit</span>
+        <div class="resource-bottom flex items-center gap-1.5 pt-4.5 [border-top:1px_solid_light-dark(#e7e6f1,_var(--dark-border))] text-xs text-muted mt-5">
+          <Icon :name="ShieldCheck" :size="15" />{{ item.access.sandbox === 'yolo' ? 'YOLO mode' : item.access.sandbox }}<span>{{ item.timeoutMinutes }} min limit</span>
         </div>
       </template><template v-else-if="'path' in item">
-        <code class="path-label">{{ item.path }}</code>
-        <p v-if="item.origin" class="path-label">
+        <code class="path-label block bg-surface rounded-[6px] text-muted p-2.5">{{ item.path }}</code>
+        <p v-if="item.origin" class="path-label block bg-surface rounded-[6px] text-muted p-2.5">
           {{ item.origin }}
         </p>
-        <div class="resource-bottom">
-          <FolderGit2 :size="15" />{{ item.baseBranch
+        <div class="resource-bottom flex items-center gap-1.5 pt-4.5 [border-top:1px_solid_light-dark(#e7e6f1,_var(--dark-border))] text-xs text-muted mt-5">
+          <Icon :name="FolderGit2" :size="15" />{{ item.baseBranch
           }}<span>{{
             state.tasks.filter((t) => t.projectId === item.id).length
           }}
@@ -194,17 +198,17 @@ async function remove() {
         : 'Add an existing directory on your server. Your agents can use isolated worktrees to keep changes separate.'
     "
   >
-    <button class="button" @click="edit()">
-      <Plus :size="16" />{{ isAgent ? "Create an agent" : "Add a project" }}
-    </button>
+    <UiButton @click="edit()">
+      <Icon :name="Plus" :size="16" />{{ isAgent ? "Create an agent" : "Add a project" }}
+    </UiButton>
   </Empty><Modal
     v-if="open"
     :title="`${editing ? 'Edit' : 'New'} ${isAgent ? 'agent' : 'project'}`"
     @close="open = false"
   >
     <form @submit.prevent="save">
-      <div class="modal-body form-grid">
-        <label class="span-2">Name<input
+      <div class="modal-body form-grid grid grid-cols-[1fr_1fr] gap-5 phone:grid-cols-1 phone:gap-4.5 px-6.5 py-6 phone:p-5">
+        <label class="span-2 col-span-2 phone:col-span-1">Name<input
           v-model="form.name"
           required
           autofocus
@@ -212,7 +216,7 @@ async function remove() {
           :placeholder="
             isAgent ? 'e.g. Release engineer' : 'e.g. SheetOM'
           "
-        ></label><label class="span-2">Description<textarea
+        ></label><label class="span-2 col-span-2 phone:col-span-1">Description<textarea
           v-model="form.description"
           rows="2"
           maxlength="500"
@@ -221,44 +225,44 @@ async function remove() {
           <label>Model<input
             v-model="form.model"
             placeholder="Use Codex default"
-          ><small>Leave blank to follow CLI settings.</small></label><VirtualSelect v-model="form.reasoning" label="Reasoning" :options="reasoningOptions" :icon="Sparkles" /><div class="span-2 agent-access-panel">
+          ><small>Leave blank to follow CLI settings.</small></label><VirtualSelect v-model="form.reasoning" label="Reasoning" :options="reasoningOptions" :icon="Sparkles" /><div class="span-2 col-span-2 phone:col-span-1 agent-access-panel">
             <div class="agent-access-heading">
-              <ShieldCheck :size="20" /><div><h3>Access &amp; execution</h3><p>Choose the resources this agent can use.</p></div>
+              <Icon :name="ShieldCheck" :size="20" /><div><h3>Access &amp; execution</h3><p>Choose the resources this agent can use.</p></div>
             </div>
             <template v-if="editing !== MAIN_AGENT_ID">
-              <label class="checkbox"><input v-model="allProjects" type="checkbox">All projects, including future projects</label>
+              <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="allProjects" type="checkbox">All projects, including future projects</label>
               <fieldset v-if="!allProjects" class="access-choices">
-                <legend>Allowed projects</legend><label v-for="project in state.projects" :key="project.id" class="checkbox"><input v-model="form.access.projects" type="checkbox" :value="project.id">{{ project.name }}</label><small v-if="!state.projects.length">No projects registered yet.</small>
+                <legend>Allowed projects</legend><label v-for="project in state.projects" :key="project.id" class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="form.access.projects" type="checkbox" :value="project.id">{{ project.name }}</label><small v-if="!state.projects.length">No projects registered yet.</small>
               </fieldset>
-              <label class="checkbox"><input v-model="allSkills" type="checkbox">All available skills</label>
+              <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="allSkills" type="checkbox">All available skills</label>
               <fieldset v-if="!allSkills" class="access-choices">
-                <legend>Allowed skills</legend><label v-for="skill in permittedSkills" :key="skill.path" class="checkbox"><input v-model="form.access.skills" type="checkbox" :value="`${skill.scope}/${skill.name}`">{{ skill.name }}</label>
+                <legend>Allowed skills</legend><label v-for="skill in permittedSkills" :key="skill.path" class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="form.access.skills" type="checkbox" :value="`${skill.scope}/${skill.name}`">{{ skill.name }}</label>
               </fieldset>
-              <label class="checkbox"><input v-model="allMcps" type="checkbox">All MCP connections, including future connections</label>
+              <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="allMcps" type="checkbox">All MCP connections, including future connections</label>
               <fieldset class="access-choices">
                 <legend>MCP permissions</legend>
                 <div v-for="connection in state.mcps" :key="connection.id">
-                  <label class="checkbox"><input type="checkbox" :checked="allMcps || form.access.mcps.includes(connection.id)" :disabled="allMcps" @change="toggleMcp(connection.id, ($event.target as HTMLInputElement).checked)">{{ connection.name }}</label>
-                  <details v-if="allMcps || form.access.mcps.includes(connection.id)" class="mcp-agent-tools">
+                  <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input type="checkbox" :checked="allMcps || form.access.mcps.includes(connection.id)" :disabled="allMcps" @change="toggleMcp(connection.id, ($event.target as HTMLInputElement).checked)">{{ connection.name }}</label>
+                  <details v-if="allMcps || form.access.mcps.includes(connection.id)" class="mcp-agent-tools mt-[7px] mr-0 mb-4 ml-6 text-xs">
                     <summary>Tool access</summary>
-                    <label class="checkbox"><input type="checkbox" :checked="!(connection.id in form.access.mcpTools)" @change="($event.target as HTMLInputElement).checked ? delete form.access.mcpTools[connection.id] : form.access.mcpTools[connection.id] = []">All enabled tools</label>
+                    <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input type="checkbox" :checked="!(connection.id in form.access.mcpTools)" @change="($event.target as HTMLInputElement).checked ? delete form.access.mcpTools[connection.id] : form.access.mcpTools[connection.id] = []">All enabled tools</label>
                     <template v-if="connection.id in form.access.mcpTools">
-                      <label v-for="tool in connection.tools" :key="tool.name" class="checkbox"><input v-model="form.access.mcpTools[connection.id]" type="checkbox" :value="tool.name">{{ tool.name }}</label><small v-if="!connection.tools.length">Test this connection in MCPs to discover its tools.</small>
+                      <label v-for="tool in connection.tools" :key="tool.name" class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="form.access.mcpTools[connection.id]" type="checkbox" :value="tool.name">{{ tool.name }}</label><small v-if="!connection.tools.length">Test this connection in MCPs to discover its tools.</small>
                     </template>
                   </details>
                 </div>
                 <small v-if="!state.mcps.length">Add connections in MCPs first.</small>
               </fieldset>
-              <label class="checkbox"><input v-model="form.access.github" type="checkbox" :disabled="!allProjects">Shared GitHub connection</label>
+              <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="form.access.github" type="checkbox" :disabled="!allProjects">Shared GitHub connection</label>
               <label v-if="!form.access.github">Dedicated GitHub token<input v-model="githubToken" type="password" autocomplete="new-password" :placeholder="githubConfigured ? 'Saved token · leave blank to keep' : 'Optional fine-grained GitHub token'"><small>Select only this agent’s repositories and permissions when creating the token on GitHub. Its remote permissions are determined by the token.</small></label>
-              <label v-if="githubConfigured && !form.access.github" class="checkbox"><input v-model="removeGithub" type="checkbox">Remove saved GitHub token</label>
+              <label v-if="githubConfigured && !form.access.github" class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="removeGithub" type="checkbox">Remove saved GitHub token</label>
               <small>Shared GitHub credentials can access other repositories, so they are available only to agents with all-project access. Restricted agents receive only their selected MCP connections.</small>
             </template>
             <p v-else>
               The main agent has access to all registered projects, skills, and shared connections.
             </p>
             <VirtualSelect v-model="form.access.sandbox" label="Execution mode" :options="sandboxOptions" :icon="ShieldCheck" />
-            <p class="muted">
+            <p class="muted text-muted">
               YOLO is the default. Resource restrictions use a separate container. Sandboxed runs never bypass denied operations or wait for unattended approvals.
             </p>
           </div><label>Time limit (minutes)<input
@@ -267,59 +271,59 @@ async function remove() {
             min="1"
             max="720"
             required
-          ></label><label class="span-2">Additional instructions<textarea
+          ></label><label class="span-2 col-span-2 phone:col-span-1">Additional instructions<textarea
             v-model="form.instructions"
             rows="4"
             placeholder="Conventions, responsibilities, or checks this agent should always follow."
           />
           </label>
         </template><template v-else>
-          <label class="span-2">Project directory<input
+          <label class="span-2 col-span-2 phone:col-span-1">Project directory<input
             v-model="form.path"
             required
             placeholder="/workspaces/my-project"
-          ><small>Must be inside one of your configured workspace roots.</small></label><label class="span-2">Base branch<input
+          ><small>Must be inside one of your configured workspace roots.</small></label><label class="span-2 col-span-2 phone:col-span-1">Base branch<input
             v-model="form.baseBranch"
             required
             placeholder="main"
           ><small>Used when creating isolated worktrees.</small></label>
         </template>
-        <p v-if="error" class="error span-2" role="alert">
+        <UiAlert v-if="error" class="col-span-2 phone:col-span-1">
           {{ error }}
-        </p>
+        </UiAlert>
       </div>
-      <footer class="modal-actions">
-        <button type="button" class="button" @click="open = false">
+      <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
+        <UiButton type="button" @click="open = false">
           Cancel
-        </button><button class="button primary" :disabled="busy">
+        </UiButton><UiButton variant="primary" type="submit" :disabled="busy">
           {{ busy ? "Saving…" : `Save ${isAgent ? "agent" : "project"}` }}
-        </button>
+        </UiButton>
       </footer>
     </form>
   </Modal><Modal v-if="deleting" title="Remove this item?" @close="deleting = null">
-    <div class="modal-body">
+    <div class="modal-body px-6.5 py-6 phone:p-5">
       <p>
         Remove “{{ deleting.name }}” from your workspace? Referenced items must
         be removed from tasks first.
       </p>
-      <p v-if="error" class="error">
+      <UiAlert v-if="error">
         {{ error }}
-      </p>
+      </UiAlert>
     </div>
-    <footer class="modal-actions">
-      <button class="button" @click="deleting = null">
+    <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
+      <UiButton @click="deleting = null">
         Cancel
-      </button><button class="button danger" @click="remove">
+      </UiButton><UiButton variant="danger" @click="remove">
         Remove
-      </button>
+      </UiButton>
     </footer>
   </Modal>
 </template>
 
 <style scoped>
-.agent-access-panel { display: grid; gap: 1rem; padding: 1.2rem; border: 1px solid var(--line); border-radius: 16px; background: var(--soft); }
+.agent-access-panel { display: grid; gap: 1rem; padding: 1.2rem; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-soft); }
 .agent-access-heading { display: flex; gap: .75rem; align-items: center; }
 .agent-access-heading h3, .agent-access-heading p { margin: 0; }
-.agent-access-heading p { margin-top: .25rem; color: var(--muted); font-size: .85rem; }
+.agent-access-heading p { margin-top: .25rem; color: var(--color-muted); font-size: .85rem; }
 .access-choices { max-height: 230px; overflow: auto; display: grid; gap: .6rem; padding: .75rem; }
 </style>

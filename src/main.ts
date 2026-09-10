@@ -3,10 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import '@fontsource-variable/dm-sans/wght.css'
 import '@fontsource-variable/manrope/wght.css'
-import './style.css'
-import './theme.css'
-import './focus.css'
-import './workspace-layout.css'
+import './styles/index.css'
 
 const router = createRouter({
   history: createWebHistory(),

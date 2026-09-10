@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { Copy, ExternalLink, KeyRound, Plus } from '@lucide/vue'
+import { twMerge } from 'tailwind-merge'
 import { onMounted, ref } from 'vue'
 import { api, date, notify } from '../api'
+import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import ThemeControl from '../components/ThemeControl.vue'
+import UiAlert from '../components/UiAlert.vue'
+import UiButton from '../components/UiButton.vue'
+import { Copy, ExternalLink, KeyRound, Plus } from '../icons'
+import { iconButton } from '../ui'
 
 const settings = ref<any>()
 const grants = ref<any[]>([])
@@ -62,27 +67,27 @@ async function copy(value: string) {
 </script>
 
 <template>
-  <div class="page-heading">
+  <div class="page-heading flex items-center justify-between gap-5 mb-[27px] phone:gap-2.5 phone:flex-wrap phone:mb-[21px]">
     <div>
       <h1>Settings</h1>
     </div>
   </div>
-  <p v-if="error" class="error" role="alert">
+  <UiAlert v-if="error">
     {{ error }}
-  </p>
+  </UiAlert>
   <template v-if="settings">
-    <section class="panel settings-section appearance-section">
-      <div class="section-intro">
+    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 appearance-section p-[27px] phone:p-[21px]">
+      <div class="section-intro flex gap-[17px] items-center mb-6 phone:items-start phone:gap-[13px]">
         <div><h2>Appearance</h2></div>
       </div>
       <ThemeControl />
-      <p class="appearance-hint">
+      <p class="appearance-hint text-2xs text-muted mt-4">
         Saved in this browser. System follows your device’s appearance automatically.
       </p>
     </section>
-    <section class="panel settings-section">
-      <div class="section-intro">
-        <span class="resource-avatar"><ExternalLink :size="22" /></span>
+    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 p-[27px] phone:p-[21px]">
+      <div class="section-intro flex gap-[17px] items-center mb-6 phone:items-start phone:gap-[13px]">
+        <span class="resource-avatar w-11.5 h-11.5 bg-soft text-accent grid place-items-center rounded-xl border border-line"><Icon :name="ExternalLink" :size="22" /></span>
         <div>
           <h2>Connect from ChatGPT or Claude</h2>
           <p>
@@ -92,34 +97,34 @@ async function copy(value: string) {
         </div>
       </div>
       <label>MCP server URL
-        <div class="copy-field">
+        <div class="copy-field flex border border-line rounded-lg items-center pr-[5px]">
           <input
             :value="settings.mcpUrl"
             readonly
             aria-label="MCP server URL"
           ><button
-            class="icon-button"
+            :class="twMerge(iconButton, 'icon-button')"
             aria-label="Copy MCP URL"
             @click="copy(settings.mcpUrl)"
           >
-            <Copy :size="17" />
+            <Icon :name="Copy" :size="17" />
           </button></div></label>
-      <div class="inline-note">
+      <div class="inline-note bg-surface rounded-lg text-xs leading-[1.7] text-muted px-[15px] py-[13px]">
         Choose OAuth authentication. You’ll sign in here and approve exactly
         what the assistant can access. Connect using the Streamable HTTP
         transport supported by Codex and other compatible MCP clients.
       </div>
     </section>
-    <section class="panel settings-section">
-      <header class="panel-heading">
+    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 p-[27px] phone:p-[21px]">
+      <header class="panel-heading flex justify-between items-center gap-[15px] pt-[23px] pb-5 px-6 phone:p-[19px]">
         <div>
           <h2>Connected clients & access tokens</h2>
           <p>
             Review and revoke access without disconnecting your agent accounts.
           </p>
         </div>
-        <button
-          class="button small"
+        <UiButton
+          size="small"
           @click="
             open = true;
             created = '';
@@ -127,13 +132,13 @@ async function copy(value: string) {
             scopes = ['read'];
           "
         >
-          <Plus :size="15" />New token
-        </button>
+          <Icon :name="Plus" :size="15" />New token
+        </UiButton>
       </header>
       <div v-if="grants.length" class="grants-list">
         <div v-for="grant in grants" :key="grant.id">
-          <KeyRound :size="19" />
-          <div class="grow">
+          <Icon :name="KeyRound" :size="19" />
+          <div class="grow flex-1 min-w-0">
             <strong>{{ grant.label }}</strong><small>{{ grant.scopes.join(" · ") }} ·
               {{
                 grant.clientId === "personal"
@@ -141,18 +146,18 @@ async function copy(value: string) {
                   : "OAuth client"
               }}</small>
           </div>
-          <button class="button small danger-outline" @click="revoke(grant.id)">
+          <UiButton variant="danger-outline" size="small" @click="revoke(grant.id)">
             Revoke
-          </button>
+          </UiButton>
         </div>
       </div>
-      <p v-else class="muted">
+      <p v-else class="muted text-muted">
         No external clients have access yet.
       </p>
     </section>
-    <section class="panel settings-section">
+    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 p-[27px] phone:p-[21px]">
       <h2>Worker environment</h2>
-      <dl class="settings-facts">
+      <dl class="settings-facts grid grid-cols-[160px_1fr] gap-[17px] text-xs phone:grid-cols-[95px_minmax(0,_1fr)] phone:text-xs mx-0 my-[25px]">
         <dt>Version</dt>
         <dd>{{ settings.version }}</dd>
         <dt>Concurrent runs</dt>
@@ -168,18 +173,18 @@ async function copy(value: string) {
           <code>{{ settings.home }}/.agents/skills</code>
         </dd>
       </dl>
-      <p class="muted">
+      <p class="muted text-muted">
         Infrastructure settings are configured through your deployment
         environment.
       </p>
     </section>
-    <section class="panel settings-section">
+    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 p-[27px] phone:p-[21px]">
       <h2>Recent changes</h2>
-      <div class="audit-list">
+      <div class="audit-list mt-4.5">
         <div v-for="item in audit.slice(0, 20)" :key="item.id">
           <span>{{ item.action.replaceAll(".", " · ") }}</span><time>{{ date(item.created_at) }}</time>
         </div>
-        <p v-if="!audit.length" class="muted">
+        <p v-if="!audit.length" class="muted text-muted">
           Workspace changes will be recorded here.
         </p>
       </div>
@@ -192,18 +197,18 @@ async function copy(value: string) {
       created = '';
     "
   >
-    <div class="modal-body">
+    <div class="modal-body px-6.5 py-6 phone:p-5">
       <template v-if="created">
         <p>
           This token is shown once. Store it securely and use it as a Bearer
           token in your MCP client.
         </p>
-        <div class="token-display">
+        <div class="token-display bg-surface border border-line font-mono wrap-anywhere rounded-lg p-[15px] mx-0 my-4.5">
           {{ created }}
         </div>
-        <button class="button" @click="copy(created)">
-          <Copy :size="16" />Copy token
-        </button>
+        <UiButton @click="copy(created)">
+          <Icon :name="Copy" :size="16" />Copy token
+        </UiButton>
       </template>
       <form v-else class="token-form" @submit.prevent="create">
         <label>Name<input
@@ -227,17 +232,17 @@ async function copy(value: string) {
               },
             ]"
             :key="scope.id"
-            class="checkbox"
+            class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"
           ><input v-model="scopes" type="checkbox" :value="scope.id">{{
             scope.label
           }}</label>
         </fieldset>
-        <p v-if="error" class="error">
+        <UiAlert v-if="error">
           {{ error }}
-        </p>
-        <button class="button primary" :disabled="!scopes.length">
+        </UiAlert>
+        <UiButton variant="primary" type="submit" :disabled="!scopes.length">
           Create token
-        </button>
+        </UiButton>
       </form>
     </div>
   </Modal>

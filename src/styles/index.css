@@ -1,0 +1,28 @@
+@import "tailwindcss" source("../");
+@import "./theme.css";
+@import "./base.css";
+
+@import "./shell.css";
+@import "./resources.css";
+@import "./forms.css";
+@import "./appearance.css";
+@import "./select.css";
+@import "./mcps.css";
+@import "./tasks.css";
+@import "./runs.css";
+@import "./activity.css";
+@import "./content.css";
+
+@plugin "@egoist/tailwindcss-icons";
+
+@layer base {
+  :root {
+    @apply bg-canvas font-sans text-base font-normal text-ink;
+    font-synthesis: none;
+    accent-color: var(--color-accent);
+  }
+
+  button:not(:disabled), summary { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  h1, h2, h3 { @apply font-heading; }
+}

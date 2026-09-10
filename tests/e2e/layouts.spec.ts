@@ -30,6 +30,16 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
   async function fits() {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
     await expectSingleScroll(page)
+    const missingIcons = await page.locator('.ui-icon').evaluateAll(elements => elements.filter((element) => {
+      const style = getComputedStyle(element)
+      const rect = element.getBoundingClientRect()
+      return rect.width > 0 && rect.height > 0 && style.maskImage === 'none' && style.backgroundImage === 'none'
+    }).map(element => element.className))
+    expect(missingIcons).toEqual([])
+    for (const dialog of await page.locator('dialog[open]').all()) {
+      const bounds = await dialog.boundingBox()
+      expect(Math.abs(bounds!.x + bounds!.width / 2 - page.viewportSize()!.width / 2)).toBeLessThan(2)
+    }
   }
   async function screenshot(name: string) {
     await page.evaluate(() => document.fonts.ready)
@@ -66,7 +76,7 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
         await page.getByRole('button', { name: 'Search tasks', exact: true }).click()
       if (name === 'tasks' || name === 'skills') {
         const geometry = await page.locator('.search-field').evaluate((field) => {
-          const icon = field.querySelector('svg')!.getBoundingClientRect()
+          const icon = field.querySelector('.ui-icon')!.getBoundingClientRect()
           const input = field.querySelector('input')!.getBoundingClientRect()
           return { aligned: Math.abs(icon.y + icon.height / 2 - input.y - input.height / 2) < 2, separated: icon.right <= input.left }
         })

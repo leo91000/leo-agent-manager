@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ShieldCheck } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
 import { api } from '../api'
+import Icon from '../components/Icon.vue'
+import UiAlert from '../components/UiAlert.vue'
+import UiButton from '../components/UiButton.vue'
+import { ShieldCheck } from '../icons'
 
 const parameters = Object.fromEntries(new URLSearchParams(location.search))
 const details = ref<any>()
@@ -35,18 +38,18 @@ async function consent(approved: boolean) {
 </script>
 
 <template>
-  <section class="panel consent-card">
-    <span class="empty-icon"><ShieldCheck :size="30" /></span>
+  <section class="panel bg-surface border border-line rounded-card overflow-hidden consent-card max-w-147.5 p-10 mx-auto my-[35px] phone:p-[25px] phone:mx-auto phone:my-2.5">
+    <span class="empty-icon grid place-items-center w-16 h-16 rounded-[19px] bg-surface text-muted mb-5.5 border border-line"><Icon :name="ShieldCheck" :size="30" /></span>
     <h1>Connect an assistant</h1>
-    <p v-if="error" class="error" role="alert">
+    <UiAlert v-if="error">
       {{ error }}
-    </p>
+    </UiAlert>
     <template v-if="details">
       <p>
         <strong>{{ details.client.client_name }}</strong> is requesting access
         to your Leo workspace.
       </p>
-      <ul class="consent-permissions">
+      <ul class="consent-permissions pr-5 pl-[33px] leading-[2] bg-surface rounded-[9px] text-sm text-muted py-5 mx-0 my-6">
         <li v-for="scope in details.scopes" :key="scope">
           {{
             scope === "read"
@@ -57,15 +60,15 @@ async function consent(approved: boolean) {
           }}
         </li>
       </ul>
-      <p class="muted">
+      <p class="muted text-muted">
         You can revoke this connection at any time in Settings.
       </p>
-      <div class="consent-actions">
-        <button class="button" :disabled="busy" @click="consent(false)">
+      <div class="consent-actions flex justify-end gap-3 mt-[25px]">
+        <UiButton :disabled="busy" @click="consent(false)">
           Deny
-        </button><button class="button primary" :disabled="busy" @click="consent(true)">
+        </UiButton><UiButton variant="primary" :disabled="busy" @click="consent(true)">
           Allow access
-        </button>
+        </UiButton>
       </div>
     </template>
   </section>

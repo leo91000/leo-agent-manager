@@ -1,14 +1,11 @@
 <script setup lang="ts">
-import {
-  ArrowUpRight,
-  CheckCircle2,
-  GitBranch,
-  Link,
-  RefreshCw,
-  Terminal,
-} from '@lucide/vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api, notify } from '../api'
+import Icon from '../components/Icon.vue'
+import UiAlert from '../components/UiAlert.vue'
+import UiButton from '../components/UiButton.vue'
+import { ArrowUpRight, BrandOpenAI, CheckCircle2, Github, Link, RefreshCw } from '../icons'
+import { buttonBase, buttonSizes, buttonVariants } from '../ui'
 
 const items = ref<any[]>([])
 const flow = ref<any>()
@@ -64,22 +61,23 @@ onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <template>
-  <div class="page-heading">
+  <div class="page-heading flex items-center justify-between gap-5 mb-[27px] phone:gap-2.5 phone:flex-wrap phone:mb-[21px]">
     <div>
       <h1>Connections</h1>
     </div>
-    <button class="button" @click="load">
-      <RefreshCw :size="16" />Check connections
-    </button>
+    <UiButton @click="load">
+      <Icon :name="RefreshCw" :size="16" />Check connections
+    </UiButton>
   </div>
-  <p v-if="error" class="error" role="alert">
+  <UiAlert v-if="error">
     {{ error }}
-  </p>
-  <div class="connection-grid">
-    <article v-for="item in items" :key="item.provider" class="connection-card">
-      <div class="connection-brand">
-        <span><Terminal v-if="item.provider === 'codex'" :size="26" /><GitBranch
+  </UiAlert>
+  <div class="connection-grid grid grid-cols-2 gap-5.5 tablet:grid-cols-1">
+    <article v-for="item in items" :key="item.provider" class="connection-card bg-surface border border-line rounded-card p-6.5 phone:p-5.5">
+      <div class="connection-brand flex items-center gap-[15px]">
+        <span><Icon v-if="item.provider === 'codex'" :name="BrandOpenAI" :size="26" /><Icon
           v-else
+          :name="Github"
           :size="26"
         /></span>
         <div>
@@ -93,8 +91,8 @@ onBeforeUnmount(() => clearInterval(timer))
           </p>
         </div>
       </div>
-      <div class="connection-state" :class="[{ connected: item.connected }]">
-        <CheckCircle2 v-if="item.connected" :size="18" /><span
+      <div class="connection-state flex items-center gap-3 bg-surface border border-line text-warning rounded-lg p-[15px] mx-0 my-[25px]" :class="[{ connected: item.connected }]">
+        <Icon v-if="item.connected" :name="CheckCircle2" :size="18" /><span
           v-else
           class="status-dot"
         />
@@ -109,18 +107,18 @@ onBeforeUnmount(() => clearInterval(timer))
         </div>
       </div>
       <footer>
-        <code>{{ item.version || "Install the CLI on your worker" }}</code><button
-          class="button small"
+        <code>{{ item.version || "Install the CLI on your worker" }}</code><UiButton
+          size="small"
           :disabled="busy || !item.installed || flow?.state === 'pending'"
           @click="connect(item.provider)"
         >
           {{ item.connected ? "Reconnect" : "Connect account"
-          }}<ArrowUpRight :size="15" />
-        </button>
+          }}<Icon :name="ArrowUpRight" :size="15" />
+        </UiButton>
       </footer>
     </article>
   </div>
-  <section v-if="flow" class="panel device-flow">
+  <section v-if="flow" class="panel bg-surface border border-line rounded-card overflow-hidden device-flow mt-[25px] p-[27px]">
     <h2>
       {{
         flow.state === "complete"
@@ -134,28 +132,28 @@ onBeforeUnmount(() => clearInterval(timer))
       Open the verification page and enter this code. Your password stays with
       the provider.
     </p>
-    <div v-if="flow.code" class="device-code">
+    <div v-if="flow.code" class="device-code font-mono [font-size:27px] tracking-[5px] text-muted mx-0 my-5.5">
       {{ flow.code }}
     </div>
     <a
       v-if="flow.url && flow.state === 'pending'"
-      class="button primary"
+      :class="[buttonBase, buttonVariants.primary, buttonSizes.default]"
       :href="flow.url"
       target="_blank"
       rel="noopener noreferrer"
-    >Open verification page<ArrowUpRight :size="16" /></a>
-    <p v-if="!flow.code && flow.state === 'pending'" class="muted">
+    >Open verification page<Icon :name="ArrowUpRight" :size="16" /></a>
+    <p v-if="!flow.code && flow.state === 'pending'" class="muted text-muted">
       Waiting for the CLI to generate a verification code…
     </p>
-    <p v-if="flow.error" class="error">
+    <UiAlert v-if="flow.error">
       {{ flow.error }}
-    </p>
-    <button v-if="flow.state === 'pending'" class="button" @click="cancel">
+    </UiAlert>
+    <UiButton v-if="flow.state === 'pending'" @click="cancel">
       Cancel sign-in
-    </button>
+    </UiButton>
   </section>
-  <section class="explanation-panel">
-    <Link :size="24" />
+  <section class="explanation-panel flex items-start gap-4.5 mt-[25px] rounded-xl text-subtle p-6.5 phone:px-1 phone:py-4.5">
+    <Icon :name="Link" :size="24" />
     <div>
       <h2>Connected once. Available to your agents.</h2>
       <p>

@@ -23,17 +23,19 @@ No inline JavaScript, additional dependency, or CSP relaxation is required.
 semantics, a keyboard-accessible popover, focus restoration, and viewport bounds.
 The same control renders as three preview cards in Settings.
 
-The dark palette in `src/theme.css` defines canvas, panels, raised surfaces, inset
-code/inputs, borders, text, and semantic colors. Existing styles use explicit
-`light-dark()` pairs. Dark mode covers cards, tables, forms, validation, toasts,
+The palette in `src/styles/theme.css` defines canvas, panels, raised surfaces,
+inset code/inputs, borders, text, and semantic colors. Tailwind utilities such as
+`bg-surface`, `text-ink`, and `border-line` resolve through `light-dark()` pairs.
+Dark mode covers cards, tables, forms, validation, toasts,
 selects, overlays, authentication/consent, and all activity artifacts, Markdown,
 JSON, code highlighting, and diff additions/deletions. Native controls and
 scrollbars inherit the selected color scheme. The dark sidebar keeps its brand
 palette with adjusted secondary text. Theme previews intentionally depict both
 light and dark surfaces.
 
-When adding a component, use the existing semantic colors or an explicit
-`light-dark()` pair. Test both modes; avoid hard-coded white surfaces. Keep focus,
+When adding a component, use the semantic Tailwind colors. Add new color pairs
+to the shared theme when a distinct meaning is necessary. Test both modes;
+avoid hard-coded white surfaces. Keep focus,
 selected, error, warning, and disabled states distinguishable.
 
 ## Browser evidence

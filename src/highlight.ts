@@ -11,7 +11,6 @@ import sql from 'highlight.js/lib/languages/sql'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
-import './highlight.css'
 
 for (const [name, grammar] of Object.entries({ bash, css, diff, javascript, json, markdown, python, rust, sql, typescript, xml, yaml }))
   hljs.registerLanguage(name, grammar)

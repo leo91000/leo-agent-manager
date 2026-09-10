@@ -1,4 +1,4 @@
-import type { Component } from 'vue'
+import type { IconName } from './icons'
 
 export interface SelectOption {
   value: string
@@ -6,7 +6,7 @@ export interface SelectOption {
   description?: string
   group?: string
   keywords?: string[]
-  icon?: Component
+  icon?: IconName
   disabled?: boolean
 }
 export interface SelectRow {

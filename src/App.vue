@@ -1,26 +1,15 @@
 <script setup lang="ts">
-import {
-  Activity,
-  ArrowUpRight,
-  BookOpen,
-  Bot,
-  Check,
-  FolderGit2,
-  ListTodo,
-  LogOut,
-  Menu,
-  Plug,
-  Plus,
-  Search,
-  Settings,
-  X,
-  Zap,
-} from '@lucide/vue'
+import { twMerge } from 'tailwind-merge'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, notify, refresh, session, state } from './api'
+import Icon from './components/Icon.vue'
 import Modal from './components/Modal.vue'
 import ThemeControl from './components/ThemeControl.vue'
+import UiAlert from './components/UiAlert.vue'
+import UiButton from './components/UiButton.vue'
+import { Activity, ArrowUpRight, BookOpen, Bot, Check, FolderGit2, ListTodo, LogOut, Menu, Plug, Plus, Robot, Search, Settings, X, Zap } from './icons'
+import { iconButton } from './ui'
 
 const router = useRouter()
 const route = useRoute()
@@ -43,7 +32,7 @@ const search = ref('')
 const nav = [
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/runs', label: 'Runs', icon: Activity },
-  { to: '/agents', label: 'Agents', icon: Bot },
+  { to: '/agents', label: 'Agents', icon: Robot },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
   { to: '/skills', label: 'Skills', icon: BookOpen },
   { to: '/mcps', label: 'MCPs', icon: Plug },
@@ -165,26 +154,26 @@ async function logout() {
 </script>
 
 <template>
-  <div v-if="!state.ready" class="loading-screen">
+  <div v-if="!state.ready" class="loading-screen min-h-dvh grid place-items-center text-muted">
     Loading…
   </div>
-  <main v-else-if="!state.authenticated" class="auth-screen">
-    <div class="auth-story">
-      <div class="wordmark">
-        <span class="logo-mark"><Zap :size="25" /></span>leo<span
-          class="wordmark-tag"
+  <main v-else-if="!state.authenticated" class="auth-screen grid grid-cols-[1fr_1fr] min-h-dvh phone:flex phone:flex-col">
+    <div class="auth-story bg-[light-dark(#eeedff,_#222033)] text-ink flex flex-col justify-between relative overflow-hidden phone:min-h-auto phone:gap-[35px] px-[65px] py-[55px] compact:p-[45px] tablet:p-7.5 phone:p-[25px]">
+      <div class="wordmark flex items-center gap-[9px] text-[#f0eff7] [font-size:29px] tracking-[-1px] font-bold font-heading tablet:[font-size:25px]">
+        <span class="logo-mark w-8 h-8 grid place-items-center bg-brand rounded-[9px] text-white [transform:rotate(-7deg)] [box-shadow:2px_2px_0_light-dark(#292943,_#0d0d18)]"><Icon :name="Zap" :size="25" /></span>leo<span
+          class="wordmark-tag [font:600_8px/1.5_'DM_Sans_Variable',_sans-serif] tracking-[1.7px] max-w-[65px] whitespace-normal ml-[3px] text-[#a7a5ba] hidden tablet:[font-size:7px]"
         >AGENT MANAGER</span>
       </div>
       <div>
         <h1>Your agents.<br>Your workspace.</h1>
       </div>
-      <span class="auth-foot">Leo Agent Manager</span>
+      <span class="auth-foot text-xs text-[#6b6892] tracking-[0.5px] phone:hidden">Leo Agent Manager</span>
     </div>
-    <div class="auth-form">
-      <div class="auth-appearance">
+    <div class="auth-form flex items-center justify-center relative phone:pt-16.5 phone:pb-[35px] phone:flex-1 p-10 tablet:p-7.5 phone:px-[25px]">
+      <div class="auth-appearance absolute right-6 top-6 z-2 phone:top-3 phone:right-3">
         <ThemeControl compact />
       </div>
-      <div class="auth-card">
+      <div class="auth-card max-w-[345px] w-full">
         <h2>
           {{ state.setupRequired ? "Create workspace" : "Sign in" }}
         </h2>
@@ -212,28 +201,28 @@ async function logout() {
             "
             placeholder="At least 12 characters"
           ></label>
-          <p v-if="error" class="error" role="alert">
+          <UiAlert v-if="error">
             {{ error }}
-          </p>
-          <button class="button primary full" :disabled="busy">
+          </UiAlert>
+          <UiButton class="w-full" variant="primary" type="submit" :disabled="busy">
             {{
               busy
                 ? "Please wait…"
                 : state.setupRequired
                   ? "Create workspace"
                   : "Sign in"
-            }}<ArrowUpRight :size="18" />
-          </button>
+            }}<Icon :name="ArrowUpRight" :size="18" />
+          </UiButton>
         </form>
       </div>
     </div>
   </main>
-  <div v-else class="shell">
-    <div v-if="mobile" class="mobile-backdrop" @click="mobile = false" />
+  <div v-else class="shell min-h-0 flex h-dvh overflow-hidden">
+    <div v-if="mobile" class="mobile-backdrop phone:fixed phone:[inset:0] phone:bg-[light-dark(#17152980,_#020208b3)] phone:z-25" @click="mobile = false" />
     <aside
       id="workspace-navigation"
       ref="navigation"
-      class="sidebar"
+      class="sidebar w-50.5 fixed [inset:0_auto_0_0] bg-sidebar text-muted pt-7 pb-0 flex flex-col z-30 h-dvh overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:light-dark(#c1bfd6,_#67647f)_transparent] border-r border-line phone:[transform:translateX(-100%)] phone:[transition:transform_0.2s] phone:[padding:calc(20px_+_env(safe-area-inset-top))_20px_env(safe-area-inset-bottom)] phone:w-[min(290px,_calc(100%_-_36px))] phone:pt-6 phone:pb-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:w-45 [@media(max-width:_1150px)_and_(min-width:_641px)]:pl-[13px] [@media(max-width:_1150px)_and_(min-width:_641px)]:pr-[13px] px-[17px] phone:px-4.5"
       :class="[{ open: mobile }]"
       :inert="narrow && !mobile"
       :role="narrow && mobile ? 'dialog' : undefined"
@@ -243,18 +232,18 @@ async function logout() {
       @keydown="navigationKey"
       @click="navigationClick"
     >
-      <div class="sidebar-heading">
-        <RouterLink to="/" class="wordmark">
-          <span class="logo-mark"><Zap :size="24" /></span>leo<span
-            class="wordmark-tag"
+      <div class="sidebar-heading flex items-center justify-between gap-2">
+        <RouterLink to="/" class="wordmark flex items-center gap-[9px] text-[#f0eff7] [font-size:29px] tracking-[-1px] font-bold font-heading tablet:[font-size:25px]">
+          <span class="logo-mark w-8 h-8 grid place-items-center bg-brand rounded-[9px] text-white [transform:rotate(-7deg)] [box-shadow:2px_2px_0_light-dark(#292943,_#0d0d18)]"><Icon :name="Zap" :size="24" /></span>leo<span
+            class="wordmark-tag [font:600_8px/1.5_'DM_Sans_Variable',_sans-serif] tracking-[1.7px] max-w-[65px] whitespace-normal ml-[3px] text-[#a7a5ba] hidden tablet:[font-size:7px]"
           >AGENT MANAGER</span>
         </RouterLink>
-        <button class="icon-button navigation-close" aria-label="Close navigation" @click="mobile = false">
-          <X :size="22" />
+        <button :class="twMerge(iconButton, 'icon-button navigation-close hidden text-muted phone:inline-flex')" aria-label="Close navigation" @click="mobile = false">
+          <Icon :name="X" :size="22" />
         </button>
       </div>
-      <div class="workspace-switch">
-        <span class="workspace-avatar">L</span><span>Personal workspace</span>
+      <div class="workspace-switch flex items-center gap-2.5 text-left mt-9 mb-[25px] border-0 rounded-[9px] text-2xs font-semibold bg-transparent text-ink px-1.5 py-0 mx-0">
+        <span class="workspace-avatar grid place-items-center bg-[light-dark(#eeedff,_#34314c)] border-0 text-accent text-2xs w-7 h-7 rounded-full shrink-0">L</span><span>Personal workspace</span>
       </div>
 
       <nav>
@@ -270,86 +259,86 @@ async function logout() {
                 : route.path.startsWith(item.to),
           }"
         >
-          <component :is="item.icon" :size="18" />{{ item.label
+          <Icon :name="item.icon" :size="18" />{{ item.label
           }}<span
             v-if="item.to === '/tasks' && state.tasks.length"
-            class="nav-count"
+            class="nav-count ml-auto text-3xs bg-[#ffffff20] text-white min-w-4.5 text-center rounded-[4px] p-0.5"
           >{{ state.tasks.length }}</span>
         </RouterLink>
       </nav>
-      <div class="sidebar-bottom">
+      <div class="sidebar-bottom mt-auto pt-6">
         <RouterLink
           to="/connections"
           :class="{ active: route.path === '/connections' }"
         >
-          <Plug :size="18" />Connections
+          <Icon :name="Plug" :size="18" />Connections
         </RouterLink><RouterLink
           to="/settings"
           :class="{ active: route.path === '/settings' }"
         >
-          <Settings :size="18" />Settings
+          <Icon :name="Settings" :size="18" />Settings
         </RouterLink><button @click="logout">
-          <LogOut :size="18" />Sign out
+          <Icon :name="LogOut" :size="18" />Sign out
         </button>
-        <div class="sidebar-user">
-          <span class="workspace-avatar">L</span><span>Workspace owner</span><span class="online-dot" />
+        <div class="sidebar-user mt-[17px] [border-top:1px_solid_#353345] flex items-center gap-[9px] text-2xs text-ink border-line phone:pb-[max(22px,_env(safe-area-inset-bottom))] px-1 py-5.5">
+          <span class="workspace-avatar grid place-items-center bg-[light-dark(#eeedff,_#34314c)] border-0 text-accent text-2xs w-7 h-7 rounded-full shrink-0">L</span><span>Workspace owner</span><span class="online-dot w-1.5 h-1.5 rounded-full bg-[light-dark(#7772e4,_#b8b2ff)] ml-auto" />
         </div>
       </div>
     </aside>
-    <div class="main-area" :inert="narrow && mobile">
-      <header class="topbar">
-        <div class="breadcrumb">
+    <div class="main-area ml-50.5 flex h-full min-h-0 min-w-0 w-[calc(100%_-_202px)] flex-col phone:ml-0 phone:w-full [@media(641px<=width<=1150px)]:ml-45 [@media(641px<=width<=1150px)]:w-[calc(100%_-_180px)]" :inert="narrow && mobile">
+      <header class="topbar short:h-[calc(48px_+_env(safe-area-inset-top))] short:min-h-12 h-18 border-b border-line flex items-center justify-between bg-transparent phone:min-h-[calc(62px_+_env(safe-area-inset-top))] phone:[padding:env(safe-area-inset-top)_max(12px,_env(safe-area-inset-right))_0_max(12px,_env(safe-area-inset-left))] phone:h-[63px] [@media(max-width:_1150px)_and_(min-width:_641px)]:pt-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pr-6 [@media(max-width:_1150px)_and_(min-width:_641px)]:pb-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pl-6 px-9 py-0 phone:px-4.5 phone:py-0 shrink-0">
+        <div class="breadcrumb flex items-center gap-3 text-2xs text-muted phone:gap-[7px] phone:text-3xs">
           <button
             ref="menuButton"
-            class="icon-button mobile-menu"
+            :class="twMerge(iconButton, 'icon-button mobile-menu hidden phone:inline-flex')"
             aria-label="Open navigation"
             aria-controls="workspace-navigation"
             :aria-expanded="mobile"
             @click="mobile = true"
           >
-            <Menu :size="22" />
-          </button><span>Workspace</span><span class="slash">/</span><strong>{{
+            <Icon :name="Menu" :size="22" />
+          </button><span>Workspace</span><span class="slash text-subtle">/</span><strong>{{
             route.path.startsWith("/runs/")
               ? "Run details"
               : nav.find((n) => n.to === route.path)?.label
                 || route.path.slice(1).replace(/^./, (c) => c.toUpperCase())
           }}</strong>
         </div>
-        <div class="topbar-actions">
+        <div class="topbar-actions flex items-center gap-[17px] phone:gap-[7px]">
           <button
-            class="search-trigger"
+            class="search-trigger flex items-center gap-2.5 text-xs text-muted w-9 h-9 justify-center rounded-lg phone:min-h-11 phone:min-w-11"
             aria-label="Search workspace"
             @click="searchOpen = true"
           >
-            <Search :size="16" /><span>Find anything…</span><kbd>⌘ K</kbd>
+            <Icon :name="Search" :size="16" /><span>Find anything…</span><kbd>⌘ K</kbd>
           </button><ThemeControl compact />
         </div>
       </header>
-      <main class="page" :class="{ 'page-tasks': route.path === '/tasks', 'page-run': route.path.startsWith('/runs/') }">
+      <main class="page mx-auto flex-1 min-h-0 min-w-0 w-full max-w-375 overflow-auto overscroll-contain [scrollbar-width:thin] px-9 pt-8.5 pb-7 [@media(641px<=width<=1150px)]:px-6 phone:mb-[calc(74px_+_env(safe-area-inset-bottom))] phone:px-3 phone:py-3.5 short:py-2.5 [&.page-tasks]:flex [&.page-tasks]:flex-col [&.page-tasks]:overflow-hidden [&.page-run]:flex [&.page-run]:flex-col [&.page-run]:overflow-hidden" :class="{ 'page-tasks': route.path === '/tasks', 'page-run': route.path.startsWith('/runs/') }">
         <RouterView :key="route.path" />
       </main>
-      <nav v-if="!mobile" class="mobile-bottom-nav" aria-label="Quick navigation">
+      <nav v-if="!mobile" class="mobile-bottom-nav hidden phone:fixed phone:bottom-0 phone:left-0 phone:right-0 phone:z-20 phone:flex phone:items-center phone:justify-around phone:[padding:11px_10px_max(15px,_env(safe-area-inset-bottom))] phone:border-t border-line phone:bg-surface" aria-label="Quick navigation">
         <RouterLink to="/tasks" aria-label="Tasks" :class="{ active: route.path === '/tasks' }">
-          <ListTodo :size="20" />
+          <Icon :name="ListTodo" :size="20" />
         </RouterLink>
         <RouterLink to="/runs" aria-label="Activity" :class="{ active: route.path.startsWith('/runs') }">
-          <Activity :size="20" />
+          <Icon :name="Activity" :size="20" />
         </RouterLink>
         <RouterLink to="/tasks?new=1" class="mobile-new-task" aria-label="New task">
-          <Plus :size="20" />
+          <Icon :name="Plus" :size="20" />
         </RouterLink>
         <RouterLink to="/agents" aria-label="Agents" :class="{ active: route.path === '/agents' }">
-          <Bot :size="20" />
+          <Icon :name="Bot" :size="20" />
         </RouterLink>
         <button aria-label="More navigation" @click="mobile = true">
-          <Menu :size="20" />
+          <Icon :name="Menu" :size="20" />
         </button>
       </nav>
     </div>
   </div>
   <Transition name="toast">
-    <div v-if="state.toast" class="toast" role="status">
-      <Check :size="17" />{{ state.toast }}
+    <div v-if="state.toast" class="toast fixed bottom-[25px] left-[50%] [transform:translateX(-50%)] bg-[light-dark(#272443,_var(--dark-accent-surface))] text-subtle border border-line rounded-[10px] [box-shadow:0_6px_20px_light-dark(#1a182b20,_#00000020)] z-100 flex items-center gap-[9px] text-xs max-w-[calc(100vw_-_30px)] phone:bottom-[calc(90px_+_env(safe-area-inset-bottom))] px-5 py-[13px]" role="status">
+      <Icon :name="Check" :size="17" />{{ state.toast }}
     </div>
   </Transition>
   <Modal
@@ -357,14 +346,14 @@ async function logout() {
     title="Find in your workspace"
     @close="searchOpen = false"
   >
-    <div class="modal-body">
+    <div class="modal-body px-6.5 py-6 phone:p-5">
       <input
         v-model="search"
         autofocus
         placeholder="Search tasks, agents, projects, and skills"
         aria-label="Search"
       >
-      <div class="search-results">
+      <div class="search-results mt-4">
         <button
           v-for="(item, index) in results"
           :key="index"
@@ -375,7 +364,7 @@ async function logout() {
         >
           <span>{{ item.name }}</span><small>{{ item.type }}</small>
         </button>
-        <p v-if="!results.length" class="muted">
+        <p v-if="!results.length" class="muted text-muted">
           No results yet. Try another search.
         </p>
       </div>

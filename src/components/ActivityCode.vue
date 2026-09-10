@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Check, Copy } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { notify } from '../api'
 import { highlight } from '../highlight'
+import { Check, Copy } from '../icons'
+import Icon from './Icon.vue'
 
 const props = defineProps<{ code: string, label: string, language?: string, copyCode?: string }>()
 const expanded = ref(false)
@@ -25,14 +26,14 @@ onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <div class="activity-code">
+  <div class="activity-code border border-line rounded-[9px] overflow-hidden bg-inset min-w-0 mx-0 my-2.5">
     <header>
-      <span>{{ label }}</span><button class="code-copy" :aria-label="`Copy ${label}`" @click="copy">
-        <Check v-if="copied" :size="14" /><Copy v-else :size="14" />{{ copied ? 'Copied' : 'Copy' }}
+      <span>{{ label }}</span><button class="code-copy flex items-center gap-1.5 border-0 bg-transparent text-muted text-3xs cursor-pointer min-h-8 shrink-0 phone:min-h-9.5" :aria-label="`Copy ${label}`" @click="copy">
+        <Icon v-if="copied" :name="Check" :size="14" /><Icon v-else :name="Copy" :size="14" />{{ copied ? 'Copied' : 'Copy' }}
       </button>
     </header>
     <pre tabindex="0" :aria-label="label"><code v-html="html" /></pre>
-    <button v-if="code.length > 12000" class="code-expand" @click="expanded = !expanded">
+    <button v-if="code.length > 12000" class="code-expand w-full border-0 [border-top:1px_solid_light-dark(#d9d8e7,_var(--dark-border))] text-ink bg-inset cursor-pointer text-2xs p-[11px]" @click="expanded = !expanded">
       {{ expanded ? 'Show less' : `Show all ${code.length.toLocaleString()} characters` }}
     </button>
   </div>

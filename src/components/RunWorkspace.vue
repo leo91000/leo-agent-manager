@@ -1,20 +1,17 @@
 <script setup lang="ts">
 import type { Run, RunEvent } from '../../shared/contracts'
-import {
-  ArrowLeft,
-  Copy,
-  FileText,
-  RotateCw,
-  Square,
-  Terminal,
-} from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, date, duration, notify } from '../api'
+import { ArrowLeft, Copy, FileText, RotateCw, Square, Terminal } from '../icons'
 import ActivityFeed from './ActivityFeed.vue'
+import Icon from './Icon.vue'
 import Markdown from './Markdown.vue'
 import Modal from './Modal.vue'
 import Status from './Status.vue'
+import UiAlert from './UiAlert.vue'
+import UiButton from './UiButton.vue'
+import UiSegments from './UiSegments.vue'
 
 const props = defineProps<{ runId: string, embedded?: boolean }>()
 const emit = defineEmits<{ run: [id: string] }>()
@@ -128,69 +125,50 @@ async function copy() {
 </script>
 
 <template>
-  <div class="run-workspace" :class="{ embedded }">
-    <div v-if="!embedded" class="run-navigation">
-      <RouterLink to="/runs" class="back-link">
-        <ArrowLeft :size="16" />Back to runs
+  <div class="run-workspace flex flex-col flex-1 min-w-0 min-h-0" :class="{ embedded }">
+    <div v-if="!embedded" class="run-navigation flex items-center justify-between gap-3 mb-4 phone:mb-2.5">
+      <RouterLink to="/runs" class="back-link inline-flex items-center gap-[7px] text-muted text-xs mb-[25px]">
+        <Icon :name="ArrowLeft" :size="16" />Back to runs
       </RouterLink>
-      <button v-if="run && active" class="button danger-outline" @click="confirm = true">
-        <Square :size="15" />Stop run
-      </button><button v-else-if="run" class="button" @click="retry">
-        <RotateCw :size="16" />Run again
-      </button>
+      <UiButton v-if="run && active" variant="danger-outline" @click="confirm = true">
+        <Icon :name="Square" :size="15" />Stop run
+      </UiButton><UiButton v-else-if="run" @click="retry">
+        <Icon :name="RotateCw" :size="16" />Run again
+      </UiButton>
     </div>
-    <p v-if="error" class="error" role="alert">
+    <UiAlert v-if="error">
       {{ error }}
-    </p>
+    </UiAlert>
     <template v-if="run">
-      <div class="page-heading">
+      <div class="page-heading flex items-center justify-between gap-5 mb-[27px] phone:gap-2.5 phone:flex-wrap phone:mb-[21px]">
         <div>
-          <span v-if="embedded" class="eyebrow">{{ run.snapshot.projects?.map(project => project.name).join(', ') || run.snapshot.project?.name || 'Agent workspace' }}</span>
+          <span v-if="embedded" class="eyebrow block text-xs tracking-[1.6px] font-bold text-muted mb-3 phone:text-2xs phone:tracking-[1.3px] phone:mb-[9px]">{{ run.snapshot.projects?.map(project => project.name).join(', ') || run.snapshot.project?.name || 'Agent workspace' }}</span>
           <component :is="embedded ? 'h2' : 'h1'" :title="run.snapshot.task.name">
             {{ run.snapshot.task.name }}
           </component>
-          <div class="run-title-meta">
+          <div class="run-title-meta flex items-center gap-3 mt-3.5 text-subtle text-xs phone:flex-wrap phone:text-xs">
             <Status :status="run.status" /><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
           </div>
         </div>
       </div>
-      <section class="panel run-panel">
-        <header class="run-panel-head">
-          <div class="tabs">
-            <button
-              :class="{ selected: tab === 'result' }"
-              @click="tab = 'result'"
-            >
-              <FileText :size="16" />Result
-            </button><button
-              :class="{ selected: tab === 'events' }"
-              @click="tab = 'events'"
-            >
-              <Terminal :size="16" />Activity<span>{{
-                events.length
-              }}</span>
-            </button><button
-              :class="{ selected: tab === 'brief' }"
-              @click="tab = 'brief'"
-            >
-              Task brief
-            </button>
-          </div>
+      <section class="panel run-panel flex flex-1 min-h-0 flex-col overflow-hidden rounded-card border border-line bg-surface">
+        <header class="run-panel-head flex shrink-0 items-center justify-between border-b border-line p-[7px] phone:p-[5px]">
+          <UiSegments v-model="tab" label="Run view" :options="[{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Task brief' }]" />
         </header>
-        <div v-if="tab === 'result' && run.summary" class="run-panel-actions">
-          <button
+        <div v-if="tab === 'result' && run.summary" class="run-panel-actions flex items-center justify-end border-b border-line px-5 py-2 phone:px-4 phone:py-1">
+          <UiButton
             v-if="tab === 'result' && run.summary"
-            class="button small"
+            size="small"
             aria-label="Copy result"
             @click="copy"
           >
-            <Copy :size="16" />Copy result
-          </button>
+            <Icon :name="Copy" :size="16" />Copy result
+          </UiButton>
         </div>
-        <div v-if="tab === 'result'" class="result-content">
+        <div v-if="tab === 'result'" class="result-content flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] text-sm leading-[1.8] p-7.5 phone:p-5.5">
           <Markdown v-if="run.summary" :content="run.summary" />
-          <div v-else class="mini-empty">
-            <span class="pulse-ring" />
+          <div v-else class="mini-empty flex flex-col items-center text-center pt-7 pb-8.5 text-subtle px-6">
+            <span class="pulse-ring w-8 h-8 rounded-full border-2 border-line [border-top-color:light-dark(#6660a5,_var(--dark-border))] animate-spin mb-[17px]" />
             <h3>{{ active ? "Work is underway" : "No summary yet" }}</h3>
             <p>
               Open Activity to follow this run.
@@ -198,25 +176,25 @@ async function copy() {
           </div>
         </div>
         <ActivityFeed v-else-if="tab === 'events'" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="moreEvents" :loading="loading" :trimmed="trimmedEvents" :preview="embedded" @load="load" />
-        <div v-else class="result-content">
-          <div class="run-facts">
+        <div v-else class="result-content flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] text-sm leading-[1.8] p-7.5 phone:p-5.5">
+          <div class="run-facts grid grid-cols-[repeat(4,_1fr)] border border-line bg-raised rounded-[10px] text-xs text-subtle phone:grid-cols-2 phone:gap-5 px-6 py-5 mx-0 my-6.5">
             <span>Project<strong>{{ run.snapshot.projects?.map(project => project.name).join(', ') || run.snapshot.project?.name || 'Agent workspace' }}</strong></span><span>Duration<strong>{{ duration(run.startedAt, run.finishedAt) }}</strong></span><span>Triggered by<strong>{{ run.trigger }}</strong></span><span>Model<strong>{{ run.snapshot.agent.model || 'Codex default' }}</strong></span>
           </div>
           <h3>Original instructions</h3>
-          <pre class="brief-text">{{ run.snapshot.task.prompt }}</pre>
+          <pre class="brief-text whitespace-pre-wrap text-xs leading-[1.9] text-muted">{{ run.snapshot.task.prompt }}</pre>
           <h3>Workspace</h3>
           <code>{{
             run.workspace
               || (run.workspaceCleanedAt ? "Worktree cleaned up" : "Not prepared yet")
           }}</code>
-          <button
+          <UiButton
             v-if="!active && run.workspace && run.snapshot.task.worktree && !run.isolated"
-            class="button small"
+            size="small"
             @click="confirmCleanup = true"
           >
             Clean up worktree
-          </button>
-          <p v-if="!active && run.isolated && run.snapshot.task.worktree" class="muted">
+          </UiButton>
+          <p v-if="!active && run.isolated && run.snapshot.task.worktree" class="muted text-muted">
             Isolated clones are retained for review. Preserve your changes before removing their directories through the server terminal.
           </p>
           <h3>Selected skills</h3>
@@ -234,23 +212,23 @@ async function copy() {
           </p>
         </div>
       </section>
-      <p v-if="!embedded" class="muted run-id">
+      <p v-if="!embedded" class="muted text-muted run-id text-2xs mt-[17px] wrap-anywhere">
         Run {{ run.id
         }}<span v-if="run.sessionId"> · Codex session {{ run.sessionId }}</span>
       </p>
     </template><Modal v-if="confirm" title="Stop this run?" @close="confirm = false">
-      <div class="modal-body">
+      <div class="modal-body px-6.5 py-6 phone:p-5">
         <p>
           The running process will stop. Files and external changes already made
           will remain, so review them before running the task again.
         </p>
       </div>
-      <footer class="modal-actions">
-        <button class="button" @click="confirm = false">
+      <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
+        <UiButton @click="confirm = false">
           Keep running
-        </button><button class="button danger" @click="cancel">
+        </UiButton><UiButton variant="danger" @click="cancel">
           Stop run
-        </button>
+        </UiButton>
       </footer>
     </Modal>
     <Modal
@@ -258,22 +236,22 @@ async function copy() {
       title="Clean up this worktree?"
       @close="confirmCleanup = false"
     >
-      <div class="modal-body">
+      <div class="modal-body px-6.5 py-6 phone:p-5">
         <p>
           This removes the saved worktree directory. Its Git branch and run
           history remain available. Worktrees containing changes or untracked
           files cannot be removed.
         </p>
-        <p v-if="error" class="error" role="alert">
+        <UiAlert v-if="error">
           {{ error }}
-        </p>
+        </UiAlert>
       </div>
-      <footer class="modal-actions">
-        <button class="button" @click="confirmCleanup = false">
+      <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
+        <UiButton @click="confirmCleanup = false">
           Keep worktree
-        </button><button class="button danger" @click="cleanup">
+        </UiButton><UiButton variant="danger" @click="cleanup">
           Clean up worktree
-        </button>
+        </UiButton>
       </footer>
     </Modal>
   </div>

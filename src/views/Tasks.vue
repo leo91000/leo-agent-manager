@@ -1,32 +1,20 @@
 <script setup lang="ts">
 import type { RunListItem, Task } from '../../shared/contracts'
-import {
-  AlertCircle,
-  Archive,
-  ArrowUpRight,
-  Bot,
-  Check,
-  ChevronDown,
-  Clock,
-  Copy,
-  MoreHorizontal,
-  Pause,
-  Pencil,
-  Play,
-  Plus,
-  Search,
-  Square,
-  Trash2,
-  Zap,
-} from '@lucide/vue'
+import { twMerge } from 'tailwind-merge'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, date, notify, refresh, state } from '../api'
 import Empty from '../components/Empty.vue'
+import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import RunWorkspace from '../components/RunWorkspace.vue'
 import Status from '../components/Status.vue'
 import TaskEditor from '../components/TaskEditor.vue'
+import UiAlert from '../components/UiAlert.vue'
+import UiButton from '../components/UiButton.vue'
+import UiSegments from '../components/UiSegments.vue'
+import { AlertCircle, Archive, ArrowUpRight, Bot, Check, ChevronDown, Clock, Copy, MoreHorizontal, Pause, Pencil, Play, Plus, Search, Square, Trash2, Zap } from '../icons'
+import { iconButton } from '../ui'
 
 const router = useRouter()
 const route = useRoute()
@@ -204,108 +192,104 @@ watch(() => route.query.new, (value) => {
 </script>
 
 <template>
-  <div class="page-heading">
-    <h1>Tasks</h1><button class="button primary" @click="editor = true">
-      <Plus :size="17" />New task
-    </button>
+  <div class="page-heading flex items-center justify-between gap-5 mb-[27px] phone:gap-2.5 phone:flex-wrap phone:mb-[21px]">
+    <h1>Tasks</h1><UiButton variant="primary" @click="editor = true">
+      <Icon :name="Plus" :size="17" />New task
+    </UiButton>
   </div>
-  <p v-if="error" class="error" role="alert">
+  <UiAlert v-if="error">
     {{ error }}
-  </p>
-  <div class="toolbar focus-filters">
-    <div class="tabs">
-      <button v-for="tab in [{ id: 'all', label: 'All tasks' }, { id: 'scheduled', label: 'Scheduled' }, { id: 'once', label: 'One-off' }, { id: 'paused', label: 'Paused' }, { id: 'archived', label: 'Archived' }]" :key="tab.id" :class="{ selected: filter === tab.id }" @click="filter = tab.id">
-        {{ tab.label }}
-      </button>
-    </div>
+  </UiAlert>
+  <div class="toolbar flex items-center justify-between gap-5 mb-[23px] tablet:items-start tablet:flex-wrap phone:gap-4 phone:min-w-0 focus-filters mt-0 phone:mb-[19px] mx-0">
+    <UiSegments v-model="filter" label="Filter tasks" compact :options="[{ value: 'all', label: 'All tasks' }, { value: 'scheduled', label: 'Scheduled' }, { value: 'once', label: 'One-off' }, { value: 'paused', label: 'Paused' }, { value: 'archived', label: 'Archived' }]" />
   </div>
-  <div v-if="tasks.length" class="task-focus-layout">
-    <section class="task-inbox" :class="{ choosing }" aria-label="Task list">
+  <div v-if="tasks.length" class="task-focus-layout grid flex-1 min-h-0 grid-cols-[minmax(230px,300px)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] items-stretch gap-[25px] pr-1 pb-1 [@media(901px<=width<=1150px)]:grid-cols-[225px_minmax(0,1fr)] [@media(901px<=width<=1150px)]:gap-5 tablet:grid-cols-1 tablet:grid-rows-[auto_minmax(0,1fr)] tablet:gap-3 short:gap-2">
+    <section class="task-inbox flex min-h-0 min-w-0 flex-col rounded-card border border-line bg-surface px-3 py-[17px] tablet:px-2.5 tablet:py-2 short:py-0" :class="{ choosing }" aria-label="Task list">
       <header>
-        <div class="task-inbox-title">
+        <div class="task-inbox-title flex-1 min-w-0 mr-auto">
           <h2 class="task-inbox-heading">
             Tasks <small>{{ tasks.length }}</small>
           </h2>
-          <span v-if="selected" class="task-inbox-selection" :title="selected.name"><strong>{{ selected.name }}</strong><Status v-if="selectedRun" :status="selectedRun.status" /></span>
-        </div><button class="icon-button" aria-label="Search tasks" :aria-expanded="searching" @click="toggleSearch">
-          <Search :size="16" />
-        </button><button class="icon-button choose-task" :aria-expanded="choosing" aria-controls="task-inbox-items" aria-label="Choose task" @click="choosing = !choosing">
-          <ChevronDown :size="18" />
+          <span v-if="selected" class="task-inbox-selection hidden" :title="selected.name"><strong>{{ selected.name }}</strong><Status v-if="selectedRun" :status="selectedRun.status" /></span>
+        </div><button :class="twMerge(iconButton, 'icon-button')" aria-label="Search tasks" :aria-expanded="searching" @click="toggleSearch">
+          <Icon :name="Search" :size="16" />
+        </button><button :class="twMerge(iconButton, 'icon-button choose-task hidden tablet:inline-flex')" :aria-expanded="choosing" aria-controls="task-inbox-items" aria-label="Choose task" @click="choosing = !choosing">
+          <Icon :name="ChevronDown" :size="18" />
         </button>
       </header>
-      <label v-if="searching || query" class="search-field"><Search :size="16" /><input ref="searchInput" v-model="query" placeholder="Search tasks" aria-label="Search tasks" @focus="choosing = true"></label>
-      <div id="task-inbox-items" class="task-inbox-items">
+      <label v-if="searching || query" class="search-field flex flex-row items-center gap-[7px] text-subtle bg-raised border border-line rounded-[7px] min-w-0 phone:w-full px-2.5 py-0"><Icon :name="Search" :size="16" /><input ref="searchInput" v-model="query" placeholder="Search tasks" aria-label="Search tasks" @focus="choosing = true"></label>
+      <div id="task-inbox-items" class="task-inbox-items flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
         <section v-for="group in groups" :key="group.label" class="task-inbox-group">
-          <h3>{{ group.label }}</h3><button v-for="task in group.items" :key="task.id" class="task-inbox-row" :class="{ selected: selected?.id === task.id }" :aria-pressed="selected?.id === task.id" @click="select(task)">
-            <span class="inbox-status"><Zap v-if="['running', 'queued'].includes(latest.get(task.id)?.status || '')" :size="15" /><AlertCircle v-else-if="['failed', 'interrupted'].includes(latest.get(task.id)?.status || '')" :size="15" /><Check v-else-if="latest.has(task.id)" :size="15" /><Clock v-else :size="15" /></span><span><strong>{{ task.name }}</strong><small>{{ state.agents.find(agent => agent.id === task.agentId)?.name || 'Deleted agent' }}<template v-if="task.projectId"> · {{ state.projects.find(project => project.id === task.projectId)?.name || 'Project' }}</template></small></span><ArrowUpRight :size="13" />
+          <h3>{{ group.label }}</h3><button v-for="task in group.items" :key="task.id" class="task-inbox-row flex items-start text-left gap-[9px] border border-transparent rounded-lg w-full px-[9px] py-3.5 phone:px-[9px] phone:py-3" :class="{ selected: selected?.id === task.id }" :aria-pressed="selected?.id === task.id" @click="select(task)">
+            <span class="inbox-status"><Icon v-if="['running', 'queued'].includes(latest.get(task.id)?.status || '')" :name="Zap" :size="15" /><Icon v-else-if="['failed', 'interrupted'].includes(latest.get(task.id)?.status || '')" :name="AlertCircle" :size="15" /><Icon v-else-if="latest.has(task.id)" :name="Check" :size="15" /><Icon v-else :name="Clock" :size="15" /></span><span><strong>{{ task.name }}</strong><small>{{ state.agents.find(agent => agent.id === task.agentId)?.name || 'Deleted agent' }}<template v-if="task.projectId"> · {{ state.projects.find(project => project.id === task.projectId)?.name || 'Project' }}</template></small></span><Icon :name="ArrowUpRight" :size="13" />
           </button>
         </section>
       </div>
     </section>
-    <section v-if="selected" class="task-focus-detail task-card" :class="{ 'has-run': selectedRun }" aria-label="Selected task">
-      <header class="task-focus-actions">
-        <span v-if="selected.cron" class="focus-schedule">
-          <Clock :size="13" />{{ selected.enabled ? `Next: ${date(selected.nextRun)}` : 'Schedule paused' }}
+    <section v-if="selected" class="task-focus-detail task-card min-h-0 min-w-0 wrap-anywhere overflow-auto overscroll-contain [scrollbar-width:thin] rounded-[14px] border border-[light-dark(#34334e,#817c9e)] bg-surface shadow-arcade p-[25px] compact:p-5 phone:p-3 [&.has-run]:flex [&.has-run]:flex-col [&.has-run]:overflow-hidden" :class="{ 'has-run': selectedRun }" aria-label="Selected task">
+      <header class="task-focus-actions static flex shrink-0 items-center gap-[11px] mb-3.5 tablet:gap-1.5 tablet:mb-2">
+        <span v-if="selected.cron" class="focus-schedule flex items-center gap-1.5 text-muted text-3xs mt-[-7px] mb-5 mx-0">
+          <Icon :name="Clock" :size="13" />{{ selected.enabled ? `Next: ${date(selected.nextRun)}` : 'Schedule paused' }}
         </span>
-        <span v-if="!selectedRun" class="task-agent-label"><Bot :size="16" />{{ state.agents.find(agent => agent.id === selected.agentId)?.name || 'Deleted agent' }}</span><button v-if="!['running', 'queued'].includes(selectedRun?.status || '')" class="button small primary" :disabled="busy === selected.id || selected.archived" @click="run(selected)">
-          <Play :size="14" />{{ busy === selected.id ? 'Starting…' : 'Run now' }}
-        </button><button v-else-if="selectedRun && ['running', 'queued'].includes(selectedRun.status)" class="button small danger-outline" :disabled="!runWorkspace?.canStop" @click="runWorkspace?.requestStop()">
-          <Square :size="14" />Stop run
-        </button><RouterLink v-if="selectedRun" :to="`/runs/${selectedRun.id}`" class="icon-button" aria-label="Open run">
-          <ArrowUpRight :size="17" />
-        </RouterLink><details class="task-action-menu" @click="closeMenu">
-          <summary class="icon-button" aria-label="Task actions">
-            <MoreHorizontal :size="19" />
+        <span v-if="!selectedRun" class="task-agent-label flex items-center gap-2 min-w-0 flex-1 text-2xs text-muted wrap-anywhere phone:text-3xs phone:gap-[5px]"><Icon :name="Bot" :size="16" />{{ state.agents.find(agent => agent.id === selected.agentId)?.name || 'Deleted agent' }}</span><UiButton v-if="!['running', 'queued'].includes(selectedRun?.status || '')" variant="primary" size="small" :disabled="busy === selected.id || selected.archived" @click="run(selected)">
+          <Icon :name="Play" :size="14" />{{ busy === selected.id ? 'Starting…' : 'Run now' }}
+        </UiButton><UiButton v-else-if="selectedRun && ['running', 'queued'].includes(selectedRun.status)" variant="danger-outline" size="small" :disabled="!runWorkspace?.canStop" @click="runWorkspace?.requestStop()">
+          <Icon :name="Square" :size="14" />Stop run
+        </UiButton><RouterLink v-if="selectedRun" :to="`/runs/${selectedRun.id}`" :class="twMerge(iconButton, 'icon-button')" aria-label="Open run">
+          <Icon :name="ArrowUpRight" :size="17" />
+        </RouterLink><details class="task-action-menu relative" @click="closeMenu">
+          <summary :class="twMerge(iconButton, 'icon-button')" aria-label="Task actions">
+            <Icon :name="MoreHorizontal" :size="19" />
           </summary><div>
             <button :aria-label="`Edit ${selected.name}`" @click="editor = selected">
-              <Pencil :size="15" />Edit
+              <Icon :name="Pencil" :size="15" />Edit
             </button><button :aria-label="`Duplicate ${selected.name}`" @click="duplicate(selected)">
-              <Copy :size="15" />Duplicate
+              <Icon :name="Copy" :size="15" />Duplicate
             </button><button v-if="selected.cron && !selected.archived" :aria-label="selected.enabled ? 'Pause schedule' : 'Resume schedule'" @click="pause(selected)">
-              <Pause :size="15" />{{ selected.enabled ? 'Pause schedule' : 'Resume schedule' }}
+              <Icon :name="Pause" :size="15" />{{ selected.enabled ? 'Pause schedule' : 'Resume schedule' }}
             </button><button :aria-label="selected.archived ? `Restore ${selected.name}` : `Archive ${selected.name}`" @click="archive(selected)">
-              <Archive :size="15" />{{ selected.archived ? 'Restore' : 'Archive' }}
+              <Icon :name="Archive" :size="15" />{{ selected.archived ? 'Restore' : 'Archive' }}
             </button><button :aria-label="`Delete ${selected.name}`" @click="deleting = selected">
-              <Trash2 :size="15" />Delete
+              <Icon :name="Trash2" :size="15" />Delete
             </button>
           </div>
         </details>
       </header>
       <RunWorkspace v-if="selectedRun" :key="selectedRun.id" ref="runWorkspace" :run-id="selectedRun.id" embedded @run="loadActivity" />
       <template v-else>
-        <h2 class="unstarted-title">
+        <h2 class="unstarted-title [font-size:23px] mb-5 wrap-anywhere phone:[font-size:21px]">
           {{ selected.name }}
-        </h2><p v-if="loading" class="muted">
+        </h2><p v-if="loading" class="muted text-muted">
           Loading activity…
-        </p><div v-else class="task-ready">
-          <span class="ready-mark"><Zap :size="25" /></span><h3>Ready to run</h3>
-        </div><details class="task-instructions" open>
-          <summary>Task brief</summary><pre class="brief-text">{{ selected.prompt }}</pre>
+        </p><div v-else class="task-ready grid justify-items-center gap-4.5 px-[15px] py-10">
+          <span class="ready-mark grid place-items-center w-13.5 h-13.5 border border-[light-dark(#34334e,_#817c9e)] bg-[light-dark(#ffdf70,_#e8c95e)] text-[#282537] [box-shadow:3px_3px_0_light-dark(#34334e,_#080912)] rounded-card [transform:rotate(-7deg)]"><Icon :name="Zap" :size="25" /></span><h3>Ready to run</h3>
+        </div><details class="task-instructions text-xs border-t border-line pt-[15px]" open>
+          <summary>Task brief</summary><pre class="brief-text whitespace-pre-wrap text-xs leading-[1.9] text-muted">{{ selected.prompt }}</pre>
         </details>
       </template>
     </section>
   </div>
   <template v-else>
-    <label class="search-field"><Search :size="16" /><input v-model="query" placeholder="Search tasks" aria-label="Search tasks"></label><Empty :title="query || filter !== 'all' ? 'No matching tasks' : 'No tasks yet'">
-      <button class="button" @click="editor = true">
-        <Plus :size="16" />Create a task
-      </button>
+    <label class="search-field flex flex-row items-center gap-[7px] text-subtle bg-raised border border-line rounded-[7px] min-w-0 phone:w-full px-2.5 py-0"><Icon :name="Search" :size="16" /><input v-model="query" placeholder="Search tasks" aria-label="Search tasks"></label><Empty :title="query || filter !== 'all' ? 'No matching tasks' : 'No tasks yet'">
+      <UiButton @click="editor = true">
+        <Icon :name="Plus" :size="16" />Create a task
+      </UiButton>
     </Empty>
   </template>
   <TaskEditor v-if="editor" :task="editor === true ? undefined : editor" @saved="select" @close="editor = null" />
   <Modal v-if="deleting" title="Remove this task?" @close="deleting = null">
-    <div class="modal-body">
+    <div class="modal-body px-6.5 py-6 phone:p-5">
       <p>
         “{{ deleting.name }}” will stop scheduling. Its existing run history
         will remain available.
       </p>
     </div>
-    <footer class="modal-actions">
-      <button class="button" @click="deleting = null">
+    <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
+      <UiButton @click="deleting = null">
         Keep task
-      </button><button class="button danger" @click="remove">
+      </UiButton><UiButton variant="danger" @click="remove">
         Remove task
-      </button>
+      </UiButton>
     </footer>
   </Modal>
 </template>

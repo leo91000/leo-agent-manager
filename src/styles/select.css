@@ -1,0 +1,194 @@
+.vs-control:hover {
+  border-color: light-dark(#9e9bbc, var(--dark-control-border));
+}
+
+.vs-control:focus-within, .vs-open .vs-control {
+  border-color: light-dark(#7773a8, var(--dark-accent));
+  box-shadow: 0 0 0 3px light-dark(#e3e2f1, #a7a2da2b);
+}
+
+.vs-control > input {
+  min-width: 0;
+  flex: 1;
+  width: 100%;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: light-dark(#363356, var(--dark-text));
+  outline: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.vs-control > input:focus {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.vs-open .vs-control > input {
+  cursor: text;
+}
+
+.vs-control > input::placeholder {
+  color: light-dark(#8684a2, var(--dark-subtle));
+  font-weight: 400;
+}
+
+.vs-clear:hover, .vs-chevron:hover {
+  background: light-dark(#ecebf5, var(--dark-hover));
+  color: light-dark(#3a3668, var(--dark-text));
+}
+
+.vs-chevron .ui-icon {
+  transition: transform .15s;
+}
+
+.vs-open .vs-chevron > .ui-icon:not(.vs-spin) {
+  transform: rotate(180deg);
+}
+
+.vs-disabled {
+  opacity: .65;
+}
+
+.vs-disabled .vs-control, .vs-disabled .vs-control > input {
+  cursor: not-allowed;
+  background: light-dark(#f1f0f6, var(--dark-inset));
+}
+
+.vs-invalid .vs-control {
+  border-color: light-dark(#b9775e, var(--dark-danger));
+}
+
+.vs-option.is-active {
+  background-color: light-dark(#e9e8f5, var(--dark-hover));
+}
+
+.vs-option.is-selected {
+  color: light-dark(#3b3762, var(--dark-accent));
+}
+
+.vs-option.is-selected.is-active {
+  background-color: light-dark(#e1dff2, var(--dark-hover));
+}
+
+.vs-option.is-disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.is-selected .vs-option-icon {
+  background: light-dark(#d1cfec, var(--dark-hover));
+  border-color: light-dark(#c7c4e3, var(--dark-border));
+  color: light-dark(#474278, var(--dark-accent));
+}
+
+.vs-option-copy > strong {
+  display: block;
+  font-weight: 500;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vs-option-copy > span {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: light-dark(#7b7897, var(--dark-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vs-empty strong {
+  font-size: 12px;
+  color: light-dark(#5c5980, var(--dark-muted));
+  font-weight: 500;
+}
+
+.vs-empty > span {
+  font-size: 10px;
+}
+
+.vs-popup-footer > span {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.vs-popup-footer kbd {
+  font: inherit;
+  padding: 1px 3px;
+  background: light-dark(#fff, var(--dark-inset));
+  border: 1px solid light-dark(#dddcea, var(--dark-border));
+  border-radius: 3px;
+}
+
+.vs-popup-footer button {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: light-dark(#514c82, var(--dark-muted));
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.vs-compact {
+  width: auto;
+  min-width: 160px;
+  max-width: 100%;
+}
+
+.vs-compact .vs-control {
+  min-height: 40px;
+}
+
+.vs-compact .vs-control > input {
+  height: 38px;
+  font-size: 12px;
+}
+
+@keyframes vs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .vs-control > input, .vs-compact .vs-control > input {
+    font-size: 16px;
+    height: 46px;
+  }
+  .vs-option-copy > strong {
+    font-size: 13px;
+  }
+  .vs-option-copy > span {
+    font-size: 11px;
+  }
+  .vs-popup-footer kbd {
+    display: none;
+  }
+  .vs-popup-footer > span:first-child {
+    font-size: 0;
+  }
+  .vs-popup-footer > span:first-child::after {
+    content: 'Tap an option to choose';
+    font-size: 10px;
+  }
+  .vs-compact {
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vs-chevron .ui-icon {
+    transition: none;
+  }
+}

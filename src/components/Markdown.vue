@@ -21,5 +21,5 @@ const html = computed(() => {
 </script>
 
 <template>
-  <div class="markdown" v-html="html" />
+  <div class="markdown text-sm leading-[1.8] wrap-anywhere" v-html="html" />
 </template>

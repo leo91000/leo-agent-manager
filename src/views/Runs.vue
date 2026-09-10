@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { ArrowUpRight, CircleCheck, CirclePause, Clock, ListFilter, LoaderCircle, RefreshCw, Square, TriangleAlert } from '@lucide/vue'
+import { twMerge } from 'tailwind-merge'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, date, duration } from '../api'
 import Empty from '../components/Empty.vue'
+import Icon from '../components/Icon.vue'
 import Status from '../components/Status.vue'
+import UiAlert from '../components/UiAlert.vue'
+import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
+import { ArrowUpRight, CircleCheck, CirclePause, Clock, ListFilter, LoaderCircle, RefreshCw, Square, TriangleAlert } from '../icons'
+import { iconButton } from '../ui'
 
 const runs = ref<any[]>([])
 const status = ref('')
@@ -52,24 +57,24 @@ onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <template>
-  <div class="page-heading">
+  <div class="page-heading flex items-center justify-between gap-5 mb-[27px] phone:gap-2.5 phone:flex-wrap phone:mb-[21px]">
     <div>
       <h1>Run history</h1>
     </div>
-    <button class="button" :disabled="busy" @click="load">
-      <RefreshCw :size="16" />Refresh
-    </button>
+    <UiButton :disabled="busy" @click="load">
+      <Icon :name="RefreshCw" :size="16" />Refresh
+    </UiButton>
   </div>
-  <div class="toolbar">
-    <span class="muted">{{ runs.length }} runs on this page</span><div class="inline-label">
+  <div class="toolbar flex items-center justify-between gap-5 mb-[23px] tablet:items-start tablet:flex-wrap phone:gap-4 phone:min-w-0">
+    <span class="muted text-muted">{{ runs.length }} runs on this page</span><div class="inline-label flex flex-row items-center gap-2.5 text-xs text-muted whitespace-nowrap min-w-0 max-w-full">
       <span>Status</span><VirtualSelect v-model="status" label="Status" :options="outcomes" compact hide-label clearable />
     </div>
   </div>
-  <p v-if="error" class="error" role="alert">
+  <UiAlert v-if="error">
     {{ error }}
-  </p>
-  <div v-if="runs.length" class="panel table-wrap">
-    <table class="run-table">
+  </UiAlert>
+  <div v-if="runs.length" class="panel bg-surface border border-line rounded-card overflow-hidden table-wrap overflow-auto relative">
+    <table class="run-table phone:whitespace-normal">
       <thead>
         <tr>
           <th>Task</th>
@@ -83,7 +88,7 @@ onBeforeUnmount(() => clearInterval(timer))
       <tbody>
         <tr v-for="run in runs" :key="run.id">
           <td>
-            <RouterLink :to="`/runs/${run.id}`" class="table-name">
+            <RouterLink :to="`/runs/${run.id}`" class="table-name font-[550] text-ink">
               {{ run.taskName }}
             </RouterLink><small>{{ run.agentName }}</small>
           </td>
@@ -97,15 +102,15 @@ onBeforeUnmount(() => clearInterval(timer))
             {{ duration(run.startedAt, run.finishedAt) }}
           </td>
           <td data-label="Trigger">
-            <span class="pill muted-pill">{{ run.trigger }}</span>
+            <span class="pill inline-flex bg-soft text-accent rounded-[5px] text-xs font-[650] whitespace-nowrap muted-pill bg-surface text-muted px-2 py-1">{{ run.trigger }}</span>
           </td>
           <td>
             <RouterLink
               :to="`/runs/${run.id}`"
-              class="icon-button"
+              :class="twMerge(iconButton, 'icon-button')"
               :aria-label="`View ${run.taskName}`"
             >
-              <ArrowUpRight :size="18" />
+              <Icon :name="ArrowUpRight" :size="18" />
             </RouterLink>
           </td>
         </tr>
@@ -117,15 +122,15 @@ onBeforeUnmount(() => clearInterval(timer))
     title="A clean slate"
     description="Once an agent starts working, you’ll find its progress and final result here."
   />
-  <div v-if="offset || runs.length === 30" class="pagination">
-    <button
-      class="button"
+  <div v-if="offset || runs.length === 30" class="pagination flex items-center justify-end gap-4.5 text-xs text-muted mx-0 my-5">
+    <UiButton
+
       :disabled="offset === 0"
       @click="offset = Math.max(0, offset - 30)"
     >
       Previous
-    </button><span>Page {{ offset / 30 + 1 }}</span><button class="button" :disabled="runs.length < 30" @click="offset += 30">
+    </UiButton><span>Page {{ offset / 30 + 1 }}</span><UiButton :disabled="runs.length < 30" @click="offset += 30">
       Next
-    </button>
+    </UiButton>
   </div>
 </template>

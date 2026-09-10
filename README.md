@@ -62,6 +62,9 @@ tracked files, review and stage those fixes, then retry the commit; the hook
 does not stage files automatically. Run `pnpm prepare` to reinstall the hook.
 
 The UI is at `http://localhost:5178`; the backend is at `http://localhost:4310`.
+The UI uses Tailwind CSS and Egoist's Iconify plugin. See the
+[styling conventions](docs/UI-STYLING.md) for shared controls, theme tokens, icons,
+and responsive layout rules.
 By default, the worker uses your home directory and existing CLI accounts. Set
 `AGENT_HOME`, `DATA_DIR`, and `WORKSPACE_ROOTS` for a separate environment. See
 [.env.example](.env.example); environment variables must be exported for local CLI
