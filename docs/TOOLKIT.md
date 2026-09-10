@@ -47,8 +47,8 @@ Rust receives a private rustup configuration and links to the image's toolchains
 Main-agent downloads persist in its existing home volume. Restricted agents get
 fresh private homes, removed after the run; the immutable default tools are reused
 without copying their binaries. No extra host mounts, credentials, Docker access,
-or sandbox write permissions are granted. A read-only agent can use preinstalled
-tools; installing a missing version inside its Codex sandbox can be denied and
+or sandbox write permissions are granted. Restricted agents can use preinstalled
+tools; installing a missing version inside a restricted Codex sandbox can be denied and
 must be reported instead of bypassing that policy.
 
 ## Automatic updates

@@ -45,7 +45,7 @@ RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN /usr/local/bin/node /op
 RUN ln -s /usr/local/bin/node /pnpm/bin/node
 COPY deploy/toolkit/profile.sh /etc/profile.d/leo-toolkit.sh
 ENV LEO_TOOLKIT_DIR=/opt/leo-toolkit
-ENV PATH=/home/node/.local/share/mise/shims:/usr/local/share/mise/shims:$PATH
+ENV PATH=/usr/local/bin:/home/node/.local/share/mise/shims:/usr/local/share/mise/shims:$PATH
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/server ./server
