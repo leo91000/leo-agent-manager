@@ -91,7 +91,7 @@ export function codexArgs(run: Run, output: string, sessionId?: string) {
 }
 export function runPrompt(run: Run, chat = false) {
   const interaction = chat
-    ? 'This is an interactive chat. Ask the user in your reply when clarification is needed; do not use request_user_input tools. Follow the latest user instructions and do not treat a question as authorization to publish changes.'
+    ? 'This is an interactive chat. Use native user-input questions when clarification is useful. Nonblocking questions let you continue independent work while the user considers the options; a suggested answer is never user approval. Follow the latest user instructions and do not treat a question as authorization to publish changes.'
     : 'This unattended task cannot answer clarification questions; report a concrete blocker if required information is missing.'
   const projects = runProjects(run).map(project => `- ${project.name}: ${run.workspaces?.find(workspace => workspace.projectId === project.id)?.path ?? project.path}`).join('\n')
   return `${run.snapshot.agent.instructions}\n\n${run.snapshot.task.prompt}\n\nAvailable project workspaces (choose the relevant projects for this task):\n${projects || 'No projects assigned; use the task workspace.'}\n\nTooling: mise manages project runtimes and global tools. Prefer rg and fd for search. Respect mise.toml, .tool-versions, .nvmrc, .node-version, .python-version, rust-toolchain.toml, and package.json packageManager pins. Use mise exec -- <command> when project environment variables are needed; use uv for Python environments. Do not upgrade project pins unless the task requests it.\n\nSelected skills (use their supporting resources from the supplied paths):\n${run.snapshot.skills.map(s => `\n${s.path}\n${s.content}`).join('\n')}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. ${interaction} All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.`
@@ -370,6 +370,14 @@ export class Worker {
         const line = (raw: string) => {
           try {
             const event = JSON.parse(raw)
+            if (event.type === 'chat.question') {
+              this.service.questions.receive(run.id, event.question)
+              return
+            }
+            if (event.type === 'chat.question.closed') {
+              this.service.questions.release(run.id, event.questionId)
+              return
+            }
             if (event.type === 'chat.delivered' && typeof event.messageId === 'string') {
               this.service.chats.acknowledge(run.id, event.messageId)
               return

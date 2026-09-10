@@ -6,11 +6,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, state } from '../api'
 import ActivityFeed from '../components/ActivityFeed.vue'
+import ChatQuestions from '../components/ChatQuestions.vue'
 import Icon from '../components/Icon.vue'
+import Modal from '../components/Modal.vue'
+import NotificationSettings from '../components/NotificationSettings.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import { Bot, ChevronDown, Clock, FolderGit2, MessageCircle, Pause, Pencil, Play, Plus, Send, Settings, Square, Trash2, X, Zap } from '../icons'
+import { Bell, Bot, ChevronDown, Clock, FolderGit2, MessageCircle, Pause, Pencil, Play, Plus, Send, Settings, Square, Trash2, X, Zap } from '../icons'
 import { iconButton } from '../ui'
 
 const router = useRouter()
@@ -21,6 +24,7 @@ const events = ref<RunEvent[]>([])
 const draft = ref('')
 const model = ref('')
 const options = ref(false)
+const notifications = ref(false)
 const history = ref(false)
 const queueOpen = ref(true)
 const error = ref('')
@@ -154,6 +158,11 @@ function key(event: KeyboardEvent) {
 </script>
 
 <template>
+  <Modal v-if="notifications" title="Notifications" @close="notifications = false">
+    <div class="p-6">
+      <NotificationSettings />
+    </div>
+  </Modal>
   <div class="flex h-full min-h-0 flex-col gap-5 phone:gap-3">
     <header class="flex shrink-0 items-center justify-between gap-3">
       <div class="flex min-w-0 items-center gap-3">
@@ -164,9 +173,14 @@ function key(event: KeyboardEvent) {
           Chats<span class="text-accent">.</span>
         </h1>
       </div>
-      <RouterLink to="/chats" class="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-xs font-semibold hover:bg-soft" @click="draft = ''; agentId = MAIN_AGENT_ID; projectId = ''; createdChat = undefined; editing = null">
-        <Icon :name="Plus" :size="16" />New chat
-      </RouterLink>
+      <div class="flex items-center gap-2">
+        <button :class="iconButton" aria-label="Question notifications" @click="notifications = true">
+          <Icon :name="Bell" :size="20" />
+        </button>
+        <RouterLink to="/chats" class="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-xs font-semibold hover:bg-soft" @click="draft = ''; agentId = MAIN_AGENT_ID; projectId = ''; createdChat = undefined; editing = null">
+          <Icon :name="Plus" :size="16" />New chat
+        </RouterLink>
+      </div>
     </header>
     <div class="grid min-h-0 flex-1 grid-cols-[230px_minmax(0,1fr)] gap-5 tablet:grid-cols-1 phone:gap-0">
       <aside class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface tablet:hidden" :class="{ 'tablet:flex!': history, 'tablet:flex-1': history }" aria-label="Chat history">
@@ -180,7 +194,7 @@ function key(event: KeyboardEvent) {
             Your conversations live here.
           </p>
           <RouterLink v-for="chat in chats" :key="chat.id" :to="`/chats/${chat.id}`" class="mb-1 block rounded-xl border border-transparent px-3 py-3 hover:bg-soft" :class="chat.id === detail?.id ? 'border-accent/30! bg-accent/8 text-accent' : ''" @click="history = false">
-            <span class="mb-1 block truncate text-xs font-semibold">{{ chat.title }}</span>
+            <span class="mb-1 block truncate text-xs font-semibold">{{ chat.title }}</span><span v-if="chat.pendingQuestions" class="mb-1 inline-block rounded-full bg-accent/12 px-2 py-0.5 text-[10px] font-semibold text-accent">{{ chat.pendingQuestions }} awaiting answer</span>
             <span class="flex items-center gap-1.5 truncate text-[10px] text-muted"><span v-if="chat.status === 'running'" class="size-1.5 shrink-0 rounded-full bg-accent" />{{ chat.agentName }}<span v-if="chat.projectName"> · {{ chat.projectName }}</span></span>
           </RouterLink>
         </div>
@@ -223,6 +237,7 @@ function key(event: KeyboardEvent) {
         </div>
         <ActivityFeed v-else :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="false" :loading="false" :trimmed="0" chat />
         <div class="shrink-0 border-t border-line bg-surface p-4 phone:p-3">
+          <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" @answered="load" />
           <UiAlert v-if="error || detail?.error || detail?.run?.status === 'failed'" class="mb-3">
             {{ error || detail?.error || detail?.run?.summary }}<button :class="iconButton" aria-label="Dismiss error" @click="error = ''">
               <Icon :name="X" :size="14" />
@@ -247,7 +262,7 @@ function key(event: KeyboardEvent) {
                   <button v-if="active && message.mode !== 'steer'" :class="iconButton" aria-label="Steer with this message" title="Steer now" @click="update(message, 'steer')">
                     <Icon :name="Zap" :size="14" />
                   </button>
-                  <button :class="iconButton" aria-label="Edit queued message" @click="edit(message)">
+                  <button v-if="!message.questionId" :class="iconButton" aria-label="Edit queued message" @click="edit(message)">
                     <Icon :name="Pencil" :size="14" />
                   </button>
                   <button :class="iconButton" aria-label="Remove queued message" @click="update(message)">

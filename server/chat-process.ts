@@ -1,7 +1,9 @@
 import type { ChatExecution, ChatMessage } from '../shared/chats.ts'
 import type { Config } from './config.ts'
+import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import process from 'node:process'
+import { questionFields } from '../shared/chats.ts'
 import { codexSession } from './codex-rpc.ts'
 
 export interface ChatPlan {
@@ -39,6 +41,8 @@ export async function runChat(plan: ChatPlan, binary = 'codex') {
   const seen = new Set<string>()
   const attempted = new Set<string>()
   const texts = new Map<string, string>()
+  const questions = new Map<string, { requestId: string | number, reply: (result: unknown) => void, messageId?: string }>()
+  const questionId = (itemId: string) => createHash('sha256').update(`${threadId}:${itemId}`).digest('hex')
   const acknowledge = (id: string) => {
     if (seen.has(id))
       return
@@ -46,22 +50,51 @@ export async function runChat(plan: ChatPlan, binary = 'codex') {
     emit({ type: 'chat.delivered', messageId: id })
   }
   const onItem = (item: any, type = 'item.completed') => {
+    if (item.type === 'functionCallOutput' && ['request_user_input', 'request_user_input_async'].includes(item.name))
+      return
     if (item.type === 'userMessage') {
       if (item.clientId)
         acknowledge(item.clientId)
       return
     }
-    if (item.type === 'agentMessage')
+    if (item.type === 'agentMessage') {
       lastMessage = item.text || lastMessage
+      if (type === 'item.completed' && item.questions?.length) {
+        const fields = questionFields.safeParse(item.questions.map((question: any, index: number) => ({ id: `${index}`, title: question.title, options: question.options?.map((label: string) => ({ label })) ?? [] })))
+        if (fields.success)
+          emit({ type: 'chat.question', question: { id: questionId(item.id), blocking: false, fields: fields.data } })
+      }
+    }
     emit({ type, item: chatItem(item) })
   }
   const session = codexSession({ codexBin: binary, home: process.env.HOME } as Config, {
     args: plan.args,
     closed: () => rejectCompletion(new Error('Codex disconnected before finishing the response. Resume the conversation to continue.')),
     cwd: plan.cwd,
+    serverRequest(method, params, reply, requestId) {
+      if (method !== 'item/tool/requestUserInput' || !params?.itemId || (threadId && params.threadId !== threadId))
+        return false
+      const fields = questionFields.safeParse(params.questions?.map((question: any) => ({ id: question.id, title: question.question, secret: question.isSecret ?? false, options: question.options ?? [] })))
+      if (!fields.success)
+        return false
+      const id = questionId(params.itemId)
+      questions.set(id, { requestId, reply })
+      emit({ type: 'chat.question', question: { id, blocking: params.isBlocking !== false, fields: fields.data } })
+      return true
+    },
     notification(method, params) {
       if (params?.threadId && threadId && params.threadId !== threadId)
         return
+      if (method === 'serverRequest/resolved') {
+        for (const [id, question] of questions) {
+          if (question.requestId !== params.requestId)
+            continue
+          if (question.messageId)
+            acknowledge(question.messageId)
+          questions.delete(id)
+          emit({ type: 'chat.question.closed', questionId: id })
+        }
+      }
       if (method === 'turn/started') {
         turnId = params.turn.id
         emit({ type: 'turn.started' })
@@ -80,9 +113,10 @@ export async function runChat(plan: ChatPlan, binary = 'codex') {
     },
   })
   await session(process.env.CODEX_HOME!, async (rpc) => {
-    const settings = { cwd: plan.cwd, model: plan.model || undefined, approvalPolicy: 'never', sandbox: plan.sandbox === 'yolo' ? 'danger-full-access' : plan.sandbox, developerInstructions: plan.instructions, config: { model_reasoning_effort: plan.reasoning, sandbox_workspace_write: { network_access: true, writable_roots: plan.writableRoots } } }
+    const settings = { cwd: plan.cwd, model: plan.model || undefined, approvalPolicy: 'never', sandbox: plan.sandbox === 'yolo' ? 'danger-full-access' : plan.sandbox, developerInstructions: plan.instructions, config: { 'features.default_mode_request_user_input': true, 'model_reasoning_effort': plan.reasoning, 'sandbox_workspace_write': { network_access: true, writable_roots: plan.writableRoots } } }
     const result = await rpc.request<any>(plan.sessionId ? 'thread/resume' : 'thread/start', { ...settings, ...(plan.sessionId ? { threadId: plan.sessionId, excludeTurns: false } : {}) })
     threadId = result.thread.id
+    emit({ type: 'chat.question.closed' })
     emit({ type: 'thread.started', thread_id: threadId })
     // Client IDs survive in the Codex transcript: a crash after acceptance must
     // recover the existing turn, not submit the user's instruction twice.
@@ -135,6 +169,12 @@ export async function runChat(plan: ChatPlan, binary = 'codex') {
             continue
           attempted.add(message.id)
           try {
+            const question = message.questionId ? questions.get(message.questionId) : undefined
+            if (question && message.answers) {
+              question.messageId = message.id
+              question.reply({ answers: Object.fromEntries(Object.entries(message.answers).map(([id, answers]) => [id, { answers }])) })
+              continue
+            }
             await rpc.request('turn/steer', { threadId, expectedTurnId: turnId, clientUserMessageId: message.id, input: input(message.text) })
             acknowledge(message.id)
           }

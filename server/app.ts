@@ -189,11 +189,16 @@ export async function buildApp(overrides: Partial<Config> = {}) {
     reply.clearCookie('leo_session', { path: '/' })
     return { ok: true }
   })
+  app.get('/api/notifications', () => service.notifications.configuration())
+  app.post('/api/notifications/subscriptions', request => service.notifications.subscribe(request.body))
+  app.get<{ Params: { id: string } }>('/api/notifications/subscriptions/:id', request => ({ registered: service.notifications.registered(z.string().regex(/^[a-f0-9]{64}$/).parse(request.params.id)) }))
+  app.delete<{ Params: { id: string } }>('/api/notifications/subscriptions/:id', request => service.notifications.unsubscribe(z.string().regex(/^[a-f0-9]{64}$/).parse(request.params.id)))
+  app.post<{ Params: { id: string, questionId: string } }>('/api/chats/:id/questions/:questionId/answer', request => service.questions.answer(request.params.id, request.params.questionId, request.body))
   app.get('/api/chats', () => store.list('chats').map(chat => service.chats.view(chat)))
   app.post('/api/chats', request => service.chats.create(request.body))
   app.get<{ Params: { id: string } }>('/api/chats/:id', (request) => {
     const detail = service.chats.detail(request.params.id)
-    return { ...detail, messages: detail.messages.filter(message => message.status !== 'delivered'), error: store.kv(`chat-error:${request.params.id}`) ?? null }
+    return { ...detail, messages: detail.messages.filter(message => message.status !== 'delivered').map(message => detail.questions.some(question => question.id === message.questionId && question.fields.some(field => field.secret)) ? { ...message, text: 'Private answer', answers: undefined } : message), error: store.kv(`chat-error:${request.params.id}`) ?? null }
   })
   app.post<{ Params: { id: string } }>('/api/chats/:id/messages', request => service.chats.send(request.params.id, request.body))
   app.put<{ Params: { id: string, messageId: string } }>('/api/chats/:id/messages/:messageId', request => service.chats.edit(request.params.id, request.params.messageId, request.body))
@@ -505,7 +510,7 @@ export async function buildApp(overrides: Partial<Config> = {}) {
       prefix: '/',
       maxAge: '1h',
       setHeaders(response, filePath) {
-        if (['index.html', 'theme.js'].includes(path.basename(filePath)))
+        if (['index.html', 'theme.js', 'sw.js', 'manifest.webmanifest'].includes(path.basename(filePath)))
           response.header('Cache-Control', 'no-cache')
       },
     })
@@ -526,12 +531,14 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   })
   app.addHook('onClose', async () => {
     connections.cancel()
+    await service.notifications.close()
     await service.accounts.close()
     store.close()
   })
   if (config.workerEnabled) {
     worker.start()
     service.accounts.start()
+    service.notifications.start()
   }
   return { app, service, worker, auth, connections }
 }

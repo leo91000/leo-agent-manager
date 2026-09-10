@@ -1,4 +1,4 @@
-import type { Chat, ChatDetail, ChatView } from '../shared/chats.ts'
+import type { Chat, ChatDetail, ChatQuestion, ChatView } from '../shared/chats.ts'
 import type { Service } from './service.ts'
 import type { Worker } from './worker.ts'
 import { randomUUID } from 'node:crypto'
@@ -14,12 +14,12 @@ export class Chats {
   get store() { return this.service.store }
   get(id: string) { return requireValue(this.store.get('chats', id), 'Chat not found') }
   view(chat: Chat): ChatView {
-    return { ...chat, agentName: this.store.get('agents', chat.agentId)?.name ?? 'Deleted agent', projectName: chat.projectId ? this.store.get('projects', chat.projectId)?.name ?? 'Deleted project' : null, status: chat.runId ? this.store.run(chat.runId)?.status ?? 'idle' : 'idle' }
+    return { ...chat, pendingQuestions: this.service.questions.list(chat.id).filter(question => question.status === 'pending').length, agentName: this.store.get('agents', chat.agentId)?.name ?? 'Deleted agent', projectName: chat.projectId ? this.store.get('projects', chat.projectId)?.name ?? 'Deleted project' : null, status: chat.runId ? this.store.run(chat.runId)?.status ?? 'idle' : 'idle' }
   }
 
   detail(id: string): ChatDetail {
     const chat = this.get(id)
-    return { ...this.view(chat), run: chat.runId ? this.store.run(chat.runId)! : null, messages: this.store.chatMessages(id) }
+    return { ...this.view(chat), questions: this.service.questions.list(id), run: chat.runId ? this.store.run(chat.runId)! : null, messages: this.store.chatMessages(id) }
   }
 
   create(input: unknown) {
@@ -29,13 +29,13 @@ export class Chats {
     return this.store.put('chats', { ...values, id: randomUUID(), title: 'New chat', runId: null, paused: false, createdAt: Date.now(), updatedAt: Date.now() })
   }
 
-  send(id: string, input: unknown) {
+  send(id: string, input: unknown, answer?: { question: ChatQuestion, answers: Record<string, string[]> }) {
     const chat = this.get(id)
     const values = chatMessageInput.parse(input)
     const messages = this.store.chatMessages(id)
     const existing = messages.find(message => message.id === values.id)
     if (existing) {
-      if (existing.text !== values.text || existing.model !== values.model)
+      if (existing.text !== values.text || existing.model !== values.model || (answer && existing.questionId !== answer.question.id))
         throw new AppError(409, 'This message identifier has already been used.')
       return existing
     }
@@ -52,7 +52,9 @@ export class Chats {
     this.validateSteer(chat, values)
     return this.store.transaction(() => {
       this.store.put('chats', { ...chat, title: messages.length ? chat.title : values.text.replace(/\s+/g, ' ').slice(0, 90), updatedAt: Date.now() })
-      return this.store.putChatMessage({ ...values, chatId: id, status: 'queued', createdAt: Date.now() })
+      if (answer)
+        this.service.questions.save({ ...answer.question, status: 'answering', messageId: values.id })
+      return this.store.putChatMessage({ ...values, ...(answer ? { questionId: answer.question.id, answers: answer.answers } : {}), chatId: id, status: 'queued', createdAt: Date.now() })
     })
   }
 
@@ -62,9 +64,18 @@ export class Chats {
     if (message.status !== 'queued')
       throw new AppError(409, 'This message is already being sent.')
     if (input === undefined) {
-      this.store.deleteChatMessage(id, messageId)
-      return { deleted: true }
+      return this.store.transaction(() => {
+        if (message.questionId) {
+          const question = this.service.questions.list(id).find(question => question.id === message.questionId)
+          if (question)
+            this.service.questions.save({ ...question, status: 'pending', messageId: undefined })
+        }
+        this.store.deleteChatMessage(id, messageId)
+        return { deleted: true }
+      })
     }
+    if (message.questionId)
+      throw new AppError(409, 'A submitted answer cannot be edited.')
     const values = chatMessageInput.parse({ ...(input as object), id: messageId })
     this.validateSteer(chat, values)
     return this.store.putChatMessage({ ...message, ...values })
@@ -89,20 +100,22 @@ export class Chats {
       return
     this.store.transaction(() => {
       this.store.putChatMessage({ ...message, status: 'delivered' })
-      this.store.event(runId, 'chat.user', message.text, { messageId, text: message.text })
+      if (message.questionId)
+        this.service.questions.acknowledge(chat.id, message.questionId)
+      const question = message.questionId ? this.service.questions.list(chat.id).find(question => question.id === message.questionId) : undefined
+      const text = question?.fields.some(field => field.secret) ? 'Answered a private question.' : message.text
+      this.store.event(runId, 'chat.user', text, { messageId, text })
       this.store.put('chats', { ...chat, updatedAt: Date.now() })
     })
   }
 
   async tick(worker: Worker) {
     for (const chat of this.store.list('chats')) {
-      if (chat.paused)
-        continue
       let run = chat.runId ? this.store.run(chat.runId) : undefined
       const messages = this.store.chatMessages(chat.id)
       if (run && ['queued', 'running'].includes(run.status)) {
         const executionId = run.chatExecution?.messageId
-        const steering = messages.filter(message => message.mode === 'steer' && message.status !== 'delivered' && message.id !== executionId)
+        const steering = messages.filter(message => (!chat.paused || message.questionId) && message.mode === 'steer' && message.status !== 'delivered' && message.id !== executionId)
         const directory = path.join(this.service.config.dataDir, 'runs', run.id, 'chat-input')
         await mkdir(directory, { recursive: true, mode: 0o700 })
         const currentSteering = steering.flatMap((message) => {
@@ -117,6 +130,8 @@ export class Chats {
         await rename(`${file}.tmp`, file)
         continue
       }
+      if (chat.paused)
+        continue
       if (run && (worker.active.has(run.id) || run.recoveryPending))
         continue
       if (run && run.status !== 'succeeded') {

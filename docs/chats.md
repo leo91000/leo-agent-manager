@@ -17,3 +17,19 @@ Messages use client-generated IDs. Requests can be retried without duplicating s
 SQLite schema version 4 adds indexed chat messages; records and task runs are preserved. Chat events are excluded from the normal 30-day task-event pruning and event-count cap. Workspace cleanup disables further messages in that conversation.
 
 Validation includes authenticated API boundaries, restricted project access, live steering, queue editing and deduplication, model overrides, account-backed isolated execution, restart and lost-completion recovery, process disconnection, and Chromium/WebKit journeys with desktop/mobile light/dark screenshots.
+
+## Questions during a reply
+
+Codex can ask for input while continuing its work, or wait when an answer is required. A **Your input** card appears above the composer, and the chat history shows how many questions need an answer. Open **Answer** to choose an option or write your own response. Suggested choices are never submitted automatically. You can close the panel and answer later; questions survive navigation and server restarts. Answering a live question works even when the follow-up queue is paused.
+
+The adapter enables Codex's `default_mode_request_user_input` feature for chats. It supports `item/tool/requestUserInput` server requests and questions attached to assistant messages. Live request answers use the native response protocol; if the request expired or the process restarted, an answer can instead steer or start the next turn in the same conversation. Other interactive RPC requests, including approvals, remain unavailable. Answer submissions are idempotent and retained until delivery. Questions and the notification outbox are committed together in SQLite.
+
+## Notifications
+
+Open the bell in **Chats**, or **Settings → Question notifications**, then choose **Enable on this device**. Permission is requested only after that click. Web Push can deliver while the app is closed; clicking a notification opens the relevant chat and question. Each device can opt out independently. The notification contains no question or answer text.
+
+On iPhone and iPad, install Leo using Safari's **Share → Add to Home Screen**, then enable notifications from that installed app. This requires iOS/iPadOS 16.4 or newer ([WebKit guidance](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)). Delivery depends on the browser, OS notification settings, and network availability.
+
+The public app must use HTTPS. No notification SaaS account is required: VAPID keys are generated automatically and encrypted with the existing persistent application key, along with browser subscription credentials. Keep the data volume and its encryption key when moving the deployment. Supported push providers are Chrome/Chromium (FCM), Firefox, Safari, and Edge's Windows notification service. The server validates provider endpoints, removes expired subscriptions, and retries temporary failures for up to an hour. It skips notifications for questions already answered. The service worker does not cache pages or authenticated API responses.
+
+Tests cover the native Codex request/response shape, blocking and nonblocking questions, late answers, replay, restart, API authorization, notification retry and expiry, private push content, device enrollment/revocation, notification routing, and desktop/mobile question screens in Chromium and WebKit. Browser automation replaces the OS permission prompt and push provider; actual delivery to a phone requires opting in on that phone.

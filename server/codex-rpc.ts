@@ -17,7 +17,7 @@ export function codexEnvironment(config: Config, home: string) {
   return env
 }
 
-export function codexSession(config: Config, options: { args?: string[], cwd?: string, closed?: () => void, notification?: (method: string, params: any) => void } = {}): CodexSession {
+export function codexSession(config: Config, options: { args?: string[], cwd?: string, closed?: () => void, serverRequest?: (method: string, params: any, reply: (result: unknown) => void, id: string | number) => boolean, notification?: (method: string, params: any) => void } = {}): CodexSession {
   return async (home, operation) => {
     const child: ChildProcessWithoutNullStreams = spawn(config.codexBin, [...options.args ?? [], '-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"', 'app-server', '--listen', 'stdio://'], { cwd: options.cwd, env: codexEnvironment(config, home), stdio: ['pipe', 'pipe', 'pipe'] })
     const pending = new Map<number, { resolve: (value: unknown) => void, reject: (error: Error) => void }>()
@@ -41,6 +41,15 @@ export function codexSession(config: Config, options: { args?: string[], cwd?: s
       try {
         const message = JSON.parse(line)
         if (message.method && message.id !== undefined) {
+          let replied = false
+          const reply = (result: unknown) => {
+            if (closed || replied)
+              return
+            replied = true
+            child.stdin.write(`${JSON.stringify({ id: message.id, result })}\n`)
+          }
+          if (options.serverRequest?.(message.method, message.params, reply, message.id))
+            return
           child.stdin.write(`${JSON.stringify({ id: message.id, error: { code: -32601, message: 'Interactive tool requests are unavailable. Ask the user in a plain assistant message instead.' } })}\n`)
           return
         }

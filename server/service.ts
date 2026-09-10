@@ -6,10 +6,12 @@ import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import { CronExpressionParser } from 'cron-parser'
 import { agentInput, MAIN_AGENT_ID, projectInput, taskInput } from '../shared/contracts.ts'
+import { ChatQuestions } from './chat-questions.ts'
 import { Chats } from './chats.ts'
 import { CodexAccounts } from './codex-accounts.ts'
 import { AppError, requireValue } from './errors.ts'
 import { McpConnections } from './mcp-connections.ts'
+import { Notifications } from './notifications.ts'
 import { workspaceDirectory } from './paths.ts'
 import { allowedProjects, policy, runProjects, taskProjects, validateAccess } from './policy.ts'
 import { Skills } from './skills.ts'
@@ -57,6 +59,8 @@ export function nextOccurrences(
 }
 export class Service {
   readonly chats = new Chats(this)
+  readonly questions = new ChatQuestions(this)
+  notifications: Notifications
   skills: Skills
   mcps: McpConnections
   accounts: CodexAccounts
@@ -64,6 +68,7 @@ export class Service {
     public store: Store,
     public config: Config,
   ) {
+    this.notifications = new Notifications(store, config)
     this.mcps = new McpConnections(store, config)
     this.accounts = new CodexAccounts(store, config)
     this.skills = new Skills(config.home, config.workspaceRoots)

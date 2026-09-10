@@ -10,6 +10,8 @@ export function chatFixture() {
   let active
   let counter = 0
   let hold = false
+  let questionRequest
+  let asked = false
   const save = () => {
     mkdirSync(process.env.CODEX_HOME, { recursive: true })
     writeFileSync(file, JSON.stringify(thread))
@@ -28,6 +30,14 @@ export function chatFixture() {
   }
   return (request) => {
     const { method, params } = request
+    if (!method && questionRequest && request.id === questionRequest) {
+      active.items.push({ id: 'answer', type: 'fixtureAnswer', answers: request.result.answers })
+      save()
+      notify('serverRequest/resolved', { threadId: thread.id, requestId: questionRequest })
+      questionRequest = undefined
+      finish()
+      return true
+    }
     if (!['thread/start', 'thread/resume', 'turn/start', 'turn/steer', 'thread/turns/list'].includes(method))
       return false
     if (method === 'thread/start') {
@@ -70,6 +80,23 @@ export function chatFixture() {
         notify('item/completed', { threadId: thread.id, item: command })
       }
       const text = params.input[0].text
+      if (!asked && text.includes('fixture:question')) {
+        asked = true
+        hold = true
+        questionRequest = 'question-1'
+        emit({ id: questionRequest, method: 'item/tool/requestUserInput', params: { threadId: thread.id, turnId: active.id, itemId: 'question-item', isBlocking: text.includes('blocking'), questions: [{ id: 'direction', header: 'Direction', question: 'How should we introduce the new navigation?', isOther: true, isSecret: false, options: [{ label: 'Gradual rollout (Recommended)', description: 'Start with the chat view, then extend it to the rest of the app.' }, { label: 'Update everything', description: 'Refresh all views together in one release.' }] }] } })
+        if (text.includes('expire')) {
+          notify('serverRequest/resolved', { threadId: thread.id, requestId: questionRequest })
+          questionRequest = undefined
+          finish()
+        }
+      }
+      if (text.includes('fixture:async-question')) {
+        const question = { id: 'async-question-item', type: 'agentMessage', text: 'I’ll use the existing violet palette while you consider the layout.', questions: [{ title: 'Which layout would you prefer?', options: ['Split view (Recommended)', 'Full-width conversation'] }] }
+        active.items.push(question)
+        save()
+        notify('item/completed', { threadId: thread.id, item: question })
+      }
       if (text.includes('fixture:disconnect'))
         process.exit(1)
       if (text.includes('finish now'))

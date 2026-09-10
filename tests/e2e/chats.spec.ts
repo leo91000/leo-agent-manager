@@ -58,3 +58,89 @@ test('starts project chats, steers, edits the queue and preserves a compact mobi
   await page.locator('article').filter({ has: page.getByRole('heading', { name: 'Release engineer', exact: true }) }).getByRole('link', { name: 'Start chat' }).click()
   await expect(page.getByRole('combobox', { name: 'Chat agent' })).toHaveValue('Release engineer')
 })
+
+test('answers in-flight questions with choices or free text on desktop and mobile', async ({ page, workspace }) => {
+  execFileSync('git', ['init', '-b', 'main', workspace.projectPath])
+  execFileSync('git', ['-C', workspace.projectPath, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '--allow-empty', '-m', 'Initial'])
+  await page.goto('/')
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.task-focus-detail')).toBeVisible()
+  await page.goto('/chats')
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Plan the navigation refresh. fixture:question')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Answer pending questions' })).toBeVisible()
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expectSingleScroll(page)
+  await page.screenshot({ path: test.info().outputPath('questions-chat-desktop.png'), animations: 'disabled' })
+  await page.getByRole('button', { name: 'Answer', exact: true }).click()
+  await expect(page.getByText('Agent keeps working', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send answer', exact: true })).toBeDisabled()
+  await expect(page.getByRole('radio').first()).not.toBeChecked()
+  await expectSingleScroll(page)
+  await page.screenshot({ path: test.info().outputPath('questions-desktop-light.png'), animations: 'disabled' })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.screenshot({ path: test.info().outputPath('questions-desktop-dark.png'), animations: 'disabled' })
+  await page.getByRole('radio', { name: /Gradual rollout/ }).check()
+  await expect(page.getByRole('button', { name: 'Send answer', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Answer later' }).click()
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Answer pending questions' })).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Answer', exact: true }).click()
+  await expect(page.locator('.sidebar')).not.toBeInViewport()
+  await expectSingleScroll(page)
+  await page.screenshot({ path: test.info().outputPath('questions-mobile-dark.png'), animations: 'disabled' })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.getByRole('textbox', { name: 'Or write your own answer' }).fill('Start with the chat, keeping keyboard navigation intact.')
+  await page.screenshot({ path: test.info().outputPath('questions-mobile-light.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 320, height: 600 })
+  await expectSingleScroll(page)
+  await page.getByRole('button', { name: 'Send answer', exact: true }).click()
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Answer pending questions' })).not.toBeVisible()
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible()
+  const chatId = page.url().split('/').at(-1)!
+  expect(workspace.service.questions.list(chatId)[0].status).toBe('answered')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Question notifications' }).click()
+  await expect(page.getByRole('heading', { name: 'Question notifications' })).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('notifications-mobile.png'), animations: 'disabled' })
+})
+
+test('opts into device notifications and can revoke that device', async ({ page, context, browserName, workspace }) => {
+  test.skip(browserName !== 'chromium', 'Permission automation uses Chromium; WebKit renders the same settings in the chat journey.')
+  const { createECDH, randomBytes } = await import('node:crypto')
+  const curve = createECDH('prime256v1')
+  curve.generateKeys()
+  const subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/browser-fixture', keys: { p256dh: curve.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') } }
+  await context.grantPermissions(['notifications'], { origin: workspace.url })
+  await page.addInitScript((data) => {
+    // Keep native service worker registration, but replace the OS permission
+    // prompt and push provider so this test does not contact an external service.
+    Object.defineProperty(Notification, 'permission', { get: () => 'default' })
+    Notification.requestPermission = async () => 'granted'
+    let current: object | null = null
+    PushManager.prototype.getSubscription = async () => current as PushSubscription | null
+    PushManager.prototype.subscribe = async () => {
+      current = { toJSON: () => data, unsubscribe: async () => {
+        current = null
+        return true
+      } }
+      return current as PushSubscription
+    }
+  }, subscription)
+  await page.goto('/')
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.task-focus-detail')).toBeVisible()
+  await page.goto('/chats')
+  await page.getByRole('button', { name: 'Question notifications' }).click()
+  await page.getByRole('button', { name: 'Enable on this device' }).click()
+  await expect(page.getByText('Notifications on', { exact: true })).toBeVisible()
+  expect(workspace.service.store.keys('push-device:')).toHaveLength(1)
+  await page.getByRole('button', { name: 'Disable on this device' }).click()
+  await expect(page.getByRole('button', { name: 'Enable on this device' })).toBeEnabled()
+  expect(workspace.service.store.keys('push-device:')).toHaveLength(0)
+})

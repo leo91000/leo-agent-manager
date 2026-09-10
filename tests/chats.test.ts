@@ -153,4 +153,61 @@ describe('interactive chats', () => {
     expect(ctx.service.store.run(id)?.snapshot.agent.model).toBe('test-model')
     expect(ctx.service.store.get('agents', MAIN_AGENT_ID)?.model).toBe('')
   })
+  it.each(['fixture:question', 'fixture:question blocking'])('answers native questions while the same turn is running: %s', async (prompt) => {
+    const chat = ctx.service.chats.create({})
+    send(chat.id, prompt)
+    const runId = await running(chat.id)
+    await expect.poll(() => ctx.service.questions.list(chat.id).length).toBe(1)
+    const question = ctx.service.questions.list(chat.id)[0]
+    expect(question.blocking).toBe(prompt.includes('blocking'))
+    expect(ctx.service.store.run(runId)?.status).toBe('running')
+    // A paused follow-up queue must not prevent an answer to a waiting agent.
+    ctx.service.chats.pause(chat.id, true)
+    const answer = { id: randomUUID(), answers: { direction: ['Gradual rollout (Recommended)'] } }
+    ctx.service.questions.answer(chat.id, question.id, answer)
+    ctx.service.questions.answer(chat.id, question.id, answer)
+    expect(() => ctx.service.questions.answer(chat.id, question.id, { ...answer, id: randomUUID() })).toThrow('already been answered')
+    await ctx.worker.tick()
+    await finish(runId)
+    expect(ctx.service.questions.list(chat.id)[0].status).toBe('answered')
+    const transcript = JSON.parse(await readFile(path.join(ctx.service.config.dataDir, 'runs', runId, 'codex', 'fixture-conversation.json'), 'utf8'))
+    expect(transcript.turns).toHaveLength(1)
+    expect(transcript.turns[0].items.find((item: any) => item.type === 'fixtureAnswer').answers.direction.answers).toEqual(answer.answers.direction)
+    expect(ctx.service.store.events(runId).filter(event => event.type === 'chat.user')).toHaveLength(2)
+  })
+
+  it('keeps expired questions answerable as a follow-up without reusing a stale RPC id', async () => {
+    const chat = ctx.service.chats.create({})
+    send(chat.id, 'fixture:question expire')
+    const runId = await running(chat.id)
+    await finish(runId)
+    const question = ctx.service.questions.list(chat.id)[0]
+    expect(question).toMatchObject({ status: 'pending', blocking: false })
+    const input = { id: randomUUID(), answers: { direction: ['Keep the current layout for now.'] } }
+    const headers = await ctx.login()
+    expect((await ctx.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/questions/${question.id}/answer`, payload: input })).statusCode).toBe(401)
+    expect((await ctx.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/questions/${question.id}/answer`, headers, payload: { ...input, answers: {} } })).statusCode).toBe(400)
+    expect((await ctx.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/questions/${question.id}/answer`, headers, payload: input })).statusCode).toBe(200)
+    await ctx.worker.tick()
+    await finish(runId)
+    expect(ctx.service.questions.list(chat.id)[0].status).toBe('answered')
+  })
+
+  it('persists async questions, deduplicates replay and answers them after a restart', async () => {
+    const chat = ctx.service.chats.create({})
+    send(chat.id, 'fixture:async-question')
+    const runId = await running(chat.id)
+    await finish(runId)
+    const question = ctx.service.questions.list(chat.id)[0]
+    expect(question.fields[0].title).toBe('Which layout would you prefer?')
+    ctx.service.questions.receive(runId, question)
+    expect(ctx.service.questions.list(chat.id)).toHaveLength(1)
+    await ctx.worker.close()
+    restarted = new Worker(ctx.service)
+    ctx.service.questions.answer(chat.id, question.id, { id: randomUUID(), answers: { 0: ['Split view (Recommended)'] } })
+    await restarted.tick()
+    await finish(runId)
+    expect(ctx.service.chats.detail(chat.id).pendingQuestions).toBe(0)
+    expect(ctx.service.questions.list(chat.id)[0].status).toBe('answered')
+  })
 })
