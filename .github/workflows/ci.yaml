@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       browser-workers:
-        description: Browser workers for performance comparisons
+        description: Workers per browser group for performance comparisons
         type: choice
-        options: ['2', '4', '5']
-        default: '5'
+        options: ['1', '2']
+        default: '2'
 permissions:
   contents: read
 concurrency:
@@ -50,14 +50,51 @@ jobs:
           require-lockfile: true
           cache: true
       - run: pnpm check
-      - run: pnpm exec playwright install --with-deps --only-shell chromium webkit
-      - run: pnpm test:e2e --workers="$BROWSER_WORKERS"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: browser-build
+          path: dist/
+          retention-days: 1
+  browser:
+    needs: [resolve, quality]
+    if: needs.resolve.outputs.reuse != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: journeys
+            browser: chromium
+            projects: journeys
+          - group: chromium
+            browser: chromium
+            projects: layout-chromium-*
+          - group: webkit
+            browser: webkit
+            projects: layout-webkit-*
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/setup@v2.1.0
+        with:
+          runtime: node@24
+          require-lockfile: true
+          cache: true
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: browser-build
+          path: dist/
+      - run: pnpm exec playwright install --with-deps --only-shell "$BROWSER"
         env:
-          BROWSER_WORKERS: ${{ inputs.browser-workers || '5' }}
+          BROWSER: ${{ matrix.browser }}
+      - run: pnpm test:e2e --project="$BROWSER_PROJECTS" --workers="$BROWSER_WORKERS"
+        env:
+          BROWSER_PROJECTS: ${{ matrix.projects }}
+          BROWSER_WORKERS: ${{ inputs.browser-workers || '2' }}
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: browser-evidence
+          name: browser-evidence-${{ matrix.group }}
           path: |
             playwright-report/
             test-results/
@@ -110,8 +147,8 @@ jobs:
           SMOKE_IMAGE: ${{ github.event_name == 'pull_request' && 'leo-agent-manager:test' || format('ghcr.io/{0}@{1}', github.repository, steps.build.outputs.digest) }}
         run: node tests/container-smoke.mjs "$SMOKE_IMAGE"
   publish:
-    needs: [resolve, quality, image]
-    if: always() && !cancelled() && github.event_name != 'pull_request' && needs.resolve.outputs.reuse != 'true' && needs.quality.result == 'success' && needs.image.result == 'success'
+    needs: [resolve, quality, browser, image]
+    if: always() && !cancelled() && github.event_name != 'pull_request' && needs.resolve.outputs.reuse != 'true' && needs.quality.result == 'success' && needs.browser.result == 'success' && needs.image.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
