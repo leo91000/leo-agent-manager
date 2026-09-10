@@ -22,9 +22,19 @@ describe('structured activity content', () => {
     for (const text of ['Use `{ "x": 1 }` here.', '```js\nconst data = {"x":1}\n```', '[1](https://example.com)', 'Ordinary {prose} and [labels].'])
       expect(contentParts(text)).toEqual([{ kind: 'text', text }])
   })
-  it('leaves truncated and malformed data intact instead of inventing a partial result', () => {
-    for (const text of ['[{"jobs":[{"name":"test"}]}', '{"outer":{"complete":true},"unfinished":', '```json\n{"x":', '{"x": nope}', '{"x": [1,2}'])
+  it('preserves malformed data instead of inventing a valid result', () => {
+    for (const text of ['{"x": nope}', '{"x": [1,2}'])
       expect(contentParts(text)).toEqual([{ kind: 'text', text }])
+  })
+  it('identifies incomplete saved JSON without pretending nested fragments are complete results', () => {
+    for (const source of ['[{"jobs":[{"name":"test"}]}', '{"outer":{"complete":true},"unfinished":'])
+      expect(contentParts(source)).toEqual([{ kind: 'incomplete', source }])
+    expect(contentParts('implementation-pr {"files":["src/a.ts"')).toEqual([
+      { kind: 'text', text: 'implementation-pr ' },
+      { kind: 'incomplete', source: '{"files":["src/a.ts"' },
+    ])
+    expect(contentParts('```json\n{"x":')).toEqual([{ kind: 'incomplete', source: '{"x":' }])
+    expect(contentParts('```json\n{"x":\n```')).toEqual([{ kind: 'incomplete', source: '{"x":\n' }])
   })
   it('only adds semantic colors to explicit status fields', () => {
     expect(statusTone('conclusion', 'failure')).toBe('error')

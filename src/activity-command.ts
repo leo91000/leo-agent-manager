@@ -67,13 +67,33 @@ export function fileLanguage(path: string) {
   const languages: Record<string, string> = { ts: 'typescript', tsx: 'typescript', js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', json: 'json', yaml: 'yaml', yml: 'yaml', css: 'css', vue: 'xml', html: 'xml', svg: 'xml', xml: 'xml', rs: 'rust', py: 'python', sql: 'sql', sh: 'bash', bash: 'bash', zsh: 'bash', md: 'markdown' }
   return languages[extension] ?? 'plaintext'
 }
-export function describeCommand(command: string): CommandPresentation {
+function commandWords(command: string) {
   let tokens = words(command)
   let source = command
   if (tokens?.length === 3 && /(?:^|\/)(?:ba|z)?sh$/.test(tokens[0]) && ['-c', '-lc', '-cl'].includes(tokens[1])) {
     source = tokens[2]
     tokens = words(source)
   }
+  return { tokens, source }
+}
+
+/** Exit 1 is a documented result only for these simple, unambiguous commands. */
+export function expectedCommandOutcome(command: string, exitCode: number | undefined) {
+  if (exitCode !== 1)
+    return
+  const { tokens } = commandWords(command)
+  if (!tokens?.length)
+    return
+  const [bin, ...args] = tokens
+  const name = bin.split('/').at(-1)
+  if (name === 'rg' || name === 'grep')
+    return 'No matches'
+  if (name === 'diff' || (name === 'git' && args[0] === 'diff' && args.some(arg => arg === '--exit-code' || arg === '--quiet')))
+    return 'Differences found'
+}
+
+export function describeCommand(command: string): CommandPresentation {
+  const { tokens, source } = commandWords(command)
   const result: CommandPresentation = { kind: 'command', title: 'Run command', subtitle: source, language: 'plaintext', paths: [], command: source }
   if (!tokens?.length)
     return result

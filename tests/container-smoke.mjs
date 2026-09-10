@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import { setTimeout } from 'node:timers/promises'
 import { promisify } from 'node:util'
@@ -97,6 +98,10 @@ async function main() {
       (await docker('exec', name, 'gh', '--version')).stdout,
       /gh version/,
     )
+    const browserProbe = await readFile(new URL('./browser-smoke.mjs', import.meta.url), 'utf8')
+    const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+    const browsers = await exec('docker', ['--context', 'default', 'exec', name, 'node', '--input-type=module', '-e', browserProbe, packageJson.devDependencies['@playwright/test']], { timeout: 240000, maxBuffer: 1024 * 1024 })
+    process.stdout.write(browsers.stdout)
     await docker('restart', name)
     url = `http://${(await docker('port', name, '4310/tcp')).stdout.trim()}`
     await ready()
@@ -109,7 +114,7 @@ async function main() {
     assert.equal(page.headers.get('cache-control'), 'no-cache')
     assert.match(await page.text(), /Leo/)
     process.stdout.write(
-      'Container smoke passed: non-root, CLI tools, auth, Vue build, persistent session and data across restart.\n',
+      'Container smoke passed: non-root, CLI tools, Chromium/Firefox/WebKit, auth, Vue build, persistent session and data across restart.\n',
     )
   }
   catch (error) {

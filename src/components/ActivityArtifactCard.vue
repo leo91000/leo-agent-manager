@@ -20,7 +20,7 @@ function markdownParts(content: string) {
 const icons = { command: Terminal, read: BookOpen, browse: FolderSearch, output: Terminal, files: FileCode, search: Search, tool: Wrench, plan: ListChecks, thinking: Sparkles, notice: Info }
 const labels = { command: 'Terminal', read: 'File read', browse: 'Workspace', output: 'Output', files: 'File edit', search: 'Search', tool: 'Tool call', plan: 'Plan', thinking: 'Thinking', notice: 'Session' }
 const running = computed(() => props.artifact.status === 'running' && props.active)
-const status = computed(() => running.value ? 'Running' : props.artifact.status === 'running' ? 'Stopped' : props.artifact.status === 'error' ? 'Failed' : props.artifact.historical ? 'Recorded' : props.artifact.status === 'info' ? 'Info' : 'Completed')
+const status = computed(() => props.artifact.statusLabel ?? (running.value ? 'Running' : props.artifact.status === 'running' ? 'Stopped' : props.artifact.status === 'error' ? 'Failed' : props.artifact.historical ? 'Recorded' : props.artifact.status === 'info' ? 'Info' : 'Completed'))
 const blocks = computed(() => props.artifact.blocks.filter(block => block.label !== 'Command'))
 const outputLines = computed(() => blocks.value.reduce((total, block) => total + (block.code ? block.code.trimEnd().split('\n').length : 0), 0))
 const diff = computed(() => {
@@ -56,7 +56,7 @@ const elapsed = computed(() => {
     </button>
     <div class="operation-facts">
       <span v-if="elapsed"><Clock :size="12" />{{ elapsed }}</span>
-      <span v-if="artifact.exitCode !== undefined" :class="{ 'operation-error': artifact.exitCode !== 0 }">Exit {{ artifact.exitCode }}</span>
+      <span v-if="artifact.exitCode !== undefined" :class="{ 'operation-error': artifact.status === 'error' }">Exit {{ artifact.exitCode }}</span>
       <span v-if="artifact.files.length">{{ artifact.files.length }} {{ artifact.files.length === 1 ? 'file' : 'files' }}</span>
       <span v-if="diff.added || diff.removed" class="operation-diff"><b>+{{ diff.added }}</b><b>−{{ diff.removed }}</b></span>
       <span v-if="outputLines">{{ outputLines.toLocaleString() }} {{ outputLines === 1 ? 'line' : 'lines' }}</span>

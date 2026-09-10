@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Braces, ChevronDown } from '@lucide/vue'
+import { Braces, ChevronDown, Info } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { contentParts, dataSummary, dataTitle } from '../activity-data'
 import ActivityCode from './ActivityCode.vue'
@@ -28,6 +28,20 @@ const parts = computed(() => props.language && !['json', 'plaintext'].includes(p
       </div>
       <details class="data-source" @toggle="toggleSource(index, $event)">
         <summary><Braces :size="14" />View JSON<ChevronDown :size="14" /></summary><ActivityCode v-if="sourceOpen.has(index)" label="JSON" :code="JSON.stringify(part.value, null, 2)" :copy-code="part.source" language="json" />
+      </details>
+    </section>
+    <section v-else-if="part.kind === 'incomplete'" class="activity-data" aria-label="Incomplete result">
+      <header class="data-header">
+        <span class="data-header-icon"><Info :size="18" /></span><div><strong>Incomplete result</strong><small>{{ label || 'Agent output' }} · Partial JSON</small></div>
+      </header>
+      <div class="data-content">
+        <p class="artifact-no-output">
+          The saved output ends partway through this result. A complete preview isn’t available.
+        </p>
+      </div>
+      <details class="data-source" @toggle="toggleSource(index, $event)">
+        <summary><Braces :size="14" />View saved source<ChevronDown :size="14" /></summary>
+        <ActivityCode v-if="sourceOpen.has(index)" label="Saved source" :code="part.source" language="json" />
       </details>
     </section>
     <template v-else-if="part.text.trim()">

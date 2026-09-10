@@ -248,16 +248,56 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
   await page.route(legacyRoute, route => route.fulfill({ json: [
     { id: 1, runId: run.id, createdAt: 1000, type: 'item.started', text: '' },
     { id: 2, runId: run.id, createdAt: 1800, type: 'item.completed', text: 'Already up to date.\ncompatibility/css-feature-target.json' },
+    { id: 3, runId: run.id, createdAt: 2000, type: 'item.started', text: '' },
+    { id: 4, runId: run.id, createdAt: 2500, type: 'item.completed', text: '[{"id":123,"jobs":[{"name":"quality","conclusion":"success"}]}]' },
+    { id: 5, runId: run.id, createdAt: 3000, type: 'item.started', text: '' },
+    { id: 6, runId: run.id, createdAt: 3500, type: 'item.completed', text: 'implementation-pr {"files":["src/activity.ts"' },
   ] }))
   await page.goto(`/runs/${run.id}`)
   await page.getByRole('button', { name: /^Activity/ }).click()
   await page.locator('.activity-group-toggle').click()
-  const historical = page.locator('.operation-card')
+  const historical = page.locator('.operation-card').first()
   await expect(historical.getByText('Recorded output', { exact: true })).toBeVisible()
   await expect(historical.getByText('Recorded', { exact: true })).toBeVisible()
   await historical.locator('.artifact-toggle').click()
   await expect(historical.getByText(/Its command and exit code weren’t recorded/)).toBeVisible()
   await screenshot('historical-operation')
+  const checksCard = page.locator('.operation-card').nth(1)
+  await expect(checksCard.locator('.artifact-heading')).toContainText('Workflow checks')
+  await expect(checksCard.locator('.artifact-heading')).not.toContainText('"jobs"')
+  await checksCard.locator('.artifact-toggle').click()
+  await expect(checksCard.getByRole('region', { name: 'Workflow checks' })).toBeVisible()
+  await expect(checksCard.locator('pre')).toHaveCount(0)
+  const incompleteCard = page.locator('.operation-card').nth(2)
+  await expect(incompleteCard.locator('.artifact-heading')).toContainText('Incomplete result')
+  await expect(incompleteCard.locator('.artifact-heading')).not.toContainText('"files"')
+  await incompleteCard.locator('.artifact-toggle').click()
+  const incomplete = incompleteCard.getByRole('region', { name: 'Incomplete result' })
+  await expect(incomplete).toBeVisible()
+  await expect(incomplete.locator('pre')).toHaveCount(0)
+  await incomplete.scrollIntoViewIfNeeded()
+  await screenshot('historical-json-results')
+  await incomplete.locator('summary').click()
+  await expect(incomplete.getByRole('button', { name: 'Copy Saved source' })).toBeVisible()
+  await expect(incomplete.locator('pre')).toContainText('{"files":["src/activity.ts"')
+  await page.unroute(legacyRoute)
+  await page.route(legacyRoute, route => route.fulfill({ json: [
+    { id: 1, runId: run.id, createdAt: 1000, type: 'error', text: '', payload: { message: 'WebSocket connection failed: 503 Service Unavailable' } },
+    { id: 2, runId: run.id, createdAt: 2000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'rg needle src', exit_code: 1, status: 'failed' } } },
+    { id: 3, runId: run.id, createdAt: 3000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'diff before after', exit_code: 1, status: 'failed' } } },
+    { id: 4, runId: run.id, createdAt: 4000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'pnpm test', exit_code: 1, status: 'failed' } } },
+    { id: 5, runId: run.id, createdAt: 5000, type: 'turn.completed', text: '', payload: {} },
+  ] }))
+  await page.goto(`/runs/${run.id}`)
+  await page.getByRole('button', { name: /^Activity/ }).click()
+  await page.locator('.activity-group-toggle').click()
+  for (const label of ['Recovered', 'No matches', 'Differences found']) {
+    const card = page.locator('.operation-card').filter({ has: page.getByText(label, { exact: true }) })
+    await expect(card).toHaveAttribute('data-status', 'info')
+    await expect(card.locator('.operation-error')).toHaveCount(0)
+  }
+  await expect(page.locator('.operation-card[data-status="error"]')).toHaveCount(1)
+  await screenshot('command-outcomes')
   await page.unroute(legacyRoute)
   expect(errors).toEqual([])
 }

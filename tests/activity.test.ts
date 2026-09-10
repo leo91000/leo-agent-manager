@@ -43,6 +43,17 @@ describe('conversation activity', () => {
 })
 
 describe('artifact identities', () => {
+  it('summarizes historical JSON without copying it into the card heading', () => {
+    const output = JSON.stringify([{ id: 123, jobs: [{ name: 'quality', conclusion: 'success' }] }])
+    const entries = activityEntries([
+      { id: 1, runId: 'old', createdAt: 10, type: 'item.started', text: '' },
+      { id: 2, runId: 'old', createdAt: 20, type: 'item.completed', text: output },
+    ])
+    if (entries[0].kind !== 'group')
+      throw new Error('Expected an artifact')
+    expect(entries[0].artifacts[0]).toMatchObject({ title: 'Workflow checks', subtitle: '1 item', historical: true })
+    expect(entries[0].artifacts[0].raw).toBe(output)
+  })
   it('keeps historical JSON output with its step instead of losing the pairing', () => {
     const entries = activityEntries([
       { id: 1, runId: 'old', createdAt: 10, type: 'item.started', text: '' },
@@ -52,7 +63,7 @@ describe('artifact identities', () => {
     if (entries[0].kind !== 'group')
       throw new Error('Expected an artifact')
     expect(entries[0].artifacts).toHaveLength(1)
-    expect(entries[0].artifacts[0]).toMatchObject({ title: 'Recorded output', status: 'info', blocks: [{ label: 'Output', code: '{"files":["src/a.ts"]}', language: 'plaintext' }] })
+    expect(entries[0].artifacts[0]).toMatchObject({ title: 'Structured result', subtitle: '1 field', status: 'info', blocks: [{ label: 'Output', code: '{"files":["src/a.ts"]}', language: 'plaintext' }] })
   })
   it('labels historical output honestly instead of leaving a completed Working card', () => {
     const entries = activityEntries([
@@ -95,5 +106,33 @@ describe('operation cards', () => {
       throw new Error('Expected an artifact')
     expect(entries[0].artifacts).toHaveLength(1)
     expect(entries[0].artifacts[0]).toMatchObject({ kind: 'read', durationMs: 240, exitCode: 0 })
+  })
+})
+
+describe('expected command outcomes and connection recovery', () => {
+  const event = (id: number, type: string, payload: Record<string, unknown>, text = ''): RunEvent => ({ id, runId: 'test', createdAt: id, type, payload, text })
+  const artifacts = (events: RunEvent[]) => activityEntries(events).flatMap(entry => entry.kind === 'group' ? entry.artifacts : [])
+  it('labels search misses and diff results without masking command failures', () => {
+    const commands = ['rg needle src', '/bin/bash -lc \'grep needle file\'', 'diff before after', 'git diff --exit-code', 'git diff --quiet', 'rg needle src && pnpm test', 'pnpm test', 'git diff']
+    const results = artifacts(commands.map((command, index) => event(index, 'item.completed', { item: { id: `${index}`, type: 'command_execution', command, exit_code: 1, status: 'failed' } })))
+    expect(results.map(item => item.statusLabel)).toEqual(['No matches', 'No matches', 'Differences found', 'Differences found', 'Differences found', undefined, undefined, undefined])
+    expect(results.map(item => item.status)).toEqual(['info', 'info', 'info', 'info', 'info', 'error', 'error', 'error'])
+    const errors = artifacts([event(1, 'item.completed', { item: { type: 'command_execution', command: 'rg needle missing', exit_code: 2 } }), event(2, 'item.completed', { item: { type: 'command_execution', command: 'rg needle src', exit_code: 1, error: 'Worker failed' } })])
+    expect(errors.every(item => item.status === 'error')).toBe(true)
+  })
+  it('marks temporary connection trouble recovered only after subsequent progress', () => {
+    const connection = event(1, 'error', { message: 'WebSocket connection failed: 503 Service Unavailable' })
+    const unrelated = event(2, 'error', { message: 'Validation failed' })
+    expect(artifacts([connection])[0].status).toBe('error')
+    const results = artifacts([connection, unrelated, event(3, 'item.completed', { item: { type: 'agent_message', text: 'Continuing the audit.' } })])
+    expect(results[0]).toMatchObject({ status: 'info', statusLabel: 'Recovered', title: 'Connection interrupted' })
+    expect(results[0].raw).toContain('503')
+    expect(results[1].status).toBe('error')
+    expect(artifacts([connection, event(3, 'turn.failed', {}), event(4, 'turn.started', {}), event(5, 'turn.completed', {})])[0].status).toBe('error')
+  })
+  it('recognizes historical reconnect diagnostics and preserves the original detail', () => {
+    const old = { id: 1, runId: 'old', createdAt: 1, type: 'diagnostic', text: 'Reconnecting... 2/5' }
+    const result = artifacts([old, event(2, 'turn.completed', {})])[0]
+    expect(result).toMatchObject({ status: 'info', statusLabel: 'Recovered', raw: old.text })
   })
 })

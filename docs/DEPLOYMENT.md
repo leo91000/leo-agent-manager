@@ -72,7 +72,12 @@ state should fetch and update their isolated branch according to their instructi
 The manager does not reset or update your primary checkout automatically.
 
 The image includes Node 24, pnpm 12, Git, GitHub CLI, Codex CLI, Python, and native
-build tools. Install project-specific toolchains such as Rust in a derived image
+build tools. It also includes the OS libraries required by Chromium, Firefox, and
+WebKit. Projects install browser binaries using their own pinned Playwright version
+in the persistent worker home. Container CI launches and renders with all three
+engines as the normal worker user, without custom library paths. This dependency
+layer is cached independently of application code; validated tags reuse the image.
+Install project-specific toolchains such as Rust in a derived image
 or in the persistent worker home before scheduling projects that require them.
 Every task runs Codex with `--dangerously-bypass-approvals-and-sandbox` (YOLO mode).
 Docker is the isolation boundary; there is no inner Codex sandbox or approval prompt.

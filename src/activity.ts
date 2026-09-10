@@ -1,5 +1,6 @@
 import type { RunEvent } from '../shared/contracts'
-import { describeCommand } from './activity-command'
+import { describeCommand, expectedCommandOutcome } from './activity-command'
+import { outputSummary } from './activity-data'
 
 export interface ActivityCode {
   label: string
@@ -22,6 +23,7 @@ export interface ActivityArtifact {
   exitCode?: number
   durationMs?: number
   historical?: boolean
+  statusLabel?: string
 }
 export type ActivityEntry
   = | { kind: 'message', id: string, time: number, text: string }
@@ -56,19 +58,35 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
   const entries: ActivityEntry[] = []
   const artifacts = new Map<string, ActivityArtifact>()
   const messages = new Map<string, Extract<ActivityEntry, { kind: 'message' }>>()
+  let connectionNotices: ActivityArtifact[] = []
+  function recovered() {
+    for (const notice of connectionNotices) {
+      notice.status = 'info'
+      notice.statusLabel = 'Recovered'
+      notice.subtitle = 'Connection restored; work continued'
+    }
+    connectionNotices = []
+  }
   let turn = 0
   let legacyTool: ActivityArtifact | undefined
   for (const event of events) {
     const data = payload(event)
     const item = record(data.item)
     const type = text(item.type)
-    if (event.type === 'turn.started')
+    if (event.type === 'turn.started') {
+      connectionNotices = []
       turn++
+    }
+    if (event.type === 'turn.failed')
+      connectionNotices = []
+    if (event.type === 'turn.completed' || (type === 'command_execution' && event.type === 'item.completed' && item.exit_code === 0 && item.status !== 'failed'))
+      recovered()
     const itemId = text(item.id)
     const id = itemId ? `${turn}:${itemId}` : `event:${event.id}`
     const legacy = !event.payload && !Object.keys(data).length
     const legacyMessage = legacy && event.type === 'item.completed' && !legacyTool && event.text.trim()
     if (type === 'agent_message' || legacyMessage) {
+      recovered()
       const content = text(item.text) || event.text
       const existing = messages.get(id)
       if (existing) {
@@ -83,8 +101,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
     }
     if (legacyTool && legacy && event.type === 'item.completed') {
       legacyTool.kind = 'output'
-      legacyTool.title = 'Recorded output'
-      legacyTool.subtitle = event.text.split('\n').find(line => line.trim())?.slice(0, 180) || 'No output recorded'
+      Object.assign(legacyTool, outputSummary(event.text))
       legacyTool.status = 'info'
       legacyTool.historical = true
       legacyTool.durationMs = Math.max(0, event.createdAt - legacyTool.time)
@@ -124,6 +141,11 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
       block(command.kind === 'read' ? 'File content' : command.kind === 'search' ? 'Matches' : command.kind === 'browse' ? 'Files found' : 'Output', item.aggregated_output, command.language)
       if (typeof item.exit_code === 'number')
         artifact.exitCode = item.exit_code
+      const outcome = expectedCommandOutcome(text(item.command), artifact.exitCode)
+      if (outcome && !item.error && event.type === 'item.completed') {
+        artifact.status = 'info'
+        artifact.statusLabel = outcome
+      }
     }
     else if (type === 'file_change') {
       artifact.kind = 'files'
@@ -185,6 +207,10 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
       const usage = record(data.usage)
       if (typeof usage.input_tokens === 'number' && typeof usage.output_tokens === 'number')
         artifact.subtitle = `${usage.input_tokens.toLocaleString()} input · ${usage.output_tokens.toLocaleString()} output tokens`
+    }
+    if (artifact.kind === 'notice' && ['error', 'diagnostic', 'item.completed'].includes(event.type) && /websocket|reconnecting\.\.\.|reconnecting\s+\d+\//i.test(artifact.raw) && /503|reconnect|falling back|connection.*(?:closed|failed)/i.test(artifact.raw)) {
+      artifact.title = 'Connection interrupted'
+      connectionNotices.push(artifact)
     }
     const previous = artifacts.get(id)
     if (previous) {
