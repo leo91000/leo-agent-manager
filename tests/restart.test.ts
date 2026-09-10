@@ -71,6 +71,9 @@ describe('durable conversation recovery', () => {
     child.stderr?.on('data', chunk => diagnostics += chunk)
     child.send(ctx.service.config)
     await waitForWork(run.id)
+    // The child persists the session ID before its event; SIGKILL can land between
+    // those writes. Wait for the event that this test counts after recovery.
+    await expect.poll(() => ctx.service.store.events(run.id).filter(event => event.type === 'thread.started')).toHaveLength(1)
     const owner = ctx.worker.recovery.get(run.id)!.process!
     const stopped = new Promise(resolve => child.once('close', resolve))
     child.kill(signal)
