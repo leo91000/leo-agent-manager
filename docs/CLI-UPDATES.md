@@ -40,6 +40,10 @@ leases (0.2.1 or newer). The manager creates `/data/maintenance-token`, mode 060
 Store this value as GitHub production-environment secret `LEO_MAINTENANCE_TOKEN`
 without printing it or placing it in logs. This token can only pause/resume task
 starts. The updater also uses the existing Coolify deployment secret and variables.
+The Coolify token needs `read`, `read:sensitive`, `write`, and `deploy` permissions:
+reading the configured image is required for concurrency checks and rollback.
+Allow the `main` branch in the GitHub production environment's deployment policy,
+alongside the existing `v*` tag rule, because update dispatches run on `main`.
 
 Install `deploy/leo-cli-update.service` and `deploy/leo-cli-update.timer` under
 `/etc/systemd/system` on the Docker host. In a service override, set

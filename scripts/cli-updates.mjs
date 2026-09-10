@@ -30,7 +30,10 @@ async function json(url, options = {}) {
 }
 export async function currentImage(config) {
   const envs = await json(`${config.coolifyUrl}/api/v1/services/${encodeURIComponent(config.serviceUuid)}/envs`, { headers: { authorization: `Bearer ${config.token}` } })
-  return validImage(envs.find(entry => entry.key === 'LEO_IMAGE')?.value, config.repository)
+  const image = envs.find(entry => entry.key === 'LEO_IMAGE')
+  if (image && !Object.hasOwn(image, 'value'))
+    throw new Error('Coolify hides environment values. The deployment token needs read:sensitive permission.')
+  return validImage(image?.value, config.repository)
 }
 export async function discover(config) {
   const [image, health, codex, github] = await Promise.all([

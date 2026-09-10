@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { deployUpdate, newer } from '../scripts/cli-updates.mjs'
+import { currentImage, deployUpdate, newer } from '../scripts/cli-updates.mjs'
 
 describe('cLI update deployment and rollback', () => {
   let server
@@ -11,6 +11,7 @@ describe('cLI update deployment and rollback', () => {
   let failCandidate
   let releases
   let restarts
+  let hideImage
   const previous = `ghcr.io/owner/leo@sha256:${'a'.repeat(64)}`
   const candidate = `ghcr.io/owner/leo@sha256:${'b'.repeat(64)}`
   beforeEach(async () => {
@@ -19,6 +20,7 @@ describe('cLI update deployment and rollback', () => {
     failCandidate = false
     releases = 0
     restarts = 0
+    hideImage = false
     plan = { image: previous, commit: 'same-application', previousRuntimeId: 'old-runtime', versions: { codex: '0.154.0', gh: '2.100.0' } }
     server = createServer(async (request, response) => {
       let body = ''
@@ -33,7 +35,7 @@ describe('cLI update deployment and rollback', () => {
       else if (request.url.endsWith('/envs')) {
         if (request.method === 'PATCH')
           selectedImage = input.value
-        response.end(JSON.stringify([{ key: 'LEO_IMAGE', value: selectedImage }]))
+        response.end(JSON.stringify([{ key: 'LEO_IMAGE', ...(!hideImage && { value: selectedImage }) }]))
       }
       else if (request.url.endsWith('/restart')) {
         restarts++
@@ -65,6 +67,11 @@ describe('cLI update deployment and rollback', () => {
     expect(await deployUpdate(config, plan, candidate, { intervalMs: 0, timeoutMs: 1000 })).toMatchObject({ deployed: true, runtimeId: 'cli-123-1' })
     expect(selectedImage).toBe(candidate)
     expect(releases).toBe(1)
+  })
+  it('explains the missing Coolify permission without exposing environment values', async () => {
+    hideImage = true
+    await expect(currentImage(config)).rejects.toThrow('read:sensitive permission')
+    expect(restarts).toBe(0)
   })
   it('defers busy workers without restarting or leaving a lease behind', async () => {
     activeRuns = 1
