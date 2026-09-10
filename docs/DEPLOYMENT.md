@@ -20,6 +20,7 @@ The Compose file persists:
 | `data` | `/data` | SQLite, bootstrap token, run results and worktrees |
 | `agent-home` | `/home/node` | Codex/GitHub authentication, Git configuration, global skills |
 | `workspaces` | `/workspaces` | Project clones and project skills |
+| `runner-state` | `/runner-state` | Persistent container stop markers in the runner |
 
 The image runs as UID/GID 1000. Bind mounts need matching ownership. Do not run
 `docker compose down -v` on a live installation: it deletes persistent volumes.
@@ -91,7 +92,7 @@ it the same access as that host user.
 
 Create a Compose service from `compose.yaml`, using the published GHCR image for
 both manager and runner. Set container port **4310**, `PUBLIC_URL` to the
-chosen HTTPS domain, and persistent storage mounts for all three paths above.
+chosen HTTPS domain, and persistent storage mounts for all paths above.
 Use the healthcheck path `/health`, one replica, and a shutdown grace period of
 60 seconds. Point the domain's DNS record at the selected server and enable TLS.
 Do not add an interactive proxy login in front of `/mcp`, `/oauth/*`, or the
@@ -131,6 +132,11 @@ for public `/health` to return the tagged commit. It fails if the previous versi
 is still running, even when that version is healthy. Volumes, domain and CLI
 credentials persist across deployments.
 
+The deployment script also adds the persistent `runner-state` volume to older
+service Compose definitions before restarting, then verifies it was saved. The
+manager data mount remains read-only in the runner. Unsupported custom Compose
+layouts stop deployment with an error instead of silently losing stop markers.
+
 To release the current main commit, choose an unused version tag:
 
 ```sh
@@ -148,7 +154,7 @@ below. A successful tag run can also be rerun to deploy that version again.
 
 ## Backups
 
-Back up **all three volumes together**. Stop the manager first so SQLite and Git
+Back up **all four volumes together**. Stop the manager first so SQLite and Git
 worktrees are consistent, make encrypted volume backups with your server backup
 system, then restart it. Credentials in the home volume make those backups secrets.
 For a live SQLite-only snapshot, Node's `node:sqlite` backup API can create a
