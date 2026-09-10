@@ -43,7 +43,7 @@ export async function toolkitEnvironment(home: string, base: NodeJS.ProcessEnv =
   const installs = path.join(home, '.local/share/mise/installs')
   // These backends discover idiomatic version files from the install registry.
   // Register their shared versions locally so new project pins install in the home.
-  for (const tool of ['node', 'pnpm', 'python', 'go']) {
+  for (const tool of ['node', 'pnpm', 'python', 'go', 'rust']) {
     const source = path.join('/usr/local/share/mise/installs', tool)
     const target = path.join(installs, tool)
     await mkdir(target, { recursive: true })
@@ -64,8 +64,23 @@ export async function toolkitEnvironment(home: string, base: NodeJS.ProcessEnv =
     await link('/usr/local/bin/mise', path.join(shims, name))
   for (const name of await readdir(path.join(directory, 'rustup/toolchains')))
     await link(path.join(directory, 'rustup/toolchains', name), path.join(rustup, 'toolchains', name))
-  for (const name of await readdir(path.join(directory, 'cargo/bin')))
-    await link(path.join(directory, 'cargo/bin', name), path.join(cargo, 'bin', name))
+  // rustup updates its own proxies when installing a project toolchain. Keep one
+  // private binary rather than a proxy that resolves into the read-only image.
+  for (const name of await readdir(path.join(directory, 'cargo/bin'))) {
+    const target = path.join(cargo, 'bin', name)
+    const existing = await readlink(target).catch(() => '')
+    if (existing.startsWith(path.join(directory, 'cargo/bin/')))
+      await rm(target)
+    if (name === 'rustup') {
+      await copyFile(path.join(directory, 'cargo/bin/rustup'), target, constants.COPYFILE_EXCL).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST')
+          throw error
+      })
+    }
+    else {
+      await link(path.join(cargo, 'bin/rustup'), target)
+    }
+  }
   const settings = path.join(rustup, 'settings.toml')
   if (!await access(settings).then(() => true).catch(() => false)) {
     await copyFile(path.join(directory, 'rustup/settings.toml'), settings, constants.COPYFILE_EXCL).catch((error: NodeJS.ErrnoException) => {

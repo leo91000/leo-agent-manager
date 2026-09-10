@@ -30,6 +30,8 @@ async function main() {
     assert.equal(run('./hello', []), 'toolkit-rust-ready')
     run('uv', ['venv', '--python', manifest.tools.python, '.venv'])
     assert.equal(run('.venv/bin/python', ['-c', 'print("toolkit-python-ready")']), 'toolkit-python-ready')
+    await writeFile(path.join(directory, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.98.0"\nprofile = "minimal"\n')
+    assert.ok(run('cargo').includes('1.98.0'))
     // Exercise automatic discovery from a packageManager pin distinct from the default.
     await writeFile(path.join(directory, 'package.json'), '{"packageManager":"pnpm@12.3.4"}')
     assert.equal(run('pnpm'), '12.3.4')
@@ -42,7 +44,7 @@ async function main() {
     assert.ok((await realpath(run('mise', ['which', 'node']))).includes('/usr/local/share/mise/installs/node/'))
     assert.equal(await readFile(path.join(directory, 'mise.toml'), 'utf8'), config)
     assert.equal(run('pnpm', ['--version'], '/tmp'), manifest.tools.pnpm)
-    process.stdout.write('Toolkit passed: every managed tool, system utilities, login shell, Rust compilation, Python venv, project version precedence and packageManager pin.\n')
+    process.stdout.write('Toolkit passed: every managed tool, system utilities, login shell, Rust compilation, Python venv, project Node/Rust versions, precedence and packageManager pin.\n')
   }
   finally {
     await rm(directory, { recursive: true, force: true })
