@@ -1,6 +1,8 @@
 import { expect, expectSingleScroll, test } from './fixtures'
 
 test('keeps activity scrolling inside the workspace and gives tabs breathing room', async ({ page }, testInfo) => {
+  // This journey covers multiple viewports and screenshots; individual assertions retain their deadlines.
+  test.setTimeout(90000)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.route('**/api/runs/*/events?*', route => route.fulfill({ json: Array.from({ length: 100 }, (_, index) => ({ id: index + 1, runId: 'fixture', type: 'item.completed', createdAt: Date.now(), text: `Review step ${index + 1}: the checks passed and the next change is ready to inspect.`, payload: { item: { type: 'agent_message', text: `Review step ${index + 1}: the checks passed and the next change is ready to inspect.` } } })) }))
   await page.goto('/tasks')

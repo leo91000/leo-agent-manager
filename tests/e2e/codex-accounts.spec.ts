@@ -2,6 +2,8 @@ import { accountFixture, limits } from '../codex-account-fixture'
 import { expect, expectSingleScroll, test } from './fixtures'
 
 test('accounts show live usage, reset windows and accessible controls across themes and mobile sizes', async ({ page, workspace }, testInfo) => {
+  // This journey covers multiple viewports and screenshots; individual assertions retain their deadlines.
+  test.setTimeout(90000)
   await workspace.service.accounts.close()
   const data = await accountFixture({ service: workspace.service })
   const personal = data.seed('Personal', limits(28, 37))
