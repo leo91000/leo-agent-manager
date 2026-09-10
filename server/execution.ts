@@ -13,6 +13,7 @@ import { isolated, policy, runProjects } from './policy.ts'
 
 const exec = promisify(execFile)
 export interface RunnerPlan {
+  chat?: import('./chat-process.ts').ChatPlan
   id: string
   args: string[]
   cwd: string

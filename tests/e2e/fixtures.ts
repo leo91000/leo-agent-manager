@@ -33,7 +33,7 @@ export const test = base.extend<object, { workspace: Workspace }>({
       ghBin: '/nonexistent/fixture-gh',
       publicUrl: url,
       logger: false,
-      workerEnabled: !workerInfo.project.name.startsWith('layout-'),
+      workerEnabled: !workerInfo.project.name.startsWith('layout-') || workerInfo.project.name.endsWith('-chats'),
     })
     try {
       await app.listen({ host: '127.0.0.1', port })

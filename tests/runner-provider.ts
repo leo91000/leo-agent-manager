@@ -28,7 +28,7 @@ export async function runnerProvider(directory: string) {
       if (request.method === 'POST' && !action) {
         const plan = JSON.parse(await readFile(path.join(directory, 'runner-plans', `${id}.json`), 'utf8'))
         const home = plan.mounts.find((mount: { target: string }) => mount.target === '/home/node').source
-        const child = spawn(path.resolve('tests/fixtures/codex.mjs'), plan.args, { cwd: plan.cwd, env: { ...process.env, CODEX_HOME: path.join(home, '.codex') }, stdio: ['pipe', 'pipe', 'pipe'] })
+        const child = spawn(plan.chat ? process.execPath : path.resolve('tests/fixtures/codex.mjs'), plan.chat ? ['--import', import.meta.resolve('tsx'), path.resolve('server/chat-process.ts'), path.resolve('tests/fixtures/codex.mjs')] : plan.args, { cwd: plan.cwd, env: { ...process.env, CODEX_HOME: path.join(home, '.codex') }, stdio: ['pipe', 'pipe', 'pipe'] })
         const done = new Promise<number | null>(resolve => child.once('close', resolve))
         const attempt = { child, frames: [] as Buffer[], streams: [] as http.ServerResponse[], done, closed: false }
         attempts.set(id, attempt)
@@ -46,7 +46,7 @@ export async function runnerProvider(directory: string) {
           attempt.closed = true
           for (const output of attempt.streams) output.end()
         })
-        child.stdin.end(plan.prompt)
+        child.stdin.end(plan.chat ? JSON.stringify({ ...plan.chat, inputDirectory: plan.mounts.find((mount: { target: string }) => mount.target === '/run/leo-chat').source }) : plan.prompt)
         response.end('{}')
         return
       }

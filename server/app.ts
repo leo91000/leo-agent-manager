@@ -189,6 +189,30 @@ export async function buildApp(overrides: Partial<Config> = {}) {
     reply.clearCookie('leo_session', { path: '/' })
     return { ok: true }
   })
+  app.get('/api/chats', () => store.list('chats').map(chat => service.chats.view(chat)))
+  app.post('/api/chats', request => service.chats.create(request.body))
+  app.get<{ Params: { id: string } }>('/api/chats/:id', request => ({ ...service.chats.detail(request.params.id), error: store.kv(`chat-error:${request.params.id}`) ?? null }))
+  app.post<{ Params: { id: string } }>('/api/chats/:id/messages', request => service.chats.send(request.params.id, request.body))
+  app.put<{ Params: { id: string, messageId: string } }>('/api/chats/:id/messages/:messageId', request => service.chats.edit(request.params.id, request.params.messageId, request.body))
+  app.delete<{ Params: { id: string, messageId: string } }>('/api/chats/:id/messages/:messageId', request => service.chats.edit(request.params.id, request.params.messageId))
+  app.post<{ Params: { id: string } }>('/api/chats/:id/pause', (request) => {
+    const { paused } = z.object({ paused: z.boolean() }).parse(request.body)
+    const chat = service.chats.get(request.params.id)
+    if (!paused && chat.runId) {
+      const run = store.run(chat.runId)!
+      if (['failed', 'interrupted', 'cancelled'].includes(run.status))
+        worker.resume(run.id)
+    }
+    store.delete(`chat-error:${chat.id}`)
+    return service.chats.pause(chat.id, paused)
+  })
+  app.post<{ Params: { id: string } }>('/api/chats/:id/stop', (request) => {
+    const chat = service.chats.get(request.params.id)
+    service.chats.pause(chat.id, true)
+    if (chat.runId && ['queued', 'running'].includes(store.run(chat.runId)!.status))
+      worker.cancel(chat.runId)
+    return { stopped: true }
+  })
   app.get('/api/overview', () => ({
     counts: store.stats(),
     agents: store.list('agents').length,
@@ -241,9 +265,9 @@ export async function buildApp(overrides: Partial<Config> = {}) {
   app.get<{ Params: { id: string } }>('/api/runs/:id/events', (request) => {
     requireValue(store.run(request.params.id))
     const query = z
-      .object({ after: z.coerce.number().int().min(0).default(0) })
+      .object({ after: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(500).default(100) })
       .parse(request.query)
-    return store.events(request.params.id, query.after)
+    return store.events(request.params.id, query.after, query.limit)
   })
   app.post<{ Params: { id: string } }>('/api/runs/:id/cancel', (request) => {
     worker.cancel(request.params.id)

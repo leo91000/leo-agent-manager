@@ -17,13 +17,15 @@ export function codexEnvironment(config: Config, home: string) {
   return env
 }
 
-export function codexSession(config: Config): CodexSession {
+export function codexSession(config: Config, options: { args?: string[], cwd?: string, closed?: () => void, notification?: (method: string, params: any) => void } = {}): CodexSession {
   return async (home, operation) => {
-    const child: ChildProcessWithoutNullStreams = spawn(config.codexBin, ['-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"', 'app-server', '--listen', 'stdio://'], { env: codexEnvironment(config, home), stdio: ['pipe', 'pipe', 'pipe'] })
+    const child: ChildProcessWithoutNullStreams = spawn(config.codexBin, [...options.args ?? [], '-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"', 'app-server', '--listen', 'stdio://'], { cwd: options.cwd, env: codexEnvironment(config, home), stdio: ['pipe', 'pipe', 'pipe'] })
     const pending = new Map<number, { resolve: (value: unknown) => void, reject: (error: Error) => void }>()
     let sequence = 0
     let closed = false
     const fail = () => {
+      if (!closed)
+        options.closed?.()
       closed = true
       for (const request of pending.values()) request.reject(new AppError(503, 'Codex account service stopped. Check the CLI installation and reconnect the account.'))
       pending.clear()
@@ -39,7 +41,11 @@ export function codexSession(config: Config): CodexSession {
       try {
         const message = JSON.parse(line)
         if (message.method && message.id !== undefined) {
-          child.stdin.write(`${JSON.stringify({ id: message.id, error: { code: -32601, message: 'Interactive requests are not supported by the usage monitor.' } })}\n`)
+          child.stdin.write(`${JSON.stringify({ id: message.id, error: { code: -32601, message: 'Interactive tool requests are unavailable. Ask the user in a plain assistant message instead.' } })}\n`)
+          return
+        }
+        if (message.method && message.id === undefined) {
+          options.notification?.(message.method, message.params)
           return
         }
         const request = pending.get(message.id)

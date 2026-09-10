@@ -1,3 +1,4 @@
+import type { Chat, ChatMessage } from '../shared/chats.ts'
 import type { CodexAccount } from '../shared/codex-accounts.ts'
 import type {
   Agent,
@@ -14,6 +15,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 interface Records {
+  chats: Chat
   codexAccounts: CodexAccount
   mcps: McpConnection
   agents: Agent
@@ -36,7 +38,7 @@ export class Store {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     this.db = new DatabaseSync(path.join(directory, 'manager.db'))
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 3) {
+    if (version > 4) {
       this.db.close()
       throw new Error(
         'This database belongs to a newer application version. Restore a compatible backup or upgrade the application.',
@@ -61,10 +63,9 @@ export class Store {
         this.db.exec('ALTER TABLE events ADD COLUMN payload TEXT; PRAGMA user_version=2;')
       })
     }
-    if (version < 3) {
-      this.transaction(() => {
-        this.db.exec('PRAGMA user_version=3;')
-      })
+    if (version < 4) {
+      this.transaction(() => this.db.exec(`CREATE TABLE IF NOT EXISTS chat_messages(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,data TEXT NOT NULL,created_at INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages(chat_id,created_at); PRAGMA user_version=4;`))
     }
   }
 
@@ -145,7 +146,7 @@ export class Store {
       .run(now - 90 * 86400000)
     this.db
       .prepare(
-        'DELETE FROM events WHERE created_at < ? AND run_id IN (SELECT id FROM runs WHERE status NOT IN (\'queued\',\'running\'))',
+        'DELETE FROM events WHERE created_at < ? AND run_id IN (SELECT id FROM runs WHERE status NOT IN (\'queued\',\'running\') AND json_extract(data,\'$.trigger\') != \'chat\')',
       )
       .run(now - 30 * 86400000)
   }
@@ -205,9 +206,22 @@ export class Store {
       .run(runId, Date.now(), type, text.slice(0, 16000), payload ? JSON.stringify(payload) : null)
     this.db
       .prepare(
-        'DELETE FROM events WHERE run_id=? AND id < (SELECT COALESCE(MAX(id),0)-10000 FROM events WHERE run_id=?)',
+        `DELETE FROM events WHERE run_id=? AND id < (SELECT COALESCE(MAX(id),0)-10000 FROM events WHERE run_id=?) AND run_id IN (SELECT id FROM runs WHERE json_extract(data,'$.trigger') != 'chat')`,
       )
       .run(runId, runId)
+  }
+
+  chatMessages(chatId: string): ChatMessage[] {
+    return this.db.prepare('SELECT data FROM chat_messages WHERE chat_id=? ORDER BY created_at,rowid').all(chatId).map(row => JSON.parse(row.data as string))
+  }
+
+  putChatMessage(message: ChatMessage) {
+    this.db.prepare('INSERT INTO chat_messages VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(message.id, message.chatId, JSON.stringify(message), message.createdAt)
+    return message
+  }
+
+  deleteChatMessage(chatId: string, id: string) {
+    this.db.prepare('DELETE FROM chat_messages WHERE chat_id=? AND id=?').run(chatId, id)
   }
 
   kv<T>(key: string): T | undefined {

@@ -9,6 +9,8 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', ...devices['Desktop Chrome'] },
   projects: [
+    { name: 'journeys-chats', testMatch: 'chats.spec.ts' },
+    { name: 'layout-webkit-chats', testMatch: 'chats.spec.ts', use: { browserName: 'webkit', hasTouch: true } },
     { name: 'layout-chromium-scrolling', testMatch: 'scrolling.spec.ts' },
     { name: 'layout-webkit-scrolling', testMatch: 'scrolling.spec.ts', use: { browserName: 'webkit' } },
     { name: 'journeys', testMatch: 'workspace.spec.ts', grepInvert: /appearance follows|dark appearance settings/ },

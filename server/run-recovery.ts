@@ -51,7 +51,7 @@ export class RunRecovery {
             return run.sessionId
           throw new Error('Session mismatch')
         }
-        const result = await rpc.request<{ data: { id: string, cwd: string, parentThreadId?: string | null }[] }>('thread/list', { limit: 2, cwd, sourceKinds: ['exec'], archived: false })
+        const result = await rpc.request<{ data: { id: string, cwd: string, parentThreadId?: string | null }[] }>('thread/list', { limit: 2, cwd, sourceKinds: [run.chatExecution ? 'appServer' : 'exec'], archived: false })
         const matches = result.data.filter(thread => thread.cwd === cwd && !thread.parentThreadId)
         if (matches.length === 1)
           return matches[0].id

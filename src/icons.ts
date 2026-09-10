@@ -70,3 +70,6 @@ export const BrandMcp = 'i-simple-icons-modelcontextprotocol' as const
 export const Robot = 'i-tabler-robot' as const
 
 export type IconName = (typeof import('./icons'))[keyof typeof import('./icons')]
+
+export const MessageCircle = 'i-lucide-message-circle' as const
+export const Send = 'i-lucide-arrow-up' as const

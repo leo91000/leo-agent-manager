@@ -187,6 +187,9 @@ async function remove() {
             tasks</span>
         </div>
       </template>
+      <RouterLink :to="{ path: '/chats', query: { [isAgent ? 'agent' : 'project']: item.id } }" class="mt-5 flex items-center justify-center gap-2 rounded-lg border border-line bg-soft px-3 py-2.5 text-sm font-semibold text-accent hover:bg-control focus-visible:outline-2 focus-visible:outline-accent">
+        Start chat
+      </RouterLink>
     </article>
   </div>
   <Empty

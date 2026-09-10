@@ -143,10 +143,13 @@ async function copy() {
         <Icon :name="Square" :size="15" />Stop run
       </UiButton>
       <div v-else-if="run" class="flex flex-wrap justify-end gap-2">
-        <UiButton size="small" @click="retry">
+        <RouterLink v-if="run.trigger === 'chat'" :to="`/chats/${run.taskId}`" class="text-sm text-accent">
+          Open chat
+        </RouterLink>
+        <UiButton v-else size="small" @click="retry">
           Run again
         </UiButton>
-        <UiButton v-if="run.resumeAvailable" size="small" variant="primary" @click="resume">
+        <UiButton v-if="run.resumeAvailable && run.trigger !== 'chat'" size="small" variant="primary" @click="resume">
           <Icon :name="RotateCw" :size="16" />Resume
         </UiButton>
       </div>

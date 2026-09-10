@@ -46,7 +46,7 @@ describe('durable storage and API boundaries', () => {
         expect(upgraded.events(run.id).at(-1)?.payload).toBeUndefined()
         upgraded.event(run.id, 'item.completed', 'Done', { item: { type: 'agent_message', text: 'Done' } })
         expect(upgraded.events(run.id).at(-1)?.payload).toEqual({ item: { type: 'agent_message', text: 'Done' } })
-        expect(upgraded.db.prepare('PRAGMA user_version').get()!.user_version).toBe(3)
+        expect(upgraded.db.prepare('PRAGMA user_version').get()!.user_version).toBe(4)
       }
       finally {
         upgraded.close()

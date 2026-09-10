@@ -4,6 +4,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
 import activityEvents from './activity-events.json' with { type: 'json' }
+import { chatFixture } from './chat-rpc.mjs'
 
 async function main() {
   const args = process.argv.slice(2)
@@ -12,10 +13,13 @@ async function main() {
     process.exit(0)
   }
   if (args.includes('app-server')) {
+    const chat = chatFixture()
     const lines = createInterface({ input: process.stdin })
     for await (const line of lines) {
       const request = JSON.parse(line)
       if (request.id === undefined)
+        continue
+      if (chat(request))
         continue
       let result = {}
       const authPath = path.join(process.env.CODEX_HOME, 'auth.json')

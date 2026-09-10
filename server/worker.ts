@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
 import type { Run } from '../shared/contracts.ts'
+import type { ChatPlan } from './chat-process.ts'
 import type { AccountLease } from './codex-accounts.ts'
 import type { Service } from './service.ts'
 import { Buffer } from 'node:buffer'
@@ -88,9 +89,12 @@ export function codexArgs(run: Run, output: string, sessionId?: string) {
     '-',
   ]
 }
-export function runPrompt(run: Run) {
+export function runPrompt(run: Run, chat = false) {
+  const interaction = chat
+    ? 'This is an interactive chat. Ask the user in your reply when clarification is needed; do not use request_user_input tools. Follow the latest user instructions and do not treat a question as authorization to publish changes.'
+    : 'This unattended task cannot answer clarification questions; report a concrete blocker if required information is missing.'
   const projects = runProjects(run).map(project => `- ${project.name}: ${run.workspaces?.find(workspace => workspace.projectId === project.id)?.path ?? project.path}`).join('\n')
-  return `${run.snapshot.agent.instructions}\n\n${run.snapshot.task.prompt}\n\nAvailable project workspaces (choose the relevant projects for this task):\n${projects || 'No projects assigned; use the task workspace.'}\n\nTooling: mise manages project runtimes and global tools. Prefer rg and fd for search. Respect mise.toml, .tool-versions, .nvmrc, .node-version, .python-version, rust-toolchain.toml, and package.json packageManager pins. Use mise exec -- <command> when project environment variables are needed; use uv for Python environments. Do not upgrade project pins unless the task requests it.\n\nSelected skills (use their supporting resources from the supplied paths):\n${run.snapshot.skills.map(s => `\n${s.path}\n${s.content}`).join('\n')}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. This unattended task cannot answer clarification questions; report a concrete blocker if required information is missing. All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.`
+  return `${run.snapshot.agent.instructions}\n\n${run.snapshot.task.prompt}\n\nAvailable project workspaces (choose the relevant projects for this task):\n${projects || 'No projects assigned; use the task workspace.'}\n\nTooling: mise manages project runtimes and global tools. Prefer rg and fd for search. Respect mise.toml, .tool-versions, .nvmrc, .node-version, .python-version, rust-toolchain.toml, and package.json packageManager pins. Use mise exec -- <command> when project environment variables are needed; use uv for Python environments. Do not upgrade project pins unless the task requests it.\n\nSelected skills (use their supporting resources from the supplied paths):\n${run.snapshot.skills.map(s => `\n${s.path}\n${s.content}`).join('\n')}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. ${interaction} All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.`
 }
 export class Worker {
   executions = new Set<Promise<void>>()
@@ -143,6 +147,7 @@ export class Worker {
         this.service.store.maintain()
         this.lastMaintenance = Date.now()
       }
+      await this.service.chats.tick(this)
       await this.service.schedule()
       if (this.closing || maintenanceActive(this.service.store))
         return
@@ -296,15 +301,36 @@ export class Worker {
         }
         await rm(output, { force: true })
         env.CODEX_HOME = account?.home ?? codexHome
-        const prompt = resumeSession ? 'Continue the same task from the saved conversation and current workspace. Execution was interrupted. Resume the original task from its last completed step. Preserve completed work and verify external effects before repeating any action.' : runPrompt(run)
+        let prompt = resumeSession ? 'Continue the same task from the saved conversation and current workspace. Execution was interrupted. Resume the original task from its last completed step. Preserve completed work and verify external effects before repeating any action.' : runPrompt(run)
         let binary = config.codexBin
         let args = [...mcp.args, ...codexArgs(run, output, resumeSession)]
+        let chat: ChatPlan | undefined
+        if (run.chatExecution) {
+          const inputDirectory = path.join(directory, 'chat-input')
+          await mkdir(inputDirectory, { recursive: true, mode: 0o700 })
+          chat = {
+            execution: run.chatExecution,
+            sessionId: resumeSession,
+            instructions: runPrompt({ ...run, snapshot: { ...run.snapshot, task: { ...run.snapshot.task, prompt: '' }, skills: prepared.isolated ? prepared.skills : run.snapshot.skills } }, true),
+            inputDirectory: prepared.isolated ? '/run/leo-chat' : inputDirectory,
+            output,
+            cwd: prepared.cwd,
+            model: run.snapshot.agent.model,
+            reasoning: run.snapshot.agent.reasoning,
+            sandbox: policy(run.snapshot.agent).sandbox,
+            writableRoots: [path.dirname(output), ...prepared.workspaces.map(workspace => workspace.path)],
+            args: mcp.args,
+          }
+          binary = process.execPath
+          args = ['--import', import.meta.resolve('tsx'), path.join(import.meta.dirname, 'chat-process.ts'), config.codexBin]
+          prompt = JSON.stringify(chat)
+        }
         if (prepared.isolated) {
           checkpoint.runnerId = randomUUID()
           checkpointBudget()
           const plans = path.join(config.dataDir, 'runner-plans')
           await mkdir(plans, { recursive: true, mode: 0o700 })
-          await writeFile(path.join(plans, `${checkpoint.runnerId}.json`), JSON.stringify({ id: checkpoint.runnerId, args, cwd: prepared.cwd, prompt: resumeSession ? prompt : runPrompt({ ...run, snapshot: { ...run.snapshot, skills: prepared.skills } }), mounts: prepared.mounts, expires: deadline, sandbox: policy(run.snapshot.agent).sandbox, mcpEnv: mcp.env }), { mode: 0o600 })
+          await writeFile(path.join(plans, `${checkpoint.runnerId}.json`), JSON.stringify({ id: checkpoint.runnerId, ...(chat ? { chat } : {}), args, cwd: prepared.cwd, prompt: resumeSession ? prompt : runPrompt({ ...run, snapshot: { ...run.snapshot, skills: prepared.skills } }), mounts: [...prepared.mounts, ...(chat ? [{ source: path.join(directory, 'chat-input'), target: '/run/leo-chat', readOnly: true }] : [])], expires: deadline, sandbox: policy(run.snapshot.agent).sandbox, mcpEnv: mcp.env }), { mode: 0o600 })
           env.RUNNER_URL = config.runnerUrl
           env.RUNNER_TOKEN = await runnerSecret(config.dataDir)
           binary = process.execPath
@@ -324,6 +350,10 @@ export class Worker {
         void completion.catch(() => {})
         // Record ownership before allowing the supervisor to launch Codex.
         checkpoint.process = child.pid ? await processIdentity(child.pid) : undefined
+        if (run.chatExecution) {
+          run.chatExecution = { ...run.chatExecution, recovery: true }
+          store.updateRun(run.id, { chatExecution: run.chatExecution })
+        }
         checkpoint.launched = true
         checkpoint.completed = false
         checkpointBudget()
@@ -340,6 +370,10 @@ export class Worker {
         const line = (raw: string) => {
           try {
             const event = JSON.parse(raw)
+            if (event.type === 'chat.delivered' && typeof event.messageId === 'string') {
+              this.service.chats.acknowledge(run.id, event.messageId)
+              return
+            }
             if (usageExhausted(event))
               exhausted = true
             if (
@@ -455,7 +489,7 @@ export class Worker {
         store.updateRun(run.id, {
           status,
           finishedAt: Date.now(),
-          resumeAvailable: status !== 'succeeded' && !!store.run(run.id)?.sessionId,
+          resumeAvailable: (status !== 'succeeded' || !!run.chatExecution) && !!store.run(run.id)?.sessionId,
           summary:
           sanitize(summary).slice(0, 100000)
           || (control.cancelled
@@ -573,6 +607,14 @@ export class Worker {
     const checkpoint = this.recovery.get(id)
     if (this.active.has(id))
       throw new AppError(409, 'Wait for this run to finish stopping before resuming.')
+    if (run.chatExecution && ['failed', 'cancelled'].includes(run.status) && !checkpoint?.launched) {
+      if (checkpoint) {
+        checkpoint.remainingMs = run.snapshot.agent.timeoutMinutes * 60000
+        delete checkpoint.settled
+        this.recovery.save(id, checkpoint)
+      }
+      return this.service.store.updateRun(id, { status: 'queued', recoveryPending: true, cancelRequestedAt: null, finishedAt: null, accountWaitReason: null })
+    }
     if (!['failed', 'interrupted', 'cancelled'].includes(run.status) || !run.resumeAvailable || !checkpoint?.prepared || run.workspaceCleanedAt)
       throw new AppError(409, 'This run has no saved conversation available to resume.')
     if (this.service.store.active().some(active => active.taskId === run.taskId))

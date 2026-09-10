@@ -16,7 +16,7 @@ export function allowedProjects(agent: Agent, projects: Project[]) {
   const access = policy(agent)
   return projects.filter(project => access.projects === null || access.projects.includes(project.id))
 }
-export function taskProjects(agent: Agent, task: Task, projects: Project[]) {
+export function taskProjects(agent: Agent, task: Pick<Task, 'projectId'>, projects: Project[]) {
   const allowed = allowedProjects(agent, projects)
   if (!task.projectId)
     return allowed

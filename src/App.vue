@@ -8,7 +8,7 @@ import Modal from './components/Modal.vue'
 import ThemeControl from './components/ThemeControl.vue'
 import UiAlert from './components/UiAlert.vue'
 import UiButton from './components/UiButton.vue'
-import { Activity, ArrowUpRight, BookOpen, Bot, Check, FolderGit2, ListTodo, LogOut, Menu, Plug, Plus, Robot, Search, Settings, X, Zap } from './icons'
+import { Activity, ArrowUpRight, BookOpen, Check, FolderGit2, ListTodo, LogOut, Menu, MessageCircle, Plug, Plus, Robot, Search, Settings, X, Zap } from './icons'
 import { iconButton } from './ui'
 
 const router = useRouter()
@@ -30,6 +30,7 @@ function viewportChanged() {
 const searchOpen = ref(false)
 const search = ref('')
 const nav = [
+  { to: '/chats', label: 'Chats', icon: MessageCircle },
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/runs', label: 'Runs', icon: Activity },
   { to: '/agents', label: 'Agents', icon: Robot },
@@ -298,10 +299,12 @@ async function logout() {
           >
             <Icon :name="Menu" :size="22" />
           </button><span>Workspace</span><span class="slash text-subtle">/</span><strong>{{
-            route.path.startsWith("/runs/")
-              ? "Run details"
-              : nav.find((n) => n.to === route.path)?.label
-                || route.path.slice(1).replace(/^./, (c) => c.toUpperCase())
+            route.path.startsWith("/chats")
+              ? "Chats"
+              : route.path.startsWith("/runs/")
+                ? "Run details"
+                : nav.find((n) => n.to === route.path)?.label
+                  || route.path.slice(1).replace(/^./, (c) => c.toUpperCase())
           }}</strong>
         </div>
         <div class="topbar-actions flex items-center gap-[17px] phone:gap-[7px]">
@@ -314,7 +317,7 @@ async function logout() {
           </button><ThemeControl compact />
         </div>
       </header>
-      <main class="page mx-auto flex-1 min-h-0 min-w-0 w-full max-w-375 overflow-auto overscroll-contain [scrollbar-width:thin] px-9 pt-8.5 pb-7 [@media(641px<=width<=1150px)]:px-6 phone:mb-[calc(74px_+_env(safe-area-inset-bottom))] phone:px-3 phone:py-3.5 short:py-2.5 [&.page-tasks]:flex [&.page-tasks]:flex-col [&.page-tasks]:overflow-hidden [&.page-run]:flex [&.page-run]:flex-col [&.page-run]:overflow-hidden" :class="{ 'page-tasks': route.path === '/tasks', 'page-run': route.path.startsWith('/runs/') }">
+      <main class="page mx-auto flex-1 min-h-0 min-w-0 w-full max-w-375 overflow-auto overscroll-contain [scrollbar-width:thin] px-9 pt-8.5 pb-7 [@media(641px<=width<=1150px)]:px-6 phone:mb-[calc(74px_+_env(safe-area-inset-bottom))] phone:px-3 phone:py-3.5 short:py-2.5 [&.page-tasks]:flex [&.page-tasks]:flex-col [&.page-tasks]:overflow-hidden [&.page-run]:flex [&.page-run]:flex-col [&.page-run]:overflow-hidden" :class="{ 'page-tasks': route.path === '/tasks', 'page-run': route.path.startsWith('/runs/') || route.path.startsWith('/chats') }">
         <RouterView :key="route.path" />
       </main>
       <nav v-if="!mobile" class="mobile-bottom-nav hidden phone:fixed phone:bottom-0 phone:left-0 phone:right-0 phone:z-20 phone:flex phone:items-center phone:justify-around phone:[padding:11px_10px_max(15px,_env(safe-area-inset-bottom))] phone:border-t border-line phone:bg-surface" aria-label="Quick navigation">
@@ -327,8 +330,8 @@ async function logout() {
         <RouterLink to="/tasks?new=1" class="mobile-new-task" aria-label="New task">
           <Icon :name="Plus" :size="20" />
         </RouterLink>
-        <RouterLink to="/agents" aria-label="Agents" :class="{ active: route.path === '/agents' }">
-          <Icon :name="Bot" :size="20" />
+        <RouterLink to="/chats" aria-label="Chats" :class="{ active: route.path.startsWith('/chats') }">
+          <Icon :name="MessageCircle" :size="20" />
         </RouterLink>
         <button aria-label="More navigation" @click="mobile = true">
           <Icon :name="Menu" :size="20" />

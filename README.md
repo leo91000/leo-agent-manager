@@ -102,3 +102,7 @@ CI runs quality checks and isolated browser suites alongside a container build a
 non-root smoke test. Image tags are published only after all checks pass. Release
 tags reuse the exact image already validated on main, then verify the deployed
 commit. See the [CI measurements and release paths](docs/CI-PERFORMANCE.md).
+
+## Chats
+
+Start a conversation from **Chats**, an agent, or a project. Project chats use Main agent by default. Steer a live response, queue and edit follow-ups, and resume conversations after a restart. See [chat behavior and architecture](docs/chats.md).

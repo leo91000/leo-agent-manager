@@ -68,6 +68,7 @@ export type Task = z.infer<typeof taskInput> & {
 export type RunStatus
   = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
 export interface Run {
+  chatExecution?: import('./chats').ChatExecution
   recoveryPending?: boolean
   resumeAvailable?: boolean
   resumeCount?: number

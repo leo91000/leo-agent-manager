@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 import { CronExpressionParser } from 'cron-parser'
 import { agentInput, MAIN_AGENT_ID, projectInput, taskInput } from '../shared/contracts.ts'
+import { Chats } from './chats.ts'
 import { CodexAccounts } from './codex-accounts.ts'
 import { AppError, requireValue } from './errors.ts'
 import { McpConnections } from './mcp-connections.ts'
@@ -55,6 +56,7 @@ export function nextOccurrences(
   }
 }
 export class Service {
+  readonly chats = new Chats(this)
   skills: Skills
   mcps: McpConnections
   accounts: CodexAccounts
@@ -206,6 +208,25 @@ export class Service {
       this.store.get('tasks', taskId),
       'Task not found',
     )
+    const run = await this.snapshotRun(task, trigger)
+    try {
+      this.store.addRun(run, dedupe)
+    }
+    catch (e) {
+      if ((e as Error).message.includes('UNIQUE constraint')) {
+        throw new AppError(
+          409,
+          'This task already has active work or this occurrence was already queued.',
+        )
+      }
+      throw e
+    }
+    this.store.event(run.id, 'status', 'Queued')
+    this.store.audit('run.queued', { id: run.id, taskId, trigger })
+    return run
+  }
+
+  async snapshotRun(task: Task, trigger: string): Promise<Run> {
     if (task.archived)
       throw new AppError(409, 'Restore this archived task before running it.')
     const agent = requireValue(this.store.get('agents', task.agentId))
@@ -224,7 +245,7 @@ export class Service {
     })
     const run: Run = {
       id: randomUUID(),
-      taskId,
+      taskId: task.id,
       projectId: project?.id ?? null,
       status: 'queued',
       trigger,
@@ -237,20 +258,6 @@ export class Service {
       usage: null,
       snapshot: { task, agent, project, projects, skills },
     }
-    try {
-      this.store.addRun(run, dedupe)
-    }
-    catch (e) {
-      if ((e as Error).message.includes('UNIQUE constraint')) {
-        throw new AppError(
-          409,
-          'This task already has active work or this occurrence was already queued.',
-        )
-      }
-      throw e
-    }
-    this.store.event(run.id, 'status', 'Queued')
-    this.store.audit('run.queued', { id: run.id, taskId, trigger })
     return run
   }
 

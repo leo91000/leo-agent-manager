@@ -11,7 +11,7 @@ import ActivityContent from './ActivityContent.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean }>()
 defineEmits<{ load: [] }>()
 const entries = computed(() => activityEntries(props.events))
 const follow = ref(true)
@@ -23,6 +23,18 @@ const scroller = ref<HTMLElement>()
 const opened = ref(new Set<string>())
 const expanded = ref(new Set<string>())
 let previewed = false
+let resizeObserver: ResizeObserver | undefined
+watch(scroller, (element) => {
+  resizeObserver?.disconnect()
+  if (!element)
+    return
+  resizeObserver = new ResizeObserver(() => {
+    if (follow.value)
+      jump()
+  })
+  resizeObserver.observe(element)
+})
+onBeforeUnmount(() => resizeObserver?.disconnect())
 watch(entries, (items) => {
   if (!props.preview || previewed)
     return
@@ -91,11 +103,11 @@ onBeforeUnmount(() => viewer.value?.close())
     </Teleport>
     <Teleport :to="fullscreenHost || 'body'" :disabled="!fullscreen">
       <section class="activity-feed flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden rounded-b-[14px] bg-surface" :class="{ 'is-fullscreen': fullscreen }" aria-label="Run conversation">
-        <header class="activity-toolbar flex justify-between items-center gap-4.5 [border-bottom:1px_solid_light-dark(#e0dfe9,_var(--dark-border))] bg-raised shrink-0 phone:gap-2.5 phone:flex-wrap px-6 py-[17px] phone:px-[15px] phone:py-[13px]">
-          <div class="activity-toolbar-title flex items-center gap-[11px] font-semibold text-sm min-w-0 phone:[flex:1_1_160px]">
-            <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0" :class="{ live: active }" /><span>{{ fullscreen ? task : 'Agent activity' }}</span>
+        <header :class="chat ? 'py-1! phone:py-1!' : ''" class="activity-toolbar flex justify-between items-center gap-4.5 [border-bottom:1px_solid_light-dark(#e0dfe9,_var(--dark-border))] bg-raised shrink-0 phone:gap-2.5 phone:flex-wrap px-6 py-[17px] phone:px-[15px] phone:py-[13px]">
+          <div v-if="!chat" class="activity-toolbar-title flex items-center gap-[11px] font-semibold text-sm min-w-0 phone:[flex:1_1_160px]">
+            <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0" :class="{ live: active }" /><span>{{ fullscreen ? task : chat ? (active ? 'Working' : 'Conversation') : 'Agent activity' }}</span>
           </div>
-          <div class="activity-toolbar-controls flex items-center gap-5 shrink-0 phone:flex-1 phone:justify-end phone:gap-4">
+          <div class="activity-toolbar-controls ml-auto flex items-center gap-5 shrink-0 phone:flex-1 phone:justify-end phone:gap-4">
             <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] mx-0 my-[9px]"><input v-model="follow" type="checkbox" @change="followChanged">Follow output</label>
             <button ref="fullscreenButton" :class="twMerge(iconButton, 'icon-button')" :aria-label="fullscreen ? 'Exit fullscreen' : 'Open activity fullscreen'" @click="fullscreen ? exitFullscreen() : enterFullscreen()">
               <Icon v-if="fullscreen" :name="Minimize2" :size="19" /><Icon v-else :name="Maximize2" :size="19" />
@@ -104,16 +116,19 @@ onBeforeUnmount(() => viewer.value?.close())
         </header>
         <div ref="scroller" class="activity-scroll flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:var(--color-control)_transparent] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-accent" tabindex="0" role="region" aria-label="Activity output" @scroll="scrolled">
           <div class="activity-conversation max-w-215 pt-8.5 pb-7 px-9 mx-auto my-0 phone:px-4 phone:py-6">
-            <div class="activity-intro flex items-center gap-3 mb-7 phone:gap-2.5">
+            <div v-if="!chat" class="activity-intro flex items-center gap-3 mb-7 phone:gap-2.5">
               <span class="activity-avatar bg-surface text-ink grid place-items-center w-[39px] h-[39px] rounded-card border border-line shrink-0"><Icon :name="Zap" :size="19" /></span><div><strong>{{ agent }}</strong></div>
             </div>
             <p v-if="trimmed" class="activity-retention text-2xs text-muted leading-[1.8]">
               Showing the latest {{ events.length.toLocaleString() }} events. {{ trimmed.toLocaleString() }} earlier events are outside this view.
             </p>
             <template v-for="entry in entries" :key="entry.id">
-              <article v-if="entry.kind === 'message'" class="activity-message mt-6.5 mb-7.5 mx-0">
-                <header><span class="message-dot w-[5px] h-[5px] bg-[light-dark(#4f4c73,_var(--dark-accent-surface))] rounded-full" /><strong>{{ agent }}</strong><time>{{ new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time></header>
-                <ActivityContent :content="entry.text" />
+              <article v-if="entry.kind === 'message'" class="activity-message mt-6.5 mb-7.5 mx-0" :class="entry.role === 'user' ? 'ml-auto! max-w-[85%] rounded-2xl rounded-br-md border border-line bg-soft px-5 py-3' : ''">
+                <header><span class="message-dot w-[5px] h-[5px] bg-[light-dark(#4f4c73,_var(--dark-accent-surface))] rounded-full" /><strong>{{ entry.role === 'user' ? 'You' : agent }}</strong><time>{{ new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time></header>
+                <p v-if="entry.role === 'user'" class="whitespace-pre-wrap text-sm leading-relaxed">
+                  {{ entry.text }}
+                </p>
+                <ActivityContent v-else :content="entry.text" />
               </article>
               <section v-else class="activity-group border-line border rounded-card bg-surface overflow-hidden mx-0 my-4.5" :class="{ 'expanded': opened.has(entry.id), 'notice-only': entry.artifacts.every(item => item.kind === 'notice') }">
                 <button class="activity-group-toggle bg-transparent flex items-center gap-[11px] w-full text-left border-0 text-ink cursor-pointer phone:gap-[9px] px-[17px] py-[15px] phone:px-3 phone:py-[13px]" :aria-expanded="opened.has(entry.id)" :aria-controls="`activity-${entry.id}`" @click="toggle(opened, entry.id)">
@@ -132,7 +147,7 @@ onBeforeUnmount(() => viewer.value?.close())
             <div v-else-if="active" class="activity-working flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
               <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0 live" />{{ events.length ? 'Your agent is working…' : 'Waiting for the worker…' }}
             </div>
-            <div v-else class="activity-end flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
+            <div v-else-if="!chat" class="activity-end flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
               <span />{{ events.length ? 'End of activity' : 'No activity recorded yet' }}<span />
             </div>
           </div>
