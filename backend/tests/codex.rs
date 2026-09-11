@@ -5,7 +5,7 @@ use leo_agent_manager::{
     rpc::Session,
     service::Service,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use tempfile::TempDir;
 fn config(root: &TempDir) -> Config {
     Config {
@@ -360,16 +360,20 @@ async fn device_login_verifies_identity_then_leases_private_credentials() {
         .unwrap()
         .unwrap();
     assert_eq!(lease.account_id, id);
-    assert!(lease.home.join("auth.json").exists());
+    assert!(!lease.home.join("auth.json").exists());
+    assert!(lease.home.join("leo-managed-auth").exists());
     assert!(service.accounts.remove(&service, id).await.is_err());
-    assert!(
-        service
-            .accounts
-            .acquire(&service, "22222222-2222-4222-8222-222222222222", "")
-            .await
-            .is_err()
-    );
+    let second = service
+        .accounts
+        .acquire(&service, "22222222-2222-4222-8222-222222222222", "")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.account_id, lease.account_id);
     service.accounts.release(&service, &lease).await.unwrap();
+    assert_eq!(service.accounts.active(id).await.len(), 1);
+    assert!(service.accounts.remove(&service, id).await.is_err());
+    service.accounts.release(&service, &second).await.unwrap();
     assert!(!lease.home.join("auth.json").exists());
     service.accounts.remove(&service, id).await.unwrap();
     assert!(service.accounts.list(&service).await.unwrap().is_empty());
@@ -388,4 +392,159 @@ fn usage_requires_observed_capacity_and_respects_model_limits() {
     after["rateLimitsByLimitId"]["model"]["spendControlReached"] = true.into();
     assert!(blocked(&after, "model-x"));
     assert!(!blocked(&after, ""));
+}
+
+#[tokio::test]
+async fn parallel_runs_share_one_refresh_and_cannot_overwrite_or_reuse_released_credentials() {
+    use leo_agent_manager::account_tokens::{self, Client};
+    let root = TempDir::new().unwrap();
+    let service = Service::new(config(&root)).await.unwrap();
+    service.accounts.initialize(&service).await.unwrap();
+    let account = service
+        .accounts
+        .new_account(&service, "Shared")
+        .await
+        .unwrap();
+    let id = account["id"].as_str().unwrap();
+    service.vault.set(&format!("codex-account:{id}"), &json!({"tokens":{"access_token":"synthetic","refresh_token":"refresh","account_id":"shared"}})).await.unwrap();
+    service.accounts.refresh(&service, id).await.unwrap();
+    let first = service
+        .accounts
+        .acquire(&service, "11111111-1111-4111-8111-111111111111", "")
+        .await
+        .unwrap()
+        .unwrap();
+    let second = service
+        .accounts
+        .acquire(&service, "22222222-2222-4222-8222-222222222222", "")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.account_id, second.account_id);
+    let _first_broker = account_tokens::serve(&service, &first).await.unwrap();
+    let _second_broker = account_tokens::serve(&service, &second).await.unwrap();
+    let mut a = Client::new(&first.home).unwrap();
+    let mut b = Client::new(&second.home).unwrap();
+    assert_eq!(a.tokens(false).await.unwrap()["accessToken"], "synthetic");
+    assert_eq!(b.tokens(false).await.unwrap()["accessToken"], "synthetic");
+    let (a_refreshed, b_refreshed) = tokio::join!(a.tokens(true), b.tokens(true));
+    assert_eq!(
+        a_refreshed.as_ref().unwrap()["accessToken"],
+        "synthetic-refreshed"
+    );
+    assert_eq!(a_refreshed.unwrap(), b_refreshed.unwrap());
+    // A run can neither roll credentials back nor inject another identity.
+    std::fs::write(
+        first.home.join("auth.json"),
+        json!({"tokens":{"access_token":"stale","account_id":"intruder"}}).to_string(),
+    )
+    .unwrap();
+    service.accounts.release(&service, &first).await.unwrap();
+    assert!(a.tokens(false).await.is_err());
+    assert_eq!(
+        b.tokens(false).await.unwrap()["accessToken"],
+        "synthetic-refreshed"
+    );
+    assert_eq!(service.accounts.active(id).await.len(), 1);
+    assert!(service.account_login("Shared", Some(id)).await.is_err());
+    assert!(!second.home.join("auth.json").exists());
+    let (events, mut receiver) = tokio::sync::mpsc::channel(32);
+    let plan = json!({"args":[],"cwd":root.path(),"sandbox":"yolo","output":root.path().join("reply.md"),"inputDirectory":root.path(),"writableRoots":[],"execution":{"messageId":"refresh-test","text":"fixture:auth-refresh","attachments":[]}});
+    leo_agent_manager::chat_process::run(
+        &service.config,
+        &second.home,
+        plan,
+        events,
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    while let Some(event) = receiver.recv().await {
+        assert!(!event.to_string().contains("synthetic-refreshed"));
+    }
+    assert!(root.path().join("reply.md").exists());
+    service.accounts.release(&service, &second).await.unwrap();
+    assert_eq!(
+        service
+            .vault
+            .get(&format!("codex-account:{id}"))
+            .await
+            .unwrap()
+            .unwrap()["tokens"]["refresh_token"],
+        "refresh-rotated-rotated"
+    );
+}
+
+#[tokio::test]
+async fn parallel_capacity_prefers_usage_and_lowering_limits_does_not_stop_runs() {
+    let root = TempDir::new().unwrap();
+    let service = Service::new(config(&root)).await.unwrap();
+    service.accounts.initialize(&service).await.unwrap();
+    let mut ids = Vec::new();
+    for name in ["more", "less"] {
+        let account = service.accounts.new_account(&service, name).await.unwrap();
+        let id = account["id"].as_str().unwrap().to_owned();
+        service
+            .vault
+            .set(
+                &format!("codex-account:{id}"),
+                &json!({"tokens":{"access_token":"synthetic","account_id":name}}),
+            )
+            .await
+            .unwrap();
+        service.accounts.refresh(&service, &id).await.unwrap();
+        if name == "less" {
+            let mut account = service.accounts.get(&service, &id).await.unwrap();
+            account["limits"]["rateLimits"]["primary"]["usedPercent"] = 90.into();
+            service.store.put("codexAccounts", account).await.unwrap();
+        }
+        ids.push(id);
+    }
+    let first = service
+        .accounts
+        .acquire(&service, "11111111-1111-4111-8111-111111111111", "")
+        .await
+        .unwrap()
+        .unwrap();
+    let second = service
+        .accounts
+        .acquire(&service, "22222222-2222-4222-8222-222222222222", "")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.account_id, ids[0]);
+    assert_eq!(second.account_id, ids[0]);
+    let view = service
+        .accounts
+        .update(
+            &service,
+            &ids[0],
+            json!({"name":"more","maxConcurrentRuns":1}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(view["activeRunIds"].as_array().unwrap().len(), 2);
+    let third = service
+        .accounts
+        .acquire(&service, "33333333-3333-4333-8333-333333333333", "")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(third.account_id, ids[1]);
+    for invalid in [json!(0), json!(5), json!(1.5), json!("2"), Value::Null] {
+        assert!(
+            service
+                .accounts
+                .update(
+                    &service,
+                    &ids[0],
+                    json!({"name":"more","maxConcurrentRuns":invalid})
+                )
+                .await
+                .is_err()
+        );
+    }
+    for lease in [first, second, third] {
+        service.accounts.release(&service, &lease).await.unwrap();
+    }
 }

@@ -326,7 +326,7 @@ impl Service {
                         }))
                     })
                     .await?;
-            if recovering || self.accounts.leases.lock().await.contains_key(id) {
+            if recovering || !self.accounts.active(id).await.is_empty() {
                 return Err(Error::new(
                     409,
                     "Wait for this account’s run to finish before reconnecting it.",

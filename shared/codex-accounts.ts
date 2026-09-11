@@ -49,6 +49,8 @@ export interface CodexAccountView extends Omit<CodexAccount, 'identity'> {
   remainingPercent: number | null
   stale: boolean
   activeRunId: string | null
+  activeRunIds?: string[]
+  maxConcurrentRuns?: number
 }
 
 function usageBuckets(limits: AccountLimits | null, model: string): Record<string, UsageBucket> {

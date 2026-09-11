@@ -20,15 +20,15 @@ const editing = ref<CodexAccountView>()
 const removing = ref<CodexAccountView>()
 const open = ref(false)
 const name = ref('')
+const maxConcurrentRuns = ref(4)
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval>
 let polling = false
 const stale = (account: CodexAccountView) => !account.checkedAt || now.value - account.checkedAt > 90000
-const eligible = (account: CodexAccountView) => account.enabled && account.state === 'ready' && !stale(account) && !account.exhausted && !account.activeRunId && account.limits && !usageBlocked(account.limits) && (account.remainingPercent ?? 0) > 0
+const activeRuns = (account: CodexAccountView) => account.activeRunIds ?? (account.activeRunId ? [account.activeRunId] : [])
+const eligible = (account: CodexAccountView) => account.enabled && account.state === 'ready' && !stale(account) && !account.exhausted && activeRuns(account).length < (account.maxConcurrentRuns ?? 4) && account.limits && !usageBlocked(account.limits) && (account.remainingPercent ?? 0) > 0
 const next = computed(() => accounts.value.filter(eligible).sort((a, b) => b.remainingPercent! - a.remainingPercent! || (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0) || a.id.localeCompare(b.id))[0]?.id)
 function status(account: CodexAccountView) {
-  if (account.activeRunId)
-    return 'In use'
   if (!account.enabled)
     return 'Paused'
   if (account.state === 'pending')
@@ -41,6 +41,8 @@ function status(account: CodexAccountView) {
     return 'Waiting for reset'
   if (account.remainingPercent === null)
     return 'Usage unavailable'
+  if (activeRuns(account).length >= (account.maxConcurrentRuns ?? 4))
+    return 'At capacity'
   if (account.id === next.value)
     return 'Next run'
   return account.remainingPercent < 5 ? 'Low usage' : 'Ready'
@@ -91,12 +93,13 @@ async function action(operation: () => Promise<void>) {
 function edit(account?: CodexAccountView) {
   editing.value = account
   name.value = account?.name ?? ''
+  maxConcurrentRuns.value = account?.maxConcurrentRuns ?? 4
   open.value = true
 }
 async function save() {
   await action(async () => {
     if (editing.value) {
-      await api(`/codex/accounts/${editing.value.id}`, { method: 'PUT', body: JSON.stringify({ name: name.value, enabled: editing.value.enabled }) })
+      await api(`/codex/accounts/${editing.value.id}`, { method: 'PUT', body: JSON.stringify({ name: name.value, enabled: editing.value.enabled, maxConcurrentRuns: maxConcurrentRuns.value }) })
     }
     else {
       flow.value = await api('/codex/accounts/login', { method: 'POST', body: JSON.stringify({ name: name.value }) })
@@ -245,11 +248,14 @@ onBeforeUnmount(() => {
         <p v-if="account.resetError" class="mt-2 text-xs text-warning" role="status">
           {{ account.resetError }}
         </p>
+        <p class="mt-3 text-xs text-muted">
+          {{ activeRuns(account).length }} / {{ account.maxConcurrentRuns ?? 4 }} parallel runs
+        </p>
         <p v-if="account.checkedAt" class="mt-4 text-2xs text-muted" :title="date(account.checkedAt)">
           Updated {{ Math.max(0, Math.floor((now - account.checkedAt) / 1000)) }}s ago
         </p>
-        <RouterLink v-if="account.activeRunId" :to="`/runs/${account.activeRunId}`" class="mt-3 inline-flex items-center gap-1 text-xs text-accent">
-          View active run<Icon :name="ArrowUpRight" :size="13" />
+        <RouterLink v-for="(runId, index) in activeRuns(account)" :key="runId" :to="`/runs/${runId}`" class="mt-3 inline-flex items-center gap-1 text-xs text-accent">
+          View run {{ index + 1 }}<Icon :name="ArrowUpRight" :size="13" />
         </RouterLink>
         <footer class="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
           <UiButton size="small" :disabled="busy || flow?.state === 'pending'" :aria-label="`${account.enabled ? 'Pause' : 'Enable'} ${account.name}`" @click="toggle(account)">
@@ -268,7 +274,7 @@ onBeforeUnmount(() => {
       </article>
     </div>
     <p class="mt-4 text-xs text-muted">
-      New runs use the available account with the most capacity. Enabled accounts use banked resets automatically at 2% remaining, even while idle. Exhausted runs resume when capacity returns or another account is available. One run per account.
+      New runs use the available account with the most capacity. Enabled accounts use banked resets automatically at 2% remaining, even while idle. Exhausted runs resume when capacity returns or another account is available. Accounts can run tasks in parallel, including on the account with the most remaining usage.
     </p>
   </section>
   <Modal v-if="open" :title="editing ? 'Edit account' : 'Add Codex account'" @close="open = false">
@@ -276,7 +282,7 @@ onBeforeUnmount(() => {
       <div class="grid gap-4 p-6">
         <UiAlert v-if="error">
           {{ error }}
-        </UiAlert><label>Account name<input v-model="name" required maxlength="100" placeholder="e.g. Personal" autocomplete="off"></label><p v-if="!editing" class="text-sm text-muted">
+        </UiAlert><label v-if="editing">Parallel runs<input v-model.number="maxConcurrentRuns" type="number" min="1" max="4" required><span class="text-xs text-muted">The server’s overall limit also applies. Lowering this lets current runs finish.</span></label><label>Account name<input v-model="name" required maxlength="100" placeholder="e.g. Personal" autocomplete="off"></label><p v-if="!editing" class="text-sm text-muted">
           Sign in with ChatGPT using a one-time device code.
         </p>
       </div><footer class="flex justify-end gap-3 border-t border-line p-4">

@@ -27,6 +27,7 @@ pub struct Lease {
 }
 #[derive(Default)]
 pub struct Accounts {
+    // Leases are keyed by run ID; credentials are owned by the account monitor.
     pub leases: Mutex<HashMap<String, Lease>>,
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     initialized: OnceCell<()>,
@@ -141,6 +142,64 @@ async fn remove_directory(path: &Path) -> Result<()> {
     }
 }
 impl Accounts {
+    pub async fn prepare_run(&self, home: &Path) -> Result<()> {
+        private_dir(home).await?;
+        atomic_write(&home.join("leo-managed-auth"), b"1").await?;
+        remove_file(&home.join("auth.json")).await?;
+        Ok(())
+    }
+    pub async fn access_tokens(
+        &self,
+        s: &Service,
+        lease: &Lease,
+        request: &Value,
+    ) -> Result<Value> {
+        let _guard = self.lock(&lease.account_id).await;
+        if self
+            .leases
+            .lock()
+            .await
+            .get(&lease.run_id)
+            .is_none_or(|l| l.account_id != lease.account_id || l.home != lease.home)
+        {
+            return Err(Error::new(409, "This account lease has ended."));
+        }
+        let key = format!("codex-account:{}", lease.account_id);
+        let mut auth = required(s.vault.get(&key).await?, "Reconnect this account.")?;
+        // Different runs reporting the same expired token share one refresh.
+        if request["refresh"] == true
+            && request["previous"] == hex_digest(text(&auth["tokens"], "access_token"))
+        {
+            let home = s
+                .config
+                .data_dir
+                .join("codex-monitor")
+                .join(&lease.account_id);
+            if home.join("auth.json").exists() {
+                self.capture(s, &lease.account_id, &home).await?;
+            }
+            self.materialize(s, &lease.account_id, &home).await?;
+            let mut session = Session::codex(&s.config, &home, &[], None).await?;
+            let result = session
+                .request("account/read", json!({"refreshToken":true}))
+                .await;
+            session.close().await;
+            // Save even when the RPC failed after rotating credentials. Never
+            // delete the only fresh credentials if vault persistence fails.
+            self.capture(s, &lease.account_id, &home).await?;
+            remove_directory(&home).await?;
+            result?;
+            auth = required(s.vault.get(&key).await?, "Reconnect this account.")?;
+        }
+        let account = self.get(s, &lease.account_id).await?;
+        let account_id = text(&auth["tokens"], "account_id");
+        if account_id.is_empty() {
+            return Err(Error::bad("Reconnect this account to verify its identity."));
+        }
+        Ok(
+            json!({"accessToken":auth["tokens"]["access_token"],"chatgptAccountId":account_id,"chatgptPlanType":account["plan"]}),
+        )
+    }
     pub async fn lock(&self, id: &str) -> tokio::sync::OwnedMutexGuard<()> {
         self.locks
             .lock()
@@ -150,6 +209,18 @@ impl Accounts {
             .clone()
             .lock_owned()
             .await
+    }
+    pub async fn active(&self, id: &str) -> Vec<Lease> {
+        let mut leases = self
+            .leases
+            .lock()
+            .await
+            .values()
+            .filter(|l| l.account_id == id)
+            .cloned()
+            .collect::<Vec<_>>();
+        leases.sort_by(|a, b| a.run_id.cmp(&b.run_id));
+        leases
     }
     pub async fn get(&self, s: &Service, id: &str) -> Result<Value> {
         required(
@@ -165,13 +236,19 @@ impl Accounts {
             .as_i64()
             .is_none_or(|at| now() - at > 90000)
             .into();
-        account["activeRunId"] = self
-            .leases
-            .lock()
+        let runs = self
+            .active(text(&account, "id"))
             .await
-            .get(text(&account, "id"))
-            .map(|l| l.run_id.clone().into())
+            .into_iter()
+            .map(|l| l.run_id)
+            .collect::<Vec<_>>();
+        account["activeRunId"] = runs
+            .first()
+            .cloned()
+            .map(Value::from)
             .unwrap_or(Value::Null);
+        account["activeRunIds"] = json!(runs);
+        account["maxConcurrentRuns"] = account["maxConcurrentRuns"].as_u64().unwrap_or(4).into();
         account.as_object_mut().unwrap().remove("identity");
         account
     }
@@ -206,6 +283,9 @@ impl Accounts {
             .await
     }
     pub async fn capture(&self, s: &Service, id: &str, home: &Path) -> Result<()> {
+        if home.join("leo-managed-auth").exists() {
+            return Ok(());
+        }
         let bytes = tokio::fs::read(home.join("auth.json"))
             .await
             .map_err(|error| {
@@ -238,6 +318,11 @@ impl Accounts {
         Ok(())
     }
     pub async fn materialize(&self, s: &Service, id: &str, home: &Path) -> Result<()> {
+        // A previous process may have refreshed just before a crash or a failed
+        // vault write. Recover that authoritative copy before overwriting it.
+        if home.join("auth.json").exists() {
+            self.capture(s, id, home).await?;
+        }
         let auth = required(
             s.vault.get(&format!("codex-account:{id}")).await?,
             "Reconnect this Codex account before using it.",
@@ -275,7 +360,10 @@ impl Accounts {
                 .join("runs")
                 .join(text(run, "id"))
                 .join(relative);
-            if !id.is_empty() && s.store.get("codexAccounts", id).await?.is_some() {
+            if run["codexAuthMode"] != "external"
+                && !id.is_empty()
+                && s.store.get("codexAccounts", id).await?.is_some()
+            {
                 let _ = self.capture(s, id, &home).await;
             }
             remove_file(&home.join("auth.json")).await?;
@@ -297,7 +385,11 @@ impl Accounts {
                         } else {
                             directory.clone()
                         };
-                        let _ = self.capture(s, text(&account, "id"), &home).await;
+                        if home.join("auth.json").exists() && relative != "codex-login" {
+                            self.capture(s, text(&account, "id"), &home).await?;
+                        } else {
+                            let _ = self.capture(s, text(&account, "id"), &home).await;
+                        }
                         remove_directory(&directory).await?;
                     }
                 }
@@ -351,24 +443,22 @@ impl Accounts {
             return Ok(());
         }
         self.attempted.lock().await.insert(id.into(), now());
-        let lease = self.leases.lock().await.get(id).cloned();
-        let home = lease
-            .as_ref()
-            .map(|l| l.home.clone())
-            .unwrap_or_else(|| s.config.data_dir.join("codex-monitor").join(id));
+        let leases = self.active(id).await;
+        let limits = self.get(s, id).await?["limits"].clone();
+        let model = leases
+            .iter()
+            .min_by(|a, b| {
+                remaining(&limits, &a.model)
+                    .partial_cmp(&remaining(&limits, &b.model))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|l| l.model.clone());
+        let home = s.config.data_dir.join("codex-monitor").join(id);
         let operation = async {
-            if lease.is_none() {
-                self.materialize(s, id, &home).await?;
-            }
+            self.materialize(s, id, &home).await?;
             let mut session = Session::codex(&s.config, &home, &[], None).await?;
             let result = self
-                .read_usage(
-                    s,
-                    id,
-                    &home,
-                    lease.as_ref().map(|l| l.model.as_str()),
-                    &mut session,
-                )
+                .read_usage(s, id, &home, model.as_deref(), &mut session)
                 .await;
             if result.is_ok() {
                 // Refresh capabilities using the existing authenticated monitor,
@@ -394,8 +484,8 @@ impl Accounts {
             );
             s.store.put("codexAccounts", account).await?;
         }
-        if lease.is_none() {
-            let _ = self.capture(s, id, &home).await;
+        let captured = self.capture(s, id, &home).await;
+        if captured.is_ok() {
             remove_directory(&home).await?;
         }
         Ok(())
@@ -409,15 +499,9 @@ impl Accounts {
                 "Account sign-in or recovery is in progress.",
             ));
         }
-        let lease = self.leases.lock().await.get(id).cloned();
-        let home = lease
-            .as_ref()
-            .map(|l| l.home.clone())
-            .unwrap_or_else(|| s.config.data_dir.join("codex-model-discovery").join(id));
+        let home = s.config.data_dir.join("codex-model-discovery").join(id);
         let result = async {
-            if lease.is_none() {
-                self.materialize(s, id, &home).await?;
-            }
+            self.materialize(s, id, &home).await?;
             let mut session = Session::codex(&s.config, &home, &[], None).await?;
             let result = crate::models::discover(&mut session).await;
             session.close().await;
@@ -425,7 +509,7 @@ impl Accounts {
             result
         }
         .await;
-        if lease.is_none() {
+        if self.capture(s, id, &home).await.is_ok() {
             remove_directory(&home).await?;
         }
         result
@@ -507,7 +591,11 @@ impl Accounts {
                 }
             })
             .await?;
-        let model = model.unwrap_or_else(|| text(&account["exhausted"], "model"));
+        let model = if account["exhausted"].is_null() {
+            model.unwrap_or("")
+        } else {
+            text(&account["exhausted"], "model")
+        };
         let (limits, reset_error, confirmed) = self.reset(s, &account, model, rpc, &auth).await?;
         let mut account = self.get(s, id).await?;
         if !account["exhausted"].is_null() {
@@ -668,10 +756,9 @@ impl Accounts {
             }
             let id = text(&account, "id");
             let model = self
-                .leases
-                .lock()
+                .active(id)
                 .await
-                .get(id)
+                .first()
                 .map(|l| l.model.clone())
                 .unwrap_or_else(|| text(&account["exhausted"], "model").into());
             let pending = s.store.kv(&format!("codex-reset:{id}")).await?.is_some();
@@ -709,6 +796,9 @@ impl Accounts {
         self.poll(s, true).await?;
         let _selection = self.selection.lock().await;
         let leases = self.leases.lock().await;
+        if leases.contains_key(run_id) {
+            return Err(Error::new(409, "This run already holds a Codex account."));
+        }
         let connecting = self.connecting.lock().await.clone();
         let mut candidates = Vec::new();
         for account in s.store.list("codexAccounts").await? {
@@ -720,7 +810,8 @@ impl Accounts {
                     .as_i64()
                     .is_some_and(|at| now() - at <= 90000)
                 && !self.recovering(s, id).await?
-                && !leases.contains_key(id)
+                && leases.values().filter(|l| l.account_id == id).count()
+                    < account["maxConcurrentRuns"].as_u64().unwrap_or(4) as usize
                 && connecting.as_deref() != Some(id)
                 && !blocked(&account["limits"], model)
                 && remaining(&account["limits"], model).unwrap_or(0.) > 0.
@@ -755,39 +846,37 @@ impl Accounts {
             home: s.config.data_dir.join("runs").join(run_id).join("codex"),
         };
         let _guard = self.lock(&lease.account_id).await;
-        self.materialize(s, &lease.account_id, &lease.home).await?;
+        self.prepare_run(&lease.home).await?;
         self.leases
             .lock()
             .await
-            .insert(lease.account_id.clone(), lease.clone());
+            .insert(lease.run_id.clone(), lease.clone());
         account["lastUsedAt"] = now().into();
         s.store.put("codexAccounts", account).await?;
         Ok(Some(lease))
     }
-    pub async fn release(&self, s: &Service, lease: &Lease) -> Result<()> {
+    pub async fn release(&self, _s: &Service, lease: &Lease) -> Result<()> {
         let _guard = self.lock(&lease.account_id).await;
-        let result = self.capture(s, &lease.account_id, &lease.home).await;
         let removed = remove_file(&lease.home.join("auth.json")).await;
-        self.leases.lock().await.remove(&lease.account_id);
-        result?;
+        self.leases.lock().await.remove(&lease.run_id);
         removed
     }
-    pub async fn relocate(&self, s: &Service, lease: &mut Lease, home: &Path) -> Result<()> {
+    pub async fn relocate(&self, _s: &Service, lease: &mut Lease, home: &Path) -> Result<()> {
         let _guard = self.lock(&lease.account_id).await;
-        self.capture(s, &lease.account_id, &lease.home).await?;
         if lease.home == home {
             return Ok(());
         }
-        self.materialize(s, &lease.account_id, home).await?;
+        self.prepare_run(home).await?;
         remove_file(&lease.home.join("auth.json")).await?;
         lease.home = home.to_owned();
         self.leases
             .lock()
             .await
-            .insert(lease.account_id.clone(), lease.clone());
+            .insert(lease.run_id.clone(), lease.clone());
         Ok(())
     }
     pub async fn exhausted(&self, s: &Service, id: &str, model: &str) -> Result<()> {
+        let _guard = self.lock(id).await;
         let (id, model) = (id.to_owned(), model.to_owned());
         s.store
             .transaction(move |db| {
@@ -820,7 +909,19 @@ impl Accounts {
         {
             return Err(Error::bad("Choose a valid account name and enabled state."));
         }
+        let max = input.get("maxConcurrentRuns").cloned();
+        if max
+            .as_ref()
+            .is_some_and(|v| v.as_u64().is_none_or(|n| !(1..=4).contains(&n)))
+        {
+            return Err(Error::bad(
+                "Choose between 1 and 4 concurrent runs per account.",
+            ));
+        }
         let mut a = self.get(s, id).await?;
+        if let Some(max) = max {
+            a["maxConcurrentRuns"] = max;
+        }
         merge(
             &mut a,
             &json!({
@@ -834,7 +935,7 @@ impl Accounts {
         let _guard = self.lock(id).await;
         self.get(s, id).await?;
         if self.recovering(s, id).await?
-            || self.leases.lock().await.contains_key(id)
+            || !self.active(id).await.is_empty()
             || self.connecting.lock().await.as_deref() == Some(id)
         {
             return Err(Error::new(

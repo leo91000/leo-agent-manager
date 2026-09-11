@@ -30,6 +30,12 @@ export function chatFixture() {
   }
   return (request) => {
     const { method, params } = request
+    if (!method && request.id === 'auth-refresh') {
+      if (!request.result?.accessToken?.endsWith('-refreshed') || request.result.chatgptAccountId !== globalThis.fixtureAccountId || request.result.refresh_token)
+        throw new Error('Invalid external token refresh')
+      finish()
+      return true
+    }
     if (!method && questionRequest && request.id === questionRequest) {
       active.items.push({ id: 'answer', type: 'fixtureAnswer', answers: request.result.answers })
       save()
@@ -80,6 +86,21 @@ export function chatFixture() {
         notify('item/completed', { threadId: thread.id, item: command })
       }
       const text = params.input[0].text
+      if (text.includes('fixture:exhaust') && !existsSync(path.join(process.env.CODEX_HOME, 'fixture-exhausted.json'))) {
+        writeFileSync(path.join(process.env.CODEX_HOME, 'fixture-exhausted.json'), JSON.stringify({ account: globalThis.fixtureAccountId, cwd: process.cwd() }))
+        writeFileSync(path.join(process.cwd(), 'preserved-work.txt'), 'work before exhaustion')
+        active.status = 'failed'
+        active.error = { message: 'You\'ve hit your usage limit. Try again later.' }
+        save()
+        notify('turn/completed', { threadId: thread.id, turn: active })
+        active = null
+        return true
+      }
+      if (existsSync(path.join(process.env.CODEX_HOME, 'fixture-exhausted.json'))) {
+        const previous = JSON.parse(readFileSync(path.join(process.env.CODEX_HOME, 'fixture-exhausted.json'), 'utf8'))
+        if (previous.account === globalThis.fixtureAccountId || previous.cwd !== process.cwd() || readFileSync(path.join(process.cwd(), 'preserved-work.txt'), 'utf8') !== 'work before exhaustion')
+          throw new Error('Resume did not preserve context or switch accounts')
+      }
       if (!asked && text.includes('fixture:question')) {
         asked = true
         hold = true
@@ -96,6 +117,10 @@ export function chatFixture() {
         active.items.push(question)
         save()
         notify('item/completed', { threadId: thread.id, item: question })
+      }
+      if (text.includes('fixture:auth-refresh')) {
+        emit({ id: 'auth-refresh', method: 'account/chatgptAuthTokens/refresh', params: { reason: 'unauthorized', previousAccountId: globalThis.fixtureAccountId } })
+        return true
       }
       if (text.includes('fixture:disconnect'))
         process.exit(1)

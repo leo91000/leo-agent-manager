@@ -134,6 +134,9 @@ impl Chat {
         .await
     }
     async fn incoming(&mut self, incoming: Incoming) -> Result<()> {
+        if self.session.handle_auth(&incoming).await? {
+            return Ok(());
+        }
         let params = incoming.params;
         if let Some(request_id) = incoming.id {
             if incoming.method == "item/tool/requestUserInput"
@@ -499,7 +502,23 @@ pub async fn run(
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    let session = Session::codex(config, home, &args, Some(Path::new(text(&plan, "cwd")))).await?;
+    let mut session =
+        Session::codex(config, home, &args, Some(Path::new(text(&plan, "cwd")))).await?;
+    let mut auth = crate::account_tokens::Client::new(home);
+    if home.join("leo-managed-auth").exists() && auth.is_none() {
+        session.close().await;
+        return Err(Error::new(
+            503,
+            "Account authentication service is unavailable.",
+        ));
+    }
+    if let Some(auth) = &mut auth
+        && let Err(error) = auth.login(&mut session).await
+    {
+        session.close().await;
+        return Err(error);
+    }
+    session.auth = auth;
     let mut chat = Chat {
         session,
         events,

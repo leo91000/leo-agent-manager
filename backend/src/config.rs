@@ -28,7 +28,7 @@ impl Config {
                     "publicUrl":get("PUBLIC_URL","http://localhost:4310"),"host":get("HOST","127.0.0.1"),
                     "port":get("PORT","4310").parse::<u16>().map_err(|_|Error::bad("PORT must be a valid port number."))?,
                     "setupToken":get("SETUP_TOKEN",""),"codexBin":get("CODEX_BIN","codex"),"ghBin":get("GH_BIN","gh"),
-                    "concurrency":get("CONCURRENCY","1").parse::<usize>().map_err(|_|Error::bad("Invalid concurrency"))?,
+                    "concurrency":get("CONCURRENCY","4").parse::<usize>().map_err(|_|Error::bad("Invalid concurrency"))?,
                     "logger":get("NODE_ENV","")!="test", "workerEnabled":get("WORKER_ENABLED","true")!="false", "runnerUrl":get("RUNNER_URL","")
                 }
         );

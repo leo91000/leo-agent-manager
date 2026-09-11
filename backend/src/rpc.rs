@@ -35,6 +35,7 @@ pub struct Rpc {
     closed: CancellationToken,
 }
 pub struct Session {
+    pub auth: Option<crate::account_tokens::Client>,
     pub rpc: Rpc,
     pub incoming: mpsc::Receiver<Incoming>,
     stop: CancellationToken,
@@ -242,11 +243,22 @@ impl Session {
             let _ = done.send(());
         });
         Ok(Self {
+            auth: None,
             rpc,
             incoming: receiver,
             stop,
             finished: Some(finished),
         })
+    }
+    pub async fn handle_auth(&mut self, incoming: &Incoming) -> Result<bool> {
+        if incoming.method == "account/chatgptAuthTokens/refresh"
+            && incoming.id.is_some()
+            && let Some(auth) = &mut self.auth
+        {
+            auth.refresh(&self.rpc, incoming).await?;
+            return Ok(true);
+        }
+        Ok(false)
     }
     pub async fn request(&mut self, method: &str, params: Value) -> Result<Value> {
         let rpc = self.rpc.clone();
@@ -259,7 +271,7 @@ impl Session {
             return Err(unavailable());
             }
             ;
-            if let Some(id)=incoming.id{
+            if !self.handle_auth(&incoming).await? && let Some(id)=incoming.id{
             rpc.reject(id).await?;
             }
             }

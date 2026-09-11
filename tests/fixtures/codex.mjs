@@ -33,6 +33,18 @@ async function main() {
         writeFileSync(path.join(process.env.CODEX_HOME, 'fixture-login-cancelled'), request.params.loginId)
         result = { status: 'canceled' }
       }
+      if (request.method === 'account/login/start' && request.params.type === 'chatgptAuthTokens') {
+        if (!request.params.accessToken || !request.params.chatgptAccountId || existsSync(authPath))
+          throw new Error('External auth must not have refresh credentials')
+        globalThis.fixtureAccountId = request.params.chatgptAccountId
+        process.stdout.write(`${JSON.stringify({ id: request.id, result: { type: 'chatgptAuthTokens' } })}\n`)
+        continue
+      }
+      if (request.method === 'account/read' && request.params?.refreshToken && auth) {
+        auth.tokens.access_token += '-refreshed'
+        auth.tokens.refresh_token += '-rotated'
+        writeFileSync(authPath, JSON.stringify(auth))
+      }
       if (request.method === 'account/login/start') {
         const controlPath = path.join(process.env.CODEX_HOME, 'fixture-login.json')
         const control = existsSync(controlPath) ? JSON.parse(readFileSync(controlPath, 'utf8')) : {}

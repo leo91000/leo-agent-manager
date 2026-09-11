@@ -32,7 +32,7 @@ impl Fixture {
                 .to_string_lossy()
                 .into_owned(),
             gh_bin: "gh".into(),
-            concurrency: 1,
+            concurrency: 2,
             logger: false,
             worker_enabled: true,
             runner_url: String::new(),
@@ -178,7 +178,7 @@ async fn usage_exhaustion_switches_accounts_and_preserves_the_conversation() {
         .await;
     assert_eq!(completed["status"], "succeeded", "{completed}");
     assert_eq!(completed["codexAccountId"], accounts[1]);
-    assert_eq!(completed["sessionId"], "fixture-session");
+    assert_eq!(completed["sessionId"], "fixture-chat");
     fixture.stop(false).await;
 }
 #[tokio::test]
@@ -201,6 +201,69 @@ async fn native_worker_records_artifacts_and_completes_task() {
         .await
         .unwrap();
     assert!(events.iter().any(|e| e["payload"].is_object()));
+    fixture.stop(false).await;
+}
+
+#[tokio::test]
+async fn parallel_managed_tasks_resume_after_restart_without_refresh_credentials_in_runs() {
+    let mut fixture = Fixture::new().await;
+    fixture.stop(false).await;
+    let account = fixture
+        .service
+        .accounts
+        .new_account(&fixture.service, "Shared")
+        .await
+        .unwrap();
+    let account_id = text(&account, "id");
+    fixture
+        .service
+        .store
+        .set("codex-accounts-enabled", json!(true), None)
+        .await
+        .unwrap();
+    fixture.service.vault.set(&format!("codex-account:{account_id}"), &json!({"tokens":{"access_token":"synthetic","refresh_token":"secret-refresh","account_id":"shared"}})).await.unwrap();
+    fixture.start().await;
+    let first = fixture.enqueue("fixture:chat-hang first task").await;
+    let second = fixture.enqueue("fixture:chat-hang second task").await;
+    for run in [&first, &second] {
+        let running = fixture
+            .until(text(run, "id"), |r| r["sessionId"] == "fixture-chat")
+            .await;
+        assert_eq!(running["codexAccountId"], account_id);
+        assert_eq!(running["codexAuthMode"], "external");
+        assert!(
+            !fixture
+                .service
+                .config
+                .data_dir
+                .join("runs")
+                .join(text(run, "id"))
+                .join("codex/auth.json")
+                .exists()
+        );
+    }
+    fixture.stop(true).await;
+    fixture.start().await;
+    for run in [&first, &second] {
+        let completed = fixture
+            .until(text(run, "id"), |r| {
+                ["succeeded", "failed"].contains(&text(r, "status"))
+            })
+            .await;
+        assert_eq!(completed["status"], "succeeded", "{completed}");
+        assert_eq!(completed["sessionId"], "fixture-chat");
+        assert_eq!(completed["codexAccountId"], account_id);
+    }
+    assert_eq!(
+        fixture
+            .service
+            .vault
+            .get(&format!("codex-account:{account_id}"))
+            .await
+            .unwrap()
+            .unwrap()["tokens"]["refresh_token"],
+        "secret-refresh"
+    );
     fixture.stop(false).await;
 }
 #[tokio::test]

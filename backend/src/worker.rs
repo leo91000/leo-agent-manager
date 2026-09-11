@@ -566,7 +566,7 @@ impl Worker {
             .patch_run(
                 &id,
                 json!({
-                "status":"running","startedAt":run["startedAt"].as_i64().unwrap_or_else(now),"finishedAt":null,"accountWaitReason":null,"codexAccountId":account.as_ref().map(|a|&a.account_id),"codexAccountName":account_name}
+                "status":"running","startedAt":run["startedAt"].as_i64().unwrap_or_else(now),"finishedAt":null,"accountWaitReason":null,"codexAccountId":account.as_ref().map(|a|&a.account_id),"codexAccountName":account_name,"codexAuthMode":account.as_ref().map(|_| "external")}
                 ),
             )
             .await?;
@@ -735,12 +735,22 @@ impl Worker {
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
             args.extend(run_output::args(run, output, resume.as_deref()));
-            let chat = if run["chatExecution"].is_object() {
+            let _auth_broker = if let Some(account) = account.as_ref() {
+                Some(crate::account_tokens::serve(s, account).await?)
+            } else {
+                None
+            };
+            let chat = if run["chatExecution"].is_object() || account.is_some() {
                 private_dir(&directory.join("chat-input")).await?;
                 s.prepare_chat_files(text(run, "id"), &run["chatExecution"]["attachments"])
                     .await?;
-                let chat =
+                let mut chat =
                     run_output::chat_plan(run, &prepared, &directory, &mcp, resume.as_deref());
+                if !run["chatExecution"].is_object() {
+                    // Scheduled work uses the same authenticated protocol as
+                    // chats, while retaining its own task brief and session.
+                    chat["execution"] = json!({"messageId":id,"text":prompt,"recovery":resume.is_some(),"attachments":[]});
+                }
                 binary = std::env::current_exe()?.to_string_lossy().into_owned();
                 args = vec!["chat".into(), s.config.codex_bin.clone()];
                 prompt = chat.to_string();
@@ -853,6 +863,11 @@ impl Worker {
                                     code=child.child.wait(),if status.is_none()=>status=Some(code?.code().unwrap_or(143)),
                                     event=events.recv(),if open=>match event{
                 Some((diagnostic,raw))=>{
+                if let Some(account) = account.as_ref() {
+                    for secret in s.accounts.redactions(s, &account.account_id).await? {
+                        if !sensitive.contains(&secret) { sensitive.push(secret); }
+                    }
+                }
                 exhausted|=record(s,&id,&raw,diagnostic,checkpoint,sensitive,&mut total).await?;
                 }
                 ,None=>open=false}
@@ -860,6 +875,7 @@ impl Worker {
             }
             let _ = out.await;
             let _ = err.await;
+            drop(_auth_broker);
             checkpoint
                 .save(json!({
                 "process":null}

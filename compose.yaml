@@ -11,7 +11,7 @@ services:
     environment:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4310}
       RUNNER_URL: http://runner:4311
-      CONCURRENCY: ${CONCURRENCY:-1}
+      CONCURRENCY: ${CONCURRENCY:-4}
     volumes:
       - data:/data
       - agent-home:/home/node
