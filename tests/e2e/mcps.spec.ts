@@ -61,7 +61,7 @@ test('manages MCP connections, OAuth consent, tools and agent access on desktop 
     await page.goto('/mcps')
     await page.getByRole('button', { name: 'Add MCP', exact: true }).click()
     await dialog.getByRole('combobox', { name: 'Connection type', exact: true }).click()
-    await page.getByRole('option', { name: 'Command in agent container', exact: true }).click()
+    await page.getByRole('option', { name: 'Command in agent VM', exact: true }).click()
     await dialog.getByLabel('Name', { exact: true }).fill('Local tooling')
     await dialog.getByLabel('Command', { exact: true }).fill('pnpm')
     await dialog.getByLabel('Arguments', { exact: true }).fill('dlx\nexample-mcp-server')

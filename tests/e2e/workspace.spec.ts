@@ -242,7 +242,7 @@ test('approves a scoped OAuth connector and revokes its grant', async ({
   ).toBeVisible()
   await expect(
     page.getByText(
-      'Start and cancel tasks in YOLO mode with full container access',
+      'Start and cancel tasks in YOLO mode with full access inside a private VM',
     ),
   ).toBeVisible()
   await page.route('**/oauth-test-callback?*', route =>
