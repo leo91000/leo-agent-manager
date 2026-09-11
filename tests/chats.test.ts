@@ -118,6 +118,7 @@ describe('interactive chats', () => {
     await ctx.worker.tick()
     const id = ctx.service.chats.get(chat.id).runId!
     await expect.poll(() => ctx.service.store.run(id)?.status, { timeout: 10000 }).toBe('failed')
+    await expect.poll(() => ctx.worker.active.has(id)).toBe(false)
     await ctx.worker.tick()
     expect(ctx.service.chats.get(chat.id).paused).toBe(true)
     expect(ctx.service.store.chatMessages(chat.id)[1].status).toBe('queued')
