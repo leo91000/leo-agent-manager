@@ -88,3 +88,75 @@ async fn replay_of_completed_turn_does_not_submit_the_instruction_again() {
             .unwrap();
     assert_eq!(thread["turns"].as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn images_and_files_reach_start_and_steer_as_readable_inputs() {
+    let root = TempDir::new().unwrap();
+    let config = config(&root);
+    let home = root.path().join("codex");
+    std::fs::create_dir(&home).unwrap();
+    let image = json!({"id":"image-id","name":"design.png","kind":"image"});
+    let document = json!({"id":"file-id","name":"notes.md","kind":"file"});
+    for attachment in [&image, &document] {
+        let path = root
+            .path()
+            .join("inbox/attachments")
+            .join(attachment["id"].as_str().unwrap());
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(
+            path.join(attachment["name"].as_str().unwrap()),
+            b"fixture content",
+        )
+        .unwrap();
+    }
+    let mut plan = plan(&root, "fixture:chat-hang");
+    plan["execution"]["attachments"] = json!([image, document]);
+    let (tx, mut rx) = mpsc::channel(64);
+    let run_home = home.clone();
+    let task = tokio::spawn(async move {
+        chat_process::run(&config, &run_home, plan, tx, CancellationToken::new()).await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10),async {
+        while let Some(event) = rx.recv().await {
+            if event["type"] == "chat.delivered" && event["messageId"] == "original-message" {
+                atomic_write(&root.path().join("inbox/messages.json"),json!([{"id":"steer-image","text":"finish now","attachments":[image,document]}]).to_string().as_bytes()).await.unwrap();
+            }
+        }
+    }).await.unwrap();
+    task.await.unwrap().unwrap();
+    let thread: Value =
+        serde_json::from_slice(&std::fs::read(home.join("fixture-conversation.json")).unwrap())
+            .unwrap();
+    let users = thread["turns"][0]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| i["type"] == "userMessage")
+        .collect::<Vec<_>>();
+    assert_eq!(users.len(), 2);
+    for user in users {
+        let input = user["content"].as_array().unwrap();
+        let image = input.iter().find(|i| i["type"] == "localImage").unwrap();
+        assert_eq!(
+            std::fs::read(image["path"].as_str().unwrap()).unwrap(),
+            b"fixture content"
+        );
+        assert!(
+            input
+                .iter()
+                .any(|i| i["text"].as_str().is_some_and(|s| s.contains("notes.md")))
+        );
+    }
+    let isolated = leo_agent_manager::attachments::input(
+        "Review",
+        &json!([image, document]),
+        std::path::Path::new("/run/leo-chat"),
+    );
+    assert!(
+        isolated
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["path"] == "/run/leo-chat/attachments/image-id/design.png")
+    );
+}

@@ -43,6 +43,7 @@ export const Minimize2 = 'i-lucide-minimize-2' as const
 export const Monitor = 'i-lucide-monitor' as const
 export const Moon = 'i-lucide-moon' as const
 export const MoreHorizontal = 'i-lucide-more-horizontal' as const
+export const Paperclip = 'i-lucide-paperclip' as const
 export const Pause = 'i-lucide-pause' as const
 export const Pencil = 'i-lucide-pencil' as const
 export const Play = 'i-lucide-play' as const

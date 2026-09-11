@@ -46,6 +46,15 @@ ChatGPT/Claude connection setup and the supported protocol boundary.
 
 [Codex accounts](docs/CODEX-ACCOUNTS.md) explains selection, natural resets, and automatic session handoffs.
 
+Chat supports images and files through the attachment button, drag-and-drop, or
+pasting an image. Preview images before sending and in the conversation. Attach
+up to eight files per message (10 MB each, 40 MB combined; 200 MB per chat).
+Attachments work with image-only messages, queue editing, steering, and restart
+recovery. PNG, JPEG, WebP, and GIF images go directly to Codex as image inputs;
+other files are available for the agent to inspect with its tools. Downloads
+require sign-in, and sandboxed runs receive private copies through their existing
+read-only chat input mount.
+
 [MCP connections for agents](docs/MCP-CONNECTIONS.md) covers outbound servers,
 OAuth setup, tool permissions, and credential backups.
 

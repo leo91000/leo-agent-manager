@@ -269,3 +269,92 @@ async fn native_chat_turns_reuse_the_same_run_and_conversation() {
     );
     fixture.stop(false).await;
 }
+
+#[tokio::test]
+async fn chat_attachments_survive_worker_restart_and_reach_codex() {
+    use axum::{body::Body, http::Request};
+    let mut fixture = Fixture::new().await;
+    let chat = fixture.service.chat_create(json!({})).await.unwrap();
+    let chat_id = text(&chat, "id");
+    let attachment_id = id();
+    let request = Request::builder()
+        .method("PUT")
+        .uri("/?name=design.png")
+        .body(Body::from(b"\x89PNG\r\n\x1a\nfixture".to_vec()))
+        .unwrap();
+    fixture
+        .service
+        .attachment_http(chat_id, &attachment_id, request)
+        .await
+        .unwrap();
+    fixture
+        .service
+        .chat_send(
+            chat_id,
+            json!({"id":id(),"text":"fixture:chat-hang","attachmentIds":[attachment_id]}),
+        )
+        .await
+        .unwrap();
+    let run_id = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let chat = fixture.service.chat_detail(chat_id).await.unwrap();
+            if let Some(id) = chat["runId"].as_str() {
+                break id.to_owned();
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .unwrap();
+    fixture
+        .until(&run_id, |r| r["sessionId"] == "fixture-chat")
+        .await;
+    // Wait for the original input receipt, so recovery resumes the accepted turn.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if fixture.service.chat_detail(chat_id).await.unwrap()["messages"][0]["status"]
+                == "delivered"
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .unwrap();
+    fixture.stop(true).await;
+    fixture.start().await;
+    let completed = fixture
+        .until(&run_id, |r| {
+            ["succeeded", "failed"].contains(&text(r, "status"))
+        })
+        .await;
+    assert_eq!(completed["status"], "succeeded", "{completed}");
+    assert_eq!(completed["resumeCount"], 1);
+    let path = fixture.service.config.data_dir.join("runs").join(&run_id);
+    let thread: Value = serde_json::from_slice(
+        &std::fs::read(path.join("codex/fixture-conversation.json")).unwrap(),
+    )
+    .unwrap();
+    let turns = thread["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 2);
+    for turn in turns {
+        let user = turn["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["type"] == "userMessage")
+            .unwrap();
+        let image = user["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["type"] == "localImage")
+            .unwrap();
+        assert_eq!(
+            std::fs::read(text(image, "path")).unwrap(),
+            b"\x89PNG\r\n\x1a\nfixture"
+        );
+    }
+    fixture.stop(false).await;
+}

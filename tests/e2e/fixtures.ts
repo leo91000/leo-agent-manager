@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import type { Service } from '../legacy/server/service'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -122,4 +122,9 @@ export async function expectSingleScroll(page: Page) {
     return { root: document.documentElement.scrollHeight - innerHeight, horizontal: document.documentElement.scrollWidth - innerWidth, nested }
   })
   expect(report).toEqual({ root: 0, horizontal: 0, nested: [] })
+}
+
+export function initializeRepository(projectPath: string) {
+  execFileSync('git', ['init', '-b', 'main', projectPath])
+  execFileSync('git', ['-C', projectPath, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '--allow-empty', '-m', 'Initial'])
 }

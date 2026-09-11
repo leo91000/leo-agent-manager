@@ -19,6 +19,7 @@ pub struct Service {
     pub connections: Arc<crate::connections::Connections>,
     pub account_login: Arc<tokio::sync::Mutex<Option<crate::connections::AccountLogin>>>,
     pub notifications: crate::notifications::Notifications,
+    pub attachment_upload: Arc<tokio::sync::Mutex<()>>,
     pub config: Config,
     pub store: Store,
     pub auth: Auth,
@@ -39,6 +40,7 @@ impl Service {
             connections: Default::default(),
             account_login: Default::default(),
             notifications: Default::default(),
+            attachment_upload: Default::default(),
             auth: Auth::new(store.clone(), config.public_url.clone()),
             skills: Skills {
                 config: config.clone(),

@@ -8,10 +8,19 @@ export const chatInput = z.object({
 })
 export const chatMessageInput = z.object({
   id: z.string().uuid(),
-  text: z.string().trim().min(1).max(50000),
+  text: z.string().trim().max(50000).default(''),
+  attachmentIds: z.array(z.string().uuid()).max(8).default([]),
   mode: z.enum(['queue', 'steer']).default('queue'),
   model: z.string().trim().max(120).regex(/^[\w./:-]*$/).default(''),
-})
+}).refine(message => message.text.length > 0 || message.attachmentIds.length > 0, 'Write a message or attach a file')
+export interface ChatAttachment {
+  id: string
+  chatId: string
+  name: string
+  size: number
+  mediaType: string
+  kind: 'image' | 'file'
+}
 export interface Chat {
   id: string
   title: string
@@ -23,6 +32,7 @@ export interface Chat {
   updatedAt: number
 }
 export interface ChatMessage {
+  attachments?: ChatAttachment[]
   questionId?: string
   answers?: Record<string, string[]>
   id: string
@@ -65,6 +75,7 @@ export const questionAnswerInput = z.object({
   answers: z.record(z.string(), z.array(z.string().trim().min(1).max(10000)).min(1).max(1)),
 })
 export interface ChatExecution {
+  attachments?: ChatAttachment[]
   messageId: string
   text: string
   recovery: boolean

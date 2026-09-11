@@ -1,9 +1,7 @@
-import { execFileSync } from 'node:child_process'
-import { expect, expectSingleScroll, test } from './fixtures'
+import { expect, expectSingleScroll, initializeRepository, test } from './fixtures'
 
 test('starts project chats, steers, edits the queue and preserves a compact mobile composer', async ({ page, workspace }) => {
-  execFileSync('git', ['init', '-b', 'main', workspace.projectPath])
-  execFileSync('git', ['-C', workspace.projectPath, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '--allow-empty', '-m', 'Initial'])
+  initializeRepository(workspace.projectPath)
   await page.goto('/')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
@@ -60,8 +58,7 @@ test('starts project chats, steers, edits the queue and preserves a compact mobi
 })
 
 test('answers in-flight questions with choices or free text on desktop and mobile', async ({ page, workspace }) => {
-  execFileSync('git', ['init', '-b', 'main', workspace.projectPath])
-  execFileSync('git', ['-C', workspace.projectPath, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '--allow-empty', '-m', 'Initial'])
+  initializeRepository(workspace.projectPath)
   await page.goto('/')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()

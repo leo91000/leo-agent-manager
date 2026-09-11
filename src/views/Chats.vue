@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { Chat, ChatDetail, ChatMessage, ChatView } from '../../shared/chats'
+import type { Chat, ChatAttachment, ChatDetail, ChatMessage, ChatView } from '../../shared/chats'
 import type { RunEvent } from '../../shared/contracts'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, state } from '../api'
 import ActivityFeed from '../components/ActivityFeed.vue'
+import ChatAttachments from '../components/ChatAttachments.vue'
 import ChatQuestions from '../components/ChatQuestions.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
@@ -13,7 +14,7 @@ import NotificationSettings from '../components/NotificationSettings.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import { Bell, Bot, ChevronDown, Clock, FolderGit2, MessageCircle, Pause, Pencil, Play, Plus, Send, Settings, Square, Trash2, X, Zap } from '../icons'
+import { Bell, Bot, ChevronDown, Clock, FolderGit2, MessageCircle, Paperclip, Pause, Pencil, Play, Plus, Send, Settings, Square, Trash2, X, Zap } from '../icons'
 import { iconButton } from '../ui'
 
 const router = useRouter()
@@ -33,6 +34,66 @@ const editing = ref<string | null>(null)
 const agentId = ref(typeof route.query.agent === 'string' ? route.query.agent : MAIN_AGENT_ID)
 const projectId = ref(typeof route.query.project === 'string' ? route.query.project : '')
 const textarea = ref<HTMLTextAreaElement>()
+const fileInput = ref<HTMLInputElement>()
+const attachments = ref<ChatAttachment[]>([])
+const previews = ref<Record<string, string>>({})
+const files = new Map<string, File>()
+const uploaded = new Set<string>()
+const dragging = ref(0)
+const uploadProgress = ref('')
+const canSend = computed(() => !!draft.value.trim() || attachments.value.length > 0)
+function removeAttachment(id: string) {
+  if (previews.value[id])
+    URL.revokeObjectURL(previews.value[id])
+  delete previews.value[id]
+  files.delete(id)
+  uploaded.delete(id)
+  attachments.value = attachments.value.filter(attachment => attachment.id !== id)
+}
+function clearAttachments() {
+  for (const attachment of attachments.value) removeAttachment(attachment.id)
+}
+function addFiles(selected: File[]) {
+  if (busy.value)
+    return
+  if (attachments.value.length + selected.length > 8) {
+    error.value = 'Attach up to 8 files per message.'
+    return
+  }
+  if (selected.some(file => file.size > 10 * 1024 * 1024)) {
+    error.value = 'Files must be 10 MB or smaller.'
+    return
+  }
+  if ([...attachments.value, ...selected].reduce((total, file) => total + file.size, 0) > 40 * 1024 * 1024) {
+    error.value = 'Attachments must total at most 40 MB per message.'
+    return
+  }
+  error.value = ''
+  for (const file of selected) {
+    const id = crypto.randomUUID()
+    const image = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)
+    files.set(id, file)
+    if (image)
+      previews.value[id] = URL.createObjectURL(file)
+    attachments.value.push({ id, name: file.name || 'pasted-image.png', size: file.size, kind: image ? 'image' : 'file', mediaType: file.type, chatId: '' })
+  }
+}
+function pickFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  addFiles(Array.from(input.files ?? []))
+  input.value = ''
+}
+function dropFiles(event: DragEvent) {
+  dragging.value = 0
+  addFiles(Array.from(event.dataTransfer?.files ?? []))
+}
+function pasteFiles(event: ClipboardEvent) {
+  const pasted = Array.from(event.clipboardData?.files ?? [])
+  if (!pasted.length)
+    return
+  event.preventDefault()
+  addFiles(pasted)
+}
 const active = computed(() => !!detail.value?.run && ['queued', 'running'].includes(detail.value.run.status))
 const pending = computed(() => detail.value?.messages.filter(message => message.status !== 'delivered') ?? [])
 const selectedAgent = computed(() => state.agents.find(agent => agent.id === agentId.value))
@@ -83,26 +144,39 @@ onMounted(() => {
 onBeforeUnmount(() => {
   disposed = true
   clearInterval(timer)
+  clearAttachments()
 })
-let submission: { id: string, text: string, mode: 'queue' | 'steer', model: string } | undefined
+let submission: { id: string, text: string, mode: 'queue' | 'steer', model: string, attachmentIds: string[] } | undefined
 let createdChat: Chat | undefined
 async function send(mode: 'queue' | 'steer' = 'queue') {
   const originalDraft = draft.value
   const text = originalDraft.trim()
-  if (!text || busy.value)
+  if (!canSend.value || busy.value)
     return
   busy.value = true
   error.value = ''
   try {
     const chat = detail.value ?? createdChat ?? await api<Chat>('/chats', { method: 'POST', body: JSON.stringify({ agentId: agentId.value, projectId: projectId.value || null }) })
     createdChat = chat
+    for (const [index, attachment] of attachments.value.entries()) {
+      const file = files.get(attachment.id)
+      if (!file || uploaded.has(attachment.id))
+        continue
+      uploadProgress.value = `Uploading ${index + 1} of ${attachments.value.length}…`
+      const saved = await api<ChatAttachment>(`/chats/${chat.id}/attachments/${attachment.id}?name=${encodeURIComponent(attachment.name)}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file })
+      Object.assign(attachment, saved)
+      uploaded.add(attachment.id)
+    }
+    uploadProgress.value = ''
+    const attachmentIds = attachments.value.map(attachment => attachment.id)
     // Retain the id after a network failure so retry cannot duplicate a message.
-    if (!submission || submission.text !== text || submission.mode !== mode || submission.model !== model.value)
-      submission = { id: crypto.randomUUID(), text, mode, model: model.value }
+    if (!submission || submission.text !== text || submission.mode !== mode || submission.model !== model.value || submission.attachmentIds.join() !== attachmentIds.join())
+      submission = { id: crypto.randomUUID(), text, mode, model: model.value, attachmentIds }
     await api(`/chats/${chat.id}/messages${editing.value ? `/${editing.value}` : ''}`, { method: editing.value ? 'PUT' : 'POST', body: JSON.stringify(submission) })
     if (draft.value === originalDraft)
       draft.value = ''
     editing.value = null
+    clearAttachments()
     submission = undefined
     if (!detail.value) {
       sessionStorage.setItem(`leo-chat-draft:${chat.id}`, draft.value)
@@ -114,7 +188,10 @@ async function send(mode: 'queue' | 'steer' = 'queue') {
     textarea.value?.focus()
   }
   catch (e) { error.value = (e as Error).message }
-  finally { busy.value = false }
+  finally {
+    busy.value = false
+    uploadProgress.value = ''
+  }
 }
 async function action(name: 'pause' | 'stop', body?: object) {
   if (!detail.value || busy.value)
@@ -131,17 +208,19 @@ async function action(name: 'pause' | 'stop', body?: object) {
 async function update(message: ChatMessage, mode?: 'steer') {
   error.value = ''
   try {
-    await api(`/chats/${detail.value!.id}/messages/${message.id}`, { method: mode ? 'PUT' : 'DELETE', ...(mode ? { body: JSON.stringify({ ...message, mode }) } : {}) })
+    await api(`/chats/${detail.value!.id}/messages/${message.id}`, { method: mode ? 'PUT' : 'DELETE', ...(mode ? { body: JSON.stringify({ ...message, mode, attachmentIds: message.attachments?.map(attachment => attachment.id) ?? [] }) } : {}) })
     await load()
   }
   catch (e) { error.value = (e as Error).message }
 }
 function edit(message: ChatMessage) {
-  if (draft.value.trim() && !editing.value) {
+  if (canSend.value && !editing.value) {
     error.value = 'Send or clear your draft before editing a queued message.'
     return
   }
   editing.value = message.id
+  clearAttachments()
+  attachments.value = [...(message.attachments ?? [])]
   draft.value = message.text
   model.value = message.model
   textarea.value?.focus()
@@ -177,7 +256,7 @@ function key(event: KeyboardEvent) {
         <button :class="iconButton" aria-label="Question notifications" @click="notifications = true">
           <Icon :name="Bell" :size="20" />
         </button>
-        <RouterLink to="/chats" class="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-xs font-semibold hover:bg-soft" @click="draft = ''; agentId = MAIN_AGENT_ID; projectId = ''; createdChat = undefined; editing = null">
+        <RouterLink to="/chats" class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-surface px-3 py-2 text-xs font-semibold hover:bg-soft" @click="draft = ''; clearAttachments(); agentId = MAIN_AGENT_ID; projectId = ''; createdChat = undefined; editing = null">
           <Icon :name="Plus" :size="16" />New chat
         </RouterLink>
       </div>
@@ -257,7 +336,7 @@ function key(event: KeyboardEvent) {
             </div>
             <ul v-if="queueOpen" class="max-h-32 overflow-auto border-t border-line px-3 py-1">
               <li v-for="message in pending" :key="message.id" class="flex items-center gap-1.5 py-1.5 text-xs">
-                <span class="min-w-0 flex-1 truncate" :title="message.text">{{ message.text }}</span>
+                <span class="min-w-0 flex-1 truncate" :title="message.text">{{ message.text || message.attachments?.[0]?.name }}<span v-if="message.attachments?.length" class="ml-2 text-muted">· {{ message.attachments.length }} attached</span></span>
                 <template v-if="message.status === 'queued'">
                   <button v-if="active && message.mode !== 'steer'" :class="iconButton" aria-label="Steer with this message" title="Steer now" @click="update(message, 'steer')">
                     <Icon :name="Zap" :size="14" />
@@ -273,11 +352,18 @@ function key(event: KeyboardEvent) {
               </li>
             </ul>
           </div>
-          <form class="rounded-xl border border-line bg-raised p-3 focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/10" @submit.prevent="send()">
+          <form class="relative rounded-xl border border-line bg-raised p-3 focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/10" @submit.prevent="send()" @dragenter.prevent="dragging++" @dragover.prevent @dragleave.prevent="dragging = Math.max(0, dragging - 1)" @drop.prevent="dropFiles" @paste="pasteFiles">
+            <div v-if="dragging" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-accent bg-surface/95 text-sm font-semibold text-accent">
+              <Icon :name="Paperclip" :size="20" />Drop files here
+            </div>
             <div v-if="editing" class="mb-2 flex items-center justify-between text-[11px] text-accent">
-              Editing queued message<button type="button" :class="iconButton" aria-label="Cancel edit" @click="editing = null; draft = ''">
+              Editing queued message<button type="button" :class="iconButton" aria-label="Cancel edit" @click="editing = null; draft = ''; clearAttachments()">
                 <Icon :name="X" :size="14" />
               </button>
+            </div>
+            <ChatAttachments v-if="attachments.length" :attachments="attachments" :previews="previews" removable :disabled="busy" class="mb-3!" @remove="removeAttachment" />
+            <div v-if="uploadProgress" class="mb-2 text-xs text-accent" role="status">
+              {{ uploadProgress }}
             </div>
             <textarea ref="textarea" v-model="draft" aria-label="Message" :placeholder="active ? 'Add a follow-up…' : 'Message your agent…'" rows="2" maxlength="50000" class="block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!" @keydown="key" />
             <div v-if="options" class="mb-3 border-t border-line pt-3">
@@ -286,17 +372,23 @@ function key(event: KeyboardEvent) {
               </p>
             </div>
             <div class="flex items-center justify-between gap-2 pt-2">
-              <button type="button" class="flex items-center gap-1.5 rounded-md px-1 py-1 text-[10px] text-muted hover:text-accent" :aria-expanded="options" aria-label="Message options" @click="options = !options">
-                <Icon :name="Settings" :size="14" /><span class="max-w-28 truncate phone:hidden">{{ model || 'Agent default' }}</span>
-              </button>
+              <div class="flex items-center gap-1">
+                <input ref="fileInput" type="file" multiple class="hidden" aria-label="Attach files" :disabled="busy" @change="pickFiles">
+                <button type="button" :class="iconButton" aria-label="Add images or files" title="Add images or files · up to 8 files, 10 MB each" :disabled="busy || attachments.length >= 8" @click="fileInput?.click()">
+                  <Icon :name="Paperclip" :size="18" />
+                </button>
+                <button type="button" class="flex items-center gap-1.5 rounded-md px-1 py-1 text-[10px] text-muted hover:text-accent" :aria-expanded="options" aria-label="Message options" @click="options = !options">
+                  <Icon :name="Settings" :size="14" /><span class="max-w-28 truncate phone:hidden">{{ model || 'Agent default' }}</span>
+                </button>
+              </div>
               <div class="flex items-center gap-2">
                 <button v-if="active && !editing" type="button" :class="iconButton" aria-label="Stop response" title="Stop response and pause queue" :disabled="busy" @click="action('stop')">
                   <Icon :name="Square" :size="14" />
                 </button>
-                <UiButton v-if="active && !editing" type="button" size="small" :disabled="busy || !draft.trim()" aria-label="Steer now" title="Send into the current turn (Alt + Enter)" @click="send('steer')">
-                  <Icon :name="Zap" :size="14" />Steer now
+                <UiButton v-if="active && !editing" type="button" size="small" :disabled="busy || !canSend" aria-label="Steer now" title="Send into the current turn (Alt + Enter)" @click="send('steer')">
+                  <Icon :name="Zap" :size="14" /><span class="phone:hidden">Steer now</span><span class="hidden phone:inline">Steer</span>
                 </UiButton>
-                <UiButton type="submit" variant="primary" size="small" :disabled="busy || !draft.trim()">
+                <UiButton type="submit" variant="primary" size="small" :disabled="busy || !canSend">
                   <Icon :name="editing ? Pencil : active ? Plus : Send" :size="16" />{{ editing ? 'Save' : active || detail?.paused ? 'Queue' : 'Send' }}
                 </UiButton>
               </div>

@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod api;
+pub mod attachments;
 pub mod auth;
 pub mod chat_process;
 pub mod chats;

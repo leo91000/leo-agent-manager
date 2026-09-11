@@ -369,7 +369,7 @@ impl Chat {
             text(&plan["execution"], "text").to_owned()
         };
         let mut params = json!({
-        "threadId":self.thread,"input":input(&message),"effort":plan["reasoning"]}
+        "threadId":self.thread,"input":crate::attachments::input(&message, &plan["execution"]["attachments"], Path::new(text(plan,"inputDirectory"))),"effort":plan["reasoning"]}
         );
         if previous.is_none() {
             params["clientUserMessageId"] = plan["execution"]["messageId"].clone();
@@ -442,7 +442,7 @@ impl Chat {
                 continue;
             }
             let params = json!({
-            "threadId":self.thread,"expectedTurnId":self.turn,"clientUserMessageId":id,"input":input(text(&message,"text"))}
+            "threadId":self.thread,"expectedTurnId":self.turn,"clientUserMessageId":id,"input":crate::attachments::input(text(&message,"text"), &message["attachments"], Path::new(text(plan,"inputDirectory")))}
             );
             if self.request("turn/steer", params).await.is_err() {
                 break;
@@ -462,11 +462,6 @@ impl Chat {
         ))
         .await
     }
-}
-fn input(text: &str) -> Value {
-    json!([{
-    "type":"text","text":text,"text_elements":[]}
-    ])
 }
 pub async fn run(
     config: &Config,

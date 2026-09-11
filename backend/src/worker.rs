@@ -737,6 +737,8 @@ impl Worker {
             args.extend(run_output::args(run, output, resume.as_deref()));
             let chat = if run["chatExecution"].is_object() {
                 private_dir(&directory.join("chat-input")).await?;
+                s.prepare_chat_files(text(run, "id"), &run["chatExecution"]["attachments"])
+                    .await?;
                 let chat =
                     run_output::chat_plan(run, &prepared, &directory, &mcp, resume.as_deref());
                 binary = std::env::current_exe()?.to_string_lossy().into_owned();

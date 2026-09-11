@@ -26,7 +26,7 @@ export interface ActivityArtifact {
   statusLabel?: string
 }
 export type ActivityEntry
-  = | { kind: 'message', role?: 'user', id: string, time: number, text: string }
+  = | { kind: 'message', role?: 'user', id: string, time: number, text: string, attachments?: import('../shared/chats').ChatAttachment[] }
     | { kind: 'group', id: string, artifacts: ActivityArtifact[] }
 
 function record(value: unknown): Record<string, unknown> {
@@ -71,7 +71,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
   let legacyTool: ActivityArtifact | undefined
   for (const event of events) {
     if (event.type === 'chat.user') {
-      entries.push({ kind: 'message', role: 'user', id: `user:${event.id}`, time: event.createdAt, text: typeof event.payload?.text === 'string' ? event.payload.text : event.text })
+      entries.push({ kind: 'message', role: 'user', id: `user:${event.id}`, time: event.createdAt, text: typeof event.payload?.text === 'string' ? event.payload.text : event.text, attachments: Array.isArray(event.payload?.attachments) ? event.payload.attachments : [] })
       continue
     }
     const data = payload(event)

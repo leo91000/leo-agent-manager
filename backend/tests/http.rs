@@ -255,3 +255,194 @@ async fn health_and_deployment_lease_report_live_worker_ownership() {
             .is_none()
     );
 }
+
+#[tokio::test]
+async fn attachments_are_private_scoped_bounded_and_durable() {
+    let (_root, app, service) = app().await;
+    let session = service.auth.session().await.unwrap();
+    let chat = service.chat_create(json!({})).await.unwrap();
+    let other = service.chat_create(json!({})).await.unwrap();
+    let id = leo_agent_manager::config::id();
+    let chat_id = chat["id"].as_str().unwrap();
+    let url = format!("/api/chats/{chat_id}/attachments/{id}?name=design.png");
+    async fn call(
+        app: &axum::Router,
+        session: &Value,
+        method: &str,
+        url: &str,
+        bytes: Vec<u8>,
+        csrf: bool,
+    ) -> axum::response::Response {
+        let mut req = Request::builder()
+            .method(method)
+            .uri(url)
+            .header("host", "localhost:4310");
+        if !session.is_null() {
+            req = req.header(
+                "cookie",
+                format!("leo_session={}", session["value"].as_str().unwrap()),
+            );
+        }
+        if csrf {
+            req = req.header("x-csrf-token", session["csrf"].as_str().unwrap());
+        }
+        app.clone()
+            .oneshot(req.body(Body::from(bytes)).unwrap())
+            .await
+            .unwrap()
+    }
+    let png = b"\x89PNG\r\n\x1a\nfixture".to_vec();
+    assert_eq!(
+        call(&app, &Value::Null, "PUT", &url, png.clone(), false)
+            .await
+            .status(),
+        401
+    );
+    assert_eq!(
+        call(&app, &session, "PUT", &url, png.clone(), false)
+            .await
+            .status(),
+        403
+    );
+    assert_eq!(
+        call(
+            &app,
+            &session,
+            "PUT",
+            &url,
+            vec![0; leo_agent_manager::attachments::MAX_FILE + 1],
+            true
+        )
+        .await
+        .status(),
+        413
+    );
+    let response = call(&app, &session, "PUT", &url, png.clone(), true).await;
+    assert_eq!(response.status(), 200);
+    let attachment: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    assert_eq!(attachment["kind"], "image");
+    assert_eq!(
+        call(&app, &session, "PUT", &url, png.clone(), true)
+            .await
+            .status(),
+        200
+    );
+    assert_eq!(
+        call(&app, &session, "PUT", &url, b"different".to_vec(), true)
+            .await
+            .status(),
+        409
+    );
+    assert_eq!(
+        call(&app, &Value::Null, "GET", &url, vec![], false)
+            .await
+            .status(),
+        401
+    );
+    let other_url = format!(
+        "/api/chats/{}/attachments/{id}",
+        other["id"].as_str().unwrap()
+    );
+    assert_eq!(
+        call(&app, &session, "GET", &other_url, vec![], false)
+            .await
+            .status(),
+        404
+    );
+    assert!(
+        service
+            .chat_send(
+                other["id"].as_str().unwrap(),
+                json!({"id":leo_agent_manager::config::id(),"attachmentIds":[id]})
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        service
+            .chat_send(
+                chat_id,
+                json!({"id":leo_agent_manager::config::id(),"attachmentIds":[id,id]})
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        service
+            .chat_send(
+                chat_id,
+                json!({"id":leo_agent_manager::config::id(),"text":""})
+            )
+            .await
+            .is_err()
+    );
+    let message_id = leo_agent_manager::config::id();
+    let message = service
+        .chat_send(chat_id, json!({"id":message_id,"attachmentIds":[id]}))
+        .await
+        .unwrap();
+    assert_eq!(message["attachments"][0], attachment);
+    assert_eq!(
+        service.chat_detail(chat_id).await.unwrap()["title"],
+        "design.png"
+    );
+    assert!(
+        service
+            .chat_send(
+                chat_id,
+                json!({"id":message_id,"text":"changed","attachmentIds":[]})
+            )
+            .await
+            .is_err()
+    );
+    let reopened = Service::new(service.config.clone()).await.unwrap();
+    assert_eq!(
+        reopened.chat_detail(chat_id).await.unwrap()["messages"][0]["attachments"][0],
+        attachment
+    );
+    let response = call(&app, &session, "GET", &url, vec![], false).await;
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(response.headers()["content-type"], "image/png");
+    assert_eq!(
+        to_bytes(response.into_body(), 10000)
+            .await
+            .unwrap()
+            .as_ref(),
+        png
+    );
+    let evil = format!(
+        "/api/chats/{chat_id}/attachments/{}?name=..%2F..%2Ffile.svg",
+        leo_agent_manager::config::id()
+    );
+    let response = call(
+        &app,
+        &session,
+        "PUT",
+        &evil,
+        b"<svg onload='alert(1)'/>".to_vec(),
+        true,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let data: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    assert!(!data["name"].as_str().unwrap().contains('/'));
+    let response = call(&app, &session, "GET", &evil, vec![], false).await;
+    assert_eq!(
+        response.headers()["content-type"],
+        "application/octet-stream"
+    );
+    assert!(
+        response.headers()["content-disposition"]
+            .to_str()
+            .unwrap()
+            .starts_with("attachment;")
+    );
+    assert!(
+        response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("sandbox")
+    );
+}

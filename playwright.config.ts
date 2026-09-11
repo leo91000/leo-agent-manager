@@ -10,6 +10,8 @@ export default defineConfig({
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', ...devices['Desktop Chrome'] },
   projects: [
     { name: 'journeys-chats', testMatch: 'chats.spec.ts' },
+    { name: 'journeys-chat-attachments', testMatch: 'chat-attachments.spec.ts' },
+    { name: 'layout-webkit-chat-attachments', testMatch: 'chat-attachments.spec.ts', use: { browserName: 'webkit', hasTouch: true } },
     { name: 'layout-webkit-chats', testMatch: 'chats.spec.ts', use: { browserName: 'webkit', hasTouch: true } },
     { name: 'layout-chromium-scrolling', testMatch: 'scrolling.spec.ts' },
     { name: 'layout-webkit-scrolling', testMatch: 'scrolling.spec.ts', use: { browserName: 'webkit' } },

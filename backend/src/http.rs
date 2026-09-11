@@ -106,7 +106,7 @@ async fn security(State(app): State<App>, mut request: Request, next: Next) -> R
         ("x-frame-options", "DENY"),
         (
             "content-security-policy",
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         ),
     ] {
         if !response.headers().contains_key(name) {
@@ -349,6 +349,12 @@ async fn lease(State(app): State<App>, request: Request) -> Result<Json<Value>> 
     ))
 }
 async fn api(State(app): State<App>, request: Request) -> Result<Response> {
+    let path = request.uri().path().to_owned();
+    if let ["", "api", "chats", chat, "attachments", id] =
+        path.split('/').collect::<Vec<_>>().as_slice()
+    {
+        return app.service.attachment_http(chat, id, request).await;
+    }
     let input = Input::read(request).await?;
     let s = &app.service;
     match (input.method.as_str(), input.path.as_str()) {

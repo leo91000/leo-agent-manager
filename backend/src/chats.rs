@@ -77,10 +77,12 @@ fn send(
     answer: Option<(Value, Value)>,
 ) -> Result<Value> {
     let mut chat = chat(db, chat_id)?;
+    crate::attachments::message(db, chat_id, &mut values)?;
     let messages = db.messages(chat_id)?;
     if let Some(existing) = messages.iter().find(|m| m["id"] == values["id"]) {
         if existing["text"] != values["text"]
             || existing["model"] != values["model"]
+            || !crate::attachments::same(existing, &values)
             || answer
                 .as_ref()
                 .is_some_and(|(q, _)| existing["questionId"] != q["id"])
@@ -129,7 +131,12 @@ fn send(
     }
     validate_steer(db, &chat, &values)?;
     if messages.is_empty() {
-        chat["title"] = text(&values, "text")
+        let title = if text(&values, "text").is_empty() {
+            text(&values["attachments"][0], "name")
+        } else {
+            text(&values, "text")
+        };
+        chat["title"] = title
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
@@ -219,7 +226,7 @@ impl Service {
                 if current["status"] != "queued" {
                     return Err(Error::new(409, "This message is already being sent."));
                 }
-                let Some(values) = values else {
+                let Some(mut values) = values else {
                     if let Some(mut question) = questions(db, &id)?
                         .into_iter()
                         .find(|q| q["id"] == current["questionId"])
@@ -239,6 +246,7 @@ impl Service {
                 if current["questionId"].is_string() {
                     return Err(Error::new(409, "A submitted answer cannot be edited."));
                 }
+                crate::attachments::message(db, &id, &mut values)?;
                 validate_steer(db, &chat, &values)?;
                 merge(&mut current, &values);
                 db.put_message(&current)
@@ -306,7 +314,7 @@ impl Service {
                     "chat.user",
                     text,
                     Some(&json!({
-                    "messageId":message_id,"text":text}
+                    "messageId":message_id,"text":text,"attachments":message["attachments"]}
                     )),
                 )?;
                 chat["updatedAt"] = now().into();
@@ -417,6 +425,7 @@ impl Service {
             if let Some(run) = &run
                 && ["queued", "running"].contains(&text(run, "status"))
             {
+                let run_id = text(run, "id").to_owned();
                 let run = run.clone();
                 let directory = self
                     .config
@@ -443,6 +452,10 @@ impl Service {
                         Ok(steering)
                     })
                     .await?;
+                for message in &steering {
+                    self.prepare_chat_files(&run_id, &message["attachments"])
+                        .await?;
+                }
                 crate::skills::private_dir(&directory).await?;
                 crate::skills::atomic_write(
                     &directory.join("messages.json"),
@@ -499,10 +512,15 @@ impl Service {
         Ok(())
     }
     async fn chat_prepare(&self, chat: Value, run: Option<Value>, message: Value) -> Result<()> {
+        let prompt = if text(&message, "text").is_empty() {
+            "Review the attached files."
+        } else {
+            text(&message, "text")
+        };
         let mut task = parse(
             "task",
             json!({
-            "name":chat["title"],"prompt":message["text"],"agentId":chat["agentId"],"projectId":chat["projectId"],"worktree":true}
+            "name":chat["title"],"prompt":prompt,"agentId":chat["agentId"],"projectId":chat["projectId"],"worktree":true}
             ),
         )?;
         merge(
@@ -519,11 +537,11 @@ impl Service {
             .transaction(move |db| {
                 let mut current_chat = self::chat(db, text(&chat, "id"))?;
                 let current = db.messages(text(&chat, "id"))?.into_iter().find(|m| m["id"] == message["id"]);
-                if current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"]) {
+                if current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"] || !crate::attachments::same(m,&message)) {
                     return Ok(());
                 }
                 let execution = json!({
-                "messageId":message["id"],"text":message["text"],"recovery":false}
+                "messageId":message["id"],"text":message["text"],"attachments":message["attachments"],"recovery":false}
                 );
                 if let Some(run) = run {
                     if snapshot["snapshot"]["agent"]["access"] != run["snapshot"]["agent"]["access"] {
