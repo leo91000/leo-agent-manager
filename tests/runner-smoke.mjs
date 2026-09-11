@@ -169,7 +169,7 @@ console.log('probe.done');
       assert.equal(status.StatusCode, ['cancel', 'crash'].includes(mode) ? 143 : 0, text)
       if (['cancel', 'crash'].includes(mode))
         assert.ok(text.includes('probe.pause'))
-      else assert.equal(await readFile(path.join(source, 'output/result.md'), 'utf8'), `guest test passed ${mode}`)
+      else assert.equal(docker('exec', name, 'cat', `${runRoot}/output/result.md`), `guest test passed ${mode}`)
       assert.equal(await readFile(path.join(source, 'workspace/preserved'), 'utf8').catch(() => null), null, 'guest edits must not affect host checkout')
       await api(`/runs/${id}`, 'DELETE')
       process.stdout.write(`${JSON.stringify({ mode, durationMs: Date.now() - start, status: 'passed' })}\n`)

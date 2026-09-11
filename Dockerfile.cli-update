@@ -38,8 +38,7 @@ RUN rm -f /opt/leo-vm/root.ext4.zst \
     && cp /opt/leo-vm/init /sbin/leo-init && cp /opt/leo-vm/docker /usr/local/bin/docker
 FROM debian:bookworm-slim AS guest-disk
 RUN apt-get update && apt-get install -y --no-install-recommends e2fsprogs zstd && rm -rf /var/lib/apt/lists/*
-COPY --from=guest / /rootfs/
-RUN truncate -s 8G /root.ext4 && mkfs.ext4 -q -F -d /rootfs /root.ext4 \
-    && zstd -T2 -3 /root.ext4 -o /root.ext4.zst
+RUN --mount=from=guest,target=/rootfs,ro truncate -s 8G /root.ext4 && mkfs.ext4 -q -F -d /rootfs /root.ext4 \
+    && zstd -T2 -3 /root.ext4 -o /root.ext4.zst && rm /root.ext4
 FROM updated
 COPY --from=guest-disk /root.ext4.zst /opt/leo-vm/root.ext4.zst

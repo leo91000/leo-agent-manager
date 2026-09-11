@@ -80,9 +80,14 @@ RUN curl -fsSL https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.109.tar.x
     && echo '5484e552a334e15019f4aeba89e5b58f04651cf2f4e24e04de9f152f1c38e3fa  linux.tar.xz' | sha256sum -c - \
     && tar -xf linux.tar.xz --strip-components=1 && rm linux.tar.xz
 COPY deploy/microvm/kernel.config /tmp/leo.config
+# Guests use virtio and a serial console; omit unused physical-device families.
 RUN make x86_64_defconfig && scripts/kconfig/merge_config.sh -m .config /tmp/leo.config \
-    && scripts/config --disable MODULES --disable DEBUG_INFO --disable DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
-    && make olddefconfig && make -j8 vmlinux && strip --strip-debug vmlinux
+    && scripts/config --disable USB --disable DRM --disable FB --disable SOUND --disable MEDIA_SUPPORT \
+        --disable WLAN --disable WIRELESS --disable BT --disable HID --disable INPUT \
+        --disable SCSI --disable ATA --disable MD --disable MMC --disable FIREWIRE \
+        --disable MODULES --disable DEBUG_INFO --disable DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
+    && make olddefconfig && make -j8 vmlinux && strip --strip-debug vmlinux \
+    && mv vmlinux /tmp/leo-vmlinux && make clean && mv /tmp/leo-vmlinux vmlinux
 
 FROM runtime AS guest
 USER root
@@ -93,9 +98,8 @@ COPY --chmod=755 deploy/microvm/docker /usr/local/bin/docker
 
 FROM debian:bookworm-slim AS guest-disk
 RUN apt-get update && apt-get install -y --no-install-recommends e2fsprogs zstd && rm -rf /var/lib/apt/lists/*
-COPY --from=guest / /rootfs/
-RUN truncate -s 8G /root.ext4 && mkfs.ext4 -q -F -d /rootfs /root.ext4 \
-    && zstd -T2 -3 /root.ext4 -o /root.ext4.zst
+RUN --mount=from=guest,target=/rootfs,ro truncate -s 8G /root.ext4 && mkfs.ext4 -q -F -d /rootfs /root.ext4 \
+    && zstd -T2 -3 /root.ext4 -o /root.ext4.zst && rm /root.ext4
 
 FROM runtime AS final
 USER root
