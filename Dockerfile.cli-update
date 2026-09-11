@@ -34,10 +34,8 @@ RUN codex --version && gh --version
 FROM updated AS guest
 USER root
 RUN rm -f /opt/leo-vm/root.ext4.zst \
-    && apt-get update && apt-get install -y --no-install-recommends docker.io sudo \
-    && rm -rf /var/lib/apt/lists/* \
-    && cp /opt/leo-vm/init /sbin/leo-init && cp /opt/leo-vm/docker /usr/local/bin/docker \
-    && printf 'node ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/leo && chmod 440 /etc/sudoers.d/leo
+    && /opt/leo-vm/install-docker \
+    && cp /opt/leo-vm/init /sbin/leo-init && cp /opt/leo-vm/docker /usr/local/bin/docker
 FROM debian:bookworm-slim AS guest-disk
 RUN apt-get update && apt-get install -y --no-install-recommends e2fsprogs zstd && rm -rf /var/lib/apt/lists/*
 COPY --from=guest / /rootfs/

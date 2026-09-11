@@ -19,9 +19,11 @@ while live inbox updates are delivered.
 
 Each VM boots a pinned kernel and a read-only root image. A sparse 32 GiB ext4
 private disk supplies the writable overlay, repositories, home, sessions, installed
-tools and Docker cache. Docker data is mounted directly from that disk. The daemon
+tools and Docker cache. Docker and containerd data are mounted directly from that disk. The daemon
 starts only when the `docker` command first needs it. VM recreation retains the disk;
 RAM snapshots are not part of correctness or recovery.
+Docker Engine, Buildx and Compose come from Docker's signed Debian repository.
+The CLI-update guest build refreshes those packages as well.
 
 The controller never mounts a guest-modified filesystem. Initial archives travel
 into the guest over vsock; only a bounded result file comes back to a predetermined

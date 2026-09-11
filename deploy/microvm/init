@@ -20,8 +20,10 @@ mount -t tmpfs tmpfs /run
 mkdir -p /sys/fs/cgroup
 mount -t cgroup2 none /sys/fs/cgroup
 mount -t tmpfs -o mode=1777 tmpfs /tmp
-mkdir -p /oldroot/run/data/docker /var/lib/docker
-mount --bind /oldroot/run/data/docker /var/lib/docker
+for directory in docker containerd; do
+  mkdir -p /oldroot/run/data/$directory /var/lib/$directory
+  mount --bind /oldroot/run/data/$directory /var/lib/$directory
+done
 ip link set lo up
 printf '127.0.0.1 localhost leo\n' > /etc/hosts
 printf 'nameserver 1.1.1.1\noptions single-request-reopen\n' > /etc/resolv.conf

@@ -86,11 +86,8 @@ RUN make x86_64_defconfig && scripts/kconfig/merge_config.sh -m .config /tmp/leo
 
 FROM runtime AS guest
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends docker.io sudo iptables util-linux e2fsprogs \
-    && rm -rf /var/lib/apt/lists/* \
-    && usermod -aG docker node \
-    && printf 'node ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/leo \
-    && chmod 440 /etc/sudoers.d/leo
+COPY --chmod=755 deploy/microvm/install-docker /opt/leo-vm/install-docker
+RUN /opt/leo-vm/install-docker
 COPY --chmod=755 deploy/microvm/init /sbin/leo-init
 COPY --chmod=755 deploy/microvm/docker /usr/local/bin/docker
 
@@ -115,5 +112,5 @@ COPY --from=guest-kernel /kernel/.config /opt/leo-vm/kernel.config
 COPY --from=guest-kernel /kernel/COPYING /opt/leo-vm/KERNEL-COPYING
 COPY --from=guest-kernel /kernel/LICENSES /opt/leo-vm/kernel-licenses
 COPY --from=guest-disk /root.ext4.zst /opt/leo-vm/root.ext4.zst
-COPY --chmod=755 deploy/microvm/init deploy/microvm/docker /opt/leo-vm/
+COPY --chmod=755 deploy/microvm/init deploy/microvm/docker deploy/microvm/install-docker /opt/leo-vm/
 USER node

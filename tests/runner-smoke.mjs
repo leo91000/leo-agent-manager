@@ -55,12 +55,18 @@ assert.match(execFileSync('uname',['-r'],{encoding:'utf8'}),/^6\\.12\\.109/);
 for(const path of ['/data/private-manager-canary','/data/runner-secret','/var/run/docker.sock'])assert.equal(fs.existsSync(path),false,path);
 assert.equal(process.env.RUNNER_TOKEN,undefined);
 if(mode==='first') {
+  const env=JSON.parse(execFileSync('/usr/local/bin/leo',['toolkit-env'],{encoding:'utf8'}));
+  assert.equal(env.LEO_TOOLKIT_DIR,'/opt/leo-toolkit');
+  for(const tool of ['cargo','rustc','pnpm','python','uv','rg','fd','gh','codex'])execFileSync(tool,['--version'],{env,timeout:30000});
   const auth=await new Promise((resolve,reject)=>{const socket=net.connect('/run/leo-auth.sock',()=>socket.write('{"refresh":false}\\n'));let data='';socket.on('data',chunk=>{data+=chunk;if(data.includes('\\n')){socket.end();resolve(JSON.parse(data))}});socket.on('error',reject);});
   assert.equal(auth.accessToken,'fixture-access-token');
   console.log('probe.ready');
   const deadline=Date.now()+20000;
   while(!fs.readFileSync('/run/leo-chat/messages.json','utf8').includes('steered')){assert.ok(Date.now()<deadline,'live inbox');await new Promise(r=>setTimeout(r,100));}
   console.log(execFileSync('docker',['run','--rm','busybox:1.37','echo','nested-docker-ok'],{encoding:'utf8',timeout:120000}));
+  fs.writeFileSync(root+'/workspace/compose.yaml',JSON.stringify({services:{probe:{image:'busybox:1.37',command:['echo','compose-ok']}}}));
+  assert.match(execFileSync('docker',['compose','-f',root+'/workspace/compose.yaml','run','--rm','probe'],{encoding:'utf8',timeout:30000}),/compose-ok/);
+  execFileSync('docker',['compose','-f',root+'/workspace/compose.yaml','down'],{timeout:30000});
   fs.writeFileSync(root+'/workspace/preserved','uncommitted work');
 } else {
   assert.equal(fs.readFileSync(root+'/workspace/preserved','utf8'),'uncommitted work');
