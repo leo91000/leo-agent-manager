@@ -46,6 +46,8 @@ test('accounts show live usage, reset windows and accessible controls across the
   await dialog.getByLabel('Account name', { exact: true }).fill('Work subscription')
   await page.screenshot({ path: testInfo.outputPath('dark-mobile-edit.png'), animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Save account', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(page.getByRole('article', { name: 'Work subscription', exact: true })).toBeVisible()
   expect(data.pool.get(work.id).name).toBe('Work subscription')
   await page.getByRole('button', { name: 'Add account', exact: true }).click()
   await dialog.getByLabel('Account name', { exact: true }).fill('New subscription')
