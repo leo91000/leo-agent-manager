@@ -7,9 +7,12 @@ its resource access cannot be reduced and it cannot be deleted.
 
 Other agents can select projects, skills, MCP connections and tools, and disable the shared GitHub
 connection. New agents default to full access and YOLO. A task inherits its
-agent's resources, or can narrow its project context and skills under **Customize
-task scope**. Task overrides cannot expand agent access. A task needs no project;
-it can work in a scratch workspace. Runs snapshot the effective resources when
+agent's resources, or can choose its initial project context and skills under
+**Customize task scope**. Task overrides cannot expand agent access. Project
+restrictions are configured on the agent; selecting a task project does not revoke
+access to its other authorized projects. A task needs no project;
+it starts in a scratch workspace and opens repositories only when needed through
+`open_project`. Selecting a project prepares only that repository at startup. Runs snapshot the effective resources when
 queued. Changing an agent's access prevents its queued runs from executing under
 an outdated policy; enqueue again to use the new policy. Running work keeps its
 snapshot: cancel it before changing permissions when immediate revocation matters.

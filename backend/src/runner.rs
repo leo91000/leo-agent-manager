@@ -36,6 +36,8 @@ struct Attempt {
     stop: CancellationToken,
     done: watch::Receiver<bool>,
     slot: u8,
+    plan: Value,
+    imports: Arc<Mutex<()>>,
 }
 #[derive(Clone)]
 struct Broker {
@@ -136,6 +138,8 @@ impl Broker {
                 stop: stop.clone(),
                 done: receiver,
                 slot,
+                plan: plan.clone(),
+                imports: Default::default(),
             },
         );
         let broker = self.clone();
@@ -176,6 +180,46 @@ impl Broker {
             let _ = done.send(true);
         });
         Ok(())
+    }
+    async fn open_project(&self, id: &str, project_id: &str, value: Value) -> Result<Value> {
+        uuid(project_id)?;
+        let (plan, stop, lock) = {
+            let active = self.active.lock().await;
+            let attempt = active
+                .get(id)
+                .ok_or_else(|| Error::new(409, "VM is not active."))?;
+            (
+                attempt.plan.clone(),
+                attempt.stop.clone(),
+                attempt.imports.clone(),
+            )
+        };
+        let _guard = lock.lock().await;
+        if stop.is_cancelled() || value["runId"] != plan["runId"] {
+            return Err(Error::new(409, "VM attempt changed."));
+        }
+        let root = self.data.join("runs").join(text(&plan, "runId"));
+        let source = Path::new(text(&value, "source"));
+        let target = Path::new(text(&value, "target"));
+        if !normalized(source)
+            || !source.starts_with(&root)
+            || source != target
+            || source.file_name().and_then(|v| v.to_str()) != Some(project_id)
+            || tokio::fs::canonicalize(source).await? != source
+        {
+            return Err(Error::bad(
+                "Project import is outside its private workspace.",
+            ));
+        }
+        let socket = self
+            .state
+            .join("jails/firecracker")
+            .join(id)
+            .join("root/v.sock");
+        tokio::select! {
+            _ = stop.cancelled() => Err(Error::new(409,"VM stopped during project import.")),
+            result = tokio::time::timeout(Duration::from_secs(290),host::import_project(&socket,source,text(&value,"target"),plan["sandbox"] == "read-only")) => result.map_err(|_| Error::new(503,"Project import timed out."))?,
+        }
     }
     async fn stop(&self, id: &str) -> Result<()> {
         atomic_write(&self.state.join(format!("{id}.stopped")), b"").await?;
@@ -222,6 +266,14 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
         ("POST", ["runs", id]) => {
             broker.start(id).await?;
             Ok(Json(json!({})).into_response())
+        }
+        ("POST", ["runs", id, "projects", project_id]) => {
+            let (id, project_id) = ((*id).to_owned(), (*project_id).to_owned());
+            let bytes = axum::body::to_bytes(request.into_body(), 16384)
+                .await
+                .map_err(|_| Error::bad("Invalid project request."))?;
+            let value = serde_json::from_slice(&bytes)?;
+            Ok(Json(broker.open_project(&id, &project_id, value).await?).into_response())
         }
         ("DELETE", ["runs", id]) => {
             broker.stop(id).await?;

@@ -6,6 +6,12 @@ import { redactPayload } from './legacy/server/worker.ts'
 
 const events: RunEvent[] = sample.map((payload, index) => ({ id: index + 1, runId: 'test', createdAt: index, type: payload.type, text: '', payload }))
 describe('conversation activity', () => {
+  it('shows the message submission time with a fallback for older events', () => {
+    const message = { id: 1, runId: 'test', createdAt: 60000, type: 'chat.user', text: 'Hello' }
+    expect(activityEntries([{ ...message, payload: { createdAt: 1000 } }])[0]).toMatchObject({ time: 1000, role: 'user' })
+    for (const createdAt of [undefined, null, 'invalid', -1, Number.NaN, Number.MAX_VALUE])
+      expect(activityEntries([{ ...message, payload: { createdAt } }])[0]).toMatchObject({ time: 60000 })
+  })
   it('groups actions between assistant messages and updates commands in place', () => {
     const entries = activityEntries(events)
     expect(entries.map(entry => entry.kind)).toEqual(['message', 'group', 'message', 'group', 'message'])

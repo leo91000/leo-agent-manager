@@ -118,6 +118,148 @@ async fn github_home(
     }
     Ok(())
 }
+async fn prepare_project(
+    run: &Value,
+    project: &Value,
+    config: &Config,
+    root: &Path,
+    single: bool,
+    generation: Option<&str>,
+) -> Result<Value> {
+    let microvm = !config.runner_url.is_empty();
+    let is_isolated = microvm || isolated(&run["snapshot"]["agent"]);
+    let source = workspace(Path::new(text(project, "path")), &config.workspace_roots).await?;
+    if path(&source)? != text(project, "path") {
+        return Err(Error::bad(
+            "Project directory changed location after this run was queued.",
+        ));
+    }
+    let mut target = source.clone();
+    let mut kind = "direct";
+    if microvm || run["snapshot"]["task"]["worktree"] == true {
+        target = if !is_isolated && single {
+            root.to_owned()
+        } else {
+            root.join(text(project, "id"))
+        };
+        if !source.join(".git").exists() {
+            kind = "copy";
+            copy_tree(&source, &target, false).await?;
+        } else if is_isolated {
+            kind = "clone";
+            git(
+                args(&[
+                    "clone",
+                    "--no-hardlinks",
+                    "--no-local",
+                    "--branch",
+                    text(project, "baseBranch"),
+                    path(&source)?,
+                    path(&target)?,
+                ]),
+                120,
+            )
+            .await?;
+            if let Ok(mut remote) = git(
+                args(&["-C", path(&source)?, "config", "--get", "remote.origin.url"]),
+                10,
+            )
+            .await
+            {
+                if let Some(repository) = remote
+                    .strip_prefix("git@github.com:")
+                    .or_else(|| remote.strip_prefix("ssh://git@github.com/"))
+                {
+                    remote = format!("https://github.com/{repository}");
+                }
+                if remote.starts_with("http:") || remote.starts_with("https:") {
+                    let mut url = url::Url::parse(&remote)
+                        .map_err(|_| Error::bad("Invalid repository remote"))?;
+                    let _ = url.set_username("");
+                    let _ = url.set_password(None);
+                    remote = url.to_string();
+                }
+                if !remote.is_empty() {
+                    git(
+                        args(&["-C", path(&target)?, "remote", "set-url", "origin", &remote]),
+                        10,
+                    )
+                    .await?;
+                }
+            }
+        } else {
+            kind = "worktree";
+            if target == root {
+                tokio::fs::remove_dir(&root).await?;
+            }
+            let branch = format!(
+                "feat/run-{}-{}{}",
+                &text(run, "id")[..8],
+                &text(project, "id")[..8],
+                generation.map(|g| format!("-{g}")).unwrap_or_default()
+            );
+            git(
+                args(&[
+                    "-C",
+                    path(&source)?,
+                    "worktree",
+                    "add",
+                    "-b",
+                    &branch,
+                    path(&target)?,
+                    text(project, "baseBranch"),
+                ]),
+                30,
+            )
+            .await?;
+        }
+    }
+    Ok(json!({"projectId":project["id"],"path":target,"kind":kind}))
+}
+
+/// Prepare an immutable host seed. Guest working files are never copied back or replaced.
+pub async fn project_seed(
+    run: &Value,
+    project: &Value,
+    config: &Config,
+    root: &Path,
+) -> Result<Value> {
+    let destination = root.join(text(project, "id"));
+    let value = json!({"projectId":project["id"],"path":destination,"kind":if Path::new(text(project,"path")).join(".git").exists() {"clone"} else {"copy"}});
+    if destination.exists() {
+        return Ok(value);
+    }
+    let staging = root.join(format!(".prepare-{}", text(project, "id")));
+    if staging.exists() {
+        tokio::fs::remove_dir_all(&staging).await?;
+    }
+    private_dir(&staging).await?;
+    let prepared = prepare_project(run, project, config, &staging, false, None).await?;
+    let source = Path::new(text(&prepared, "path"));
+    // A repository-controlled .agents symlink must never make cleanup follow
+    // a parent outside this private seed on the manager filesystem.
+    let agents = source.join(".agents");
+    if tokio::fs::symlink_metadata(&agents)
+        .await
+        .is_ok_and(|m| m.is_symlink())
+    {
+        tokio::fs::remove_file(agents).await?;
+    }
+    for relative in [".codex", ".agents/skills"] {
+        let item = source.join(relative);
+        if let Ok(meta) = tokio::fs::symlink_metadata(&item).await {
+            if meta.is_dir() {
+                tokio::fs::remove_dir_all(item).await?;
+            } else {
+                tokio::fs::remove_file(item).await?;
+            }
+        }
+    }
+    tokio::fs::rename(source, &destination).await?;
+    tokio::fs::remove_dir(&staging).await?;
+    Ok(value)
+}
+
 pub async fn prepare(
     run: &Value,
     config: &Config,
@@ -141,104 +283,19 @@ pub async fn prepare(
             .unwrap_or_else(|| "workspace".into()),
     );
     private_dir(&root).await?;
-    let projects = run_projects(run);
+    let projects = run_projects(run)
+        .into_iter()
+        .filter(|project| !microvm || project["id"] == run["snapshot"]["task"]["projectId"])
+        .collect::<Vec<_>>();
     let mut workspaces = Vec::new();
     let mut mounts = Vec::new();
     for project in &projects {
-        let source = workspace(Path::new(text(project, "path")), &config.workspace_roots).await?;
-        if path(&source)? != text(project, "path") {
-            return Err(Error::bad(
-                "Project directory changed location after this run was queued.",
-            ));
-        }
-        let mut target = source.clone();
-        let mut kind = "direct";
-        if microvm || run["snapshot"]["task"]["worktree"] == true {
-            target = if !is_isolated && projects.len() == 1 {
-                root.clone()
-            } else {
-                root.join(text(project, "id"))
-            };
-            if !source.join(".git").exists() {
-                kind = "copy";
-                copy_tree(&source, &target, false).await?;
-            } else if is_isolated {
-                kind = "clone";
-                git(
-                    args(&[
-                        "clone",
-                        "--no-hardlinks",
-                        "--no-local",
-                        "--branch",
-                        text(project, "baseBranch"),
-                        path(&source)?,
-                        path(&target)?,
-                    ]),
-                    120,
-                )
-                .await?;
-                if let Ok(mut remote) = git(
-                    args(&["-C", path(&source)?, "config", "--get", "remote.origin.url"]),
-                    10,
-                )
-                .await
-                {
-                    if let Some(repository) = remote
-                        .strip_prefix("git@github.com:")
-                        .or_else(|| remote.strip_prefix("ssh://git@github.com/"))
-                    {
-                        remote = format!("https://github.com/{repository}");
-                    }
-                    if remote.starts_with("http:") || remote.starts_with("https:") {
-                        let mut url = url::Url::parse(&remote)
-                            .map_err(|_| Error::bad("Invalid repository remote"))?;
-                        let _ = url.set_username("");
-                        let _ = url.set_password(None);
-                        remote = url.to_string();
-                    }
-                    if !remote.is_empty() {
-                        git(
-                            args(&["-C", path(&target)?, "remote", "set-url", "origin", &remote]),
-                            10,
-                        )
-                        .await?;
-                    }
-                }
-            } else {
-                kind = "worktree";
-                if target == root {
-                    tokio::fs::remove_dir(&root).await?;
-                }
-                let branch = format!(
-                    "feat/run-{}-{}{}",
-                    &text(run, "id")[..8],
-                    &text(project, "id")[..8],
-                    generation.map(|g| format!("-{g}")).unwrap_or_default()
-                );
-                git(
-                    args(&[
-                        "-C",
-                        path(&source)?,
-                        "worktree",
-                        "add",
-                        "-b",
-                        &branch,
-                        path(&target)?,
-                        text(project, "baseBranch"),
-                    ]),
-                    30,
-                )
-                .await?;
-            }
-        }
-        workspaces.push(json!({
-        "projectId":project["id"],"path":target,"kind":kind}
-        ));
+        let entry =
+            prepare_project(run, project, config, &root, projects.len() == 1, generation).await?;
         if is_isolated {
-            mounts.push(json!({
-            "source":target,"target":target,"readOnly":access["sandbox"]=="read-only"}
-            ));
+            mounts.push(json!({"source":entry["path"],"target":entry["path"],"readOnly":access["sandbox"]=="read-only"}));
         }
+        workspaces.push(entry);
     }
     let cwd = if workspaces.len() == 1 {
         PathBuf::from(text(&workspaces[0], "path"))
@@ -346,7 +403,7 @@ pub async fn prepare(
         }
     }
     Ok(json!({
-    "cwd":cwd,"output":output,"workspaces":workspaces,"isolated":true,"mounts":mounts,"skills":skills,"backend":if microvm {"firecracker"} else {"local"}}
+    "projectRoot":root,"cwd":cwd,"output":output,"workspaces":workspaces,"isolated":true,"mounts":mounts,"skills":skills,"backend":if microvm {"firecracker"} else {"local"}}
     ))
 }
 pub async fn codex_home(config: &Config, home: &Path) -> Result<()> {
@@ -373,7 +430,7 @@ pub async fn codex_home(config: &Config, home: &Path) -> Result<()> {
 }
 pub async fn restore(
     run: &Value,
-    prepared: Value,
+    mut prepared: Value,
     config: &Config,
     github: Option<&str>,
 ) -> Result<Value> {
@@ -387,7 +444,30 @@ pub async fn restore(
             "codex"
         });
         let generation = format!("microvm-{}", &crate::config::id()[..8]);
-        let migrated = prepare(run, config, github, Some(&old_home), Some(&generation)).await?;
+        let mut migrated = prepare(run, config, github, Some(&old_home), Some(&generation)).await?;
+        for old in prepared["workspaces"].as_array().into_iter().flatten() {
+            if migrated["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|w| w["projectId"] == old["projectId"])
+            {
+                continue;
+            }
+            let project = run_projects(run)
+                .into_iter()
+                .find(|p| p["id"] == old["projectId"])
+                .ok_or_else(|| Error::bad("Saved project is no longer authorized."))?;
+            let entry = project_seed(
+                run,
+                &project,
+                config,
+                Path::new(text(&migrated, "projectRoot")),
+            )
+            .await?;
+            migrated["mounts"].as_array_mut().unwrap().push(json!({"source":entry["path"],"target":entry["path"],"readOnly":policy(&run["snapshot"]["agent"])["sandbox"]=="read-only"}));
+            migrated["workspaces"].as_array_mut().unwrap().push(entry);
+        }
         for old in prepared["workspaces"].as_array().into_iter().flatten() {
             if let Some(new) = migrated["workspaces"]
                 .as_array()
@@ -466,6 +546,52 @@ pub async fn restore(
         }
         return Ok(migrated);
     }
+    if prepared["backend"] == "firecracker" && !prepared["projectRoot"].is_string() {
+        let cwd = Path::new(text(&prepared, "cwd"));
+        let in_project = prepared["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|w| w["path"] == prepared["cwd"]);
+        let project_root = if in_project {
+            cwd.parent()
+                .ok_or_else(|| Error::bad("Invalid saved project root."))?
+        } else {
+            cwd
+        };
+        let directory = config.data_dir.join("runs").join(text(run, "id"));
+        if !project_root.starts_with(&directory) || project_root == directory {
+            return Err(Error::bad("Invalid saved project root."));
+        }
+        prepared["projectRoot"] = json!(project_root);
+    }
+    if prepared["projectRoot"].is_string() {
+        let project_root = PathBuf::from(text(&prepared, "projectRoot"));
+        for entry in run["workspaces"].as_array().into_iter().flatten() {
+            if prepared["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|w| w["projectId"] == entry["projectId"])
+            {
+                continue;
+            }
+            let project_id = text(entry, "projectId");
+            crate::validation::uuid(project_id)?;
+            if Path::new(text(entry, "path")) != project_root.join(project_id)
+                || !crate::project_workspaces::catalog(run)
+                    .iter()
+                    .any(|p| p["id"] == project_id)
+            {
+                return Err(Error::bad("Invalid saved project workspace."));
+            }
+            prepared["workspaces"]
+                .as_array_mut()
+                .unwrap()
+                .push(entry.clone());
+            prepared["mounts"].as_array_mut().unwrap().push(json!({"source":entry["path"],"target":entry["path"],"readOnly":policy(&run["snapshot"]["agent"])["sandbox"]=="read-only"}));
+        }
+    }
     if prepared["isolated"]
         != (!config.runner_url.is_empty() || isolated(&run["snapshot"]["agent"]))
     {
@@ -479,6 +605,15 @@ pub async fn restore(
     }
     let projects = run_projects(run);
     for project in &projects {
+        if prepared["backend"] == "firecracker"
+            && !prepared["workspaces"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|w| w["projectId"] == project["id"])
+        {
+            continue;
+        }
         if workspace(Path::new(text(project, "path")), &config.workspace_roots).await?
             != Path::new(text(project, "path"))
         {

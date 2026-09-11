@@ -51,6 +51,7 @@ pub async fn router(service: Arc<Service>) -> Result<Router> {
     Ok(Router::new()
         .route("/health", any(health))
         .route("/mcp", any(crate::mcp_server::handle))
+        .route("/mcp-workspace", any(crate::mcp_server::handle))
         .route("/mcp-gateway/{id}", any(crate::mcp_server::handle))
         .route("/internal/deployment-lease", any(lease))
         .route("/api/{*path}", any(api))
@@ -117,6 +118,7 @@ async fn security(State(app): State<App>, mut request: Request, next: Next) -> R
     }
     let cache = if path.starts_with("/api/")
         || path == "/mcp"
+        || path == "/mcp-workspace"
         || path.starts_with("/mcp-gateway/")
         || path.starts_with("/oauth/")
         || path.starts_with("/internal/")

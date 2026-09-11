@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 pub struct Service {
     pub worker: Arc<crate::worker::Worker>,
     pub mcps: Arc<crate::mcps::Mcps>,
+    pub projects: Arc<crate::project_workspaces::Projects>,
     pub legacy_codex_login: Arc<std::sync::atomic::AtomicBool>,
     pub accounts: Arc<crate::accounts::Accounts>,
     pub models: Arc<crate::models::Models>,
@@ -44,6 +45,7 @@ impl Service {
         let service = Arc::new(Self {
             worker: Default::default(),
             mcps: Default::default(),
+            projects: Default::default(),
             legacy_codex_login: Default::default(),
             accounts: Default::default(),
             models: Default::default(),
@@ -233,7 +235,14 @@ impl Service {
                 }
                 if db.active()?.iter().any(|r| match kind.as_str() {
                     "tasks" => r["taskId"] == id,
-                    "projects" => run_projects(r).iter().any(|p| p["id"] == id),
+                    "projects" => {
+                        run_projects(r).iter().any(|p| p["id"] == id)
+                            || r["workspaces"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .any(|w| w["projectId"] == id)
+                    }
                     _ => r["snapshot"]["agent"]["id"] == id,
                 }) {
                     return Err(Error::new(
@@ -285,7 +294,9 @@ impl Service {
             ));
         }
         let agent = self.get("agents", text(&task, "agentId")).await?;
-        let projects = task_projects(&agent, &task, &self.store.list("projects").await?)?;
+        let all_projects = self.store.list("projects").await?;
+        let projects = task_projects(&agent, &task, &all_projects)?;
+        let available_projects = task_projects(&agent, &json!({"projectId":null}), &all_projects)?;
         let project = if projects.len() == 1 {
             projects[0].clone()
         } else {
@@ -322,7 +333,7 @@ impl Service {
         }
         Ok(json!({
         "id":id(),"taskId":task["id"],"projectId":project["id"],"status":"queued","trigger":trigger,"createdAt":now(),"startedAt":null,"finishedAt":null,"summary":"","sessionId":null,"workspace":null,"usage":null,"snapshot":{
-        "task":task,"agent":agent,"project":project,"projects":projects,"skills":skills}
+        "task":task,"agent":agent,"project":project,"projects":projects,"availableProjects":available_projects,"skills":skills}
         }
         ))
     }

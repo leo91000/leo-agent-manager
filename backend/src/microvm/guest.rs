@@ -74,7 +74,8 @@ async fn handle(
             )
             .await
         }
-        "import" => {
+        "import" | "project-import" => {
+            let project = request["op"] == "project-import";
             let target = Path::new(text(&request, "target"));
             if !target.is_absolute()
                 || target
@@ -83,6 +84,22 @@ async fn handle(
             {
                 return Err(Error::bad("Invalid guest import."));
             }
+            if project && tokio::fs::symlink_metadata(target).await.is_ok() {
+                remember_project(target, request["readOnly"] == true).await?;
+                return wire::write(&mut write, &json!({"ok":true})).await;
+            }
+            let destination = target.to_owned();
+            let staging = target.with_file_name(format!(
+                ".leo-import-{}",
+                crate::auth::hex_digest(text(&request, "target"))
+            ));
+            if project {
+                if staging.exists() {
+                    tokio::fs::remove_dir_all(&staging).await?;
+                }
+                wire::write(&mut write, &json!({"ready":true})).await?;
+            }
+            let target = if project { staging.as_path() } else { target };
             if request["replace"] == true && target.exists() {
                 tokio::fs::remove_dir_all(target).await?;
             }
@@ -137,6 +154,12 @@ async fn handle(
                     .status()
                     .await?;
             }
+            if project {
+                // Only publish a complete extraction; interrupted transfers cannot overwrite work.
+                tokio::fs::rename(target, &destination).await?;
+                remember_project(&destination, request["readOnly"] == true).await?;
+                Command::new("sync").status().await?;
+            }
             wire::write(&mut write, &json!({"ok":true})).await
         }
         "run" => {
@@ -164,6 +187,16 @@ async fn handle(
                 ] {
                     if !Command::new("mount").args(args).status().await?.success() {
                         return Err(Error::bad("Could not apply guest read-only policy."));
+                    }
+                }
+            }
+            if Path::new("/var/lib/leo/projects").exists() {
+                let mut entries = tokio::fs::read_dir("/var/lib/leo/projects").await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    let value: Value =
+                        serde_json::from_slice(&tokio::fs::read(entry.path()).await?)?;
+                    if value["readOnly"] == true {
+                        read_only(Path::new(text(&value, "path"))).await?;
                     }
                 }
             }
@@ -252,4 +285,46 @@ async fn handle(
         }
         _ => Err(Error::bad("Unknown guest operation.")),
     }
+}
+
+async fn read_only(target: &Path) -> Result<()> {
+    let mounted = Command::new("mountpoint")
+        .arg("-q")
+        .arg(target)
+        .status()
+        .await?;
+    if !mounted.success()
+        && !Command::new("mount")
+            .arg("--bind")
+            .arg(target)
+            .arg(target)
+            .status()
+            .await?
+            .success()
+    {
+        return Err(Error::bad("Could not bind guest project."));
+    }
+    if !Command::new("mount")
+        .args(["-o", "remount,bind,ro"])
+        .arg(target)
+        .status()
+        .await?
+        .success()
+    {
+        return Err(Error::bad("Could not apply project read-only policy."));
+    }
+    Ok(())
+}
+async fn remember_project(target: &Path, restricted: bool) -> Result<()> {
+    let directory = Path::new("/var/lib/leo/projects");
+    tokio::fs::create_dir_all(directory).await?;
+    atomic_write(
+        &directory.join(crate::auth::hex_digest(&target.to_string_lossy())),
+        &serde_json::to_vec(&json!({"path":target,"readOnly":restricted}))?,
+    )
+    .await?;
+    if restricted {
+        read_only(target).await?;
+    }
+    Ok(())
 }

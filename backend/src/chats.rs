@@ -318,7 +318,7 @@ impl Service {
                     "chat.user",
                     text,
                     Some(&json!({
-                    "messageId":message_id,"text":text,"attachments":message["attachments"]}
+                    "messageId":message_id,"text":text,"attachments":message["attachments"],"createdAt":message["createdAt"]}
                     )),
                 )?;
                 chat["updatedAt"] = now().into();

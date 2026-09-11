@@ -133,6 +133,36 @@ async fn import(socket: &Path, source: &Path, target: &str) -> Result<()> {
         &json!({"op":"import","target":target,"replace":empty}),
     )
     .await?;
+    transfer(stream, source, target).await
+}
+
+/// The manager chooses all paths; guest replies never select a host import.
+pub async fn import_project(
+    socket: &Path,
+    source: &Path,
+    target: &str,
+    read_only: bool,
+) -> Result<Value> {
+    let mut stream = connect(socket).await?;
+    wire::write(
+        stream.get_mut(),
+        &json!({"op":"project-import","target":target,"readOnly":read_only}),
+    )
+    .await?;
+    let response = wire::read(&mut stream)
+        .await?
+        .ok_or_else(|| Error::new(503, "Guest disconnected."))?;
+    if response["ok"] == true {
+        return Ok(json!({"ok":true,"reused":true}));
+    }
+    if response["ready"] != true {
+        return Err(Error::bad("Guest refused project import."));
+    }
+    transfer(stream, source, target).await?;
+    Ok(json!({"ok":true,"reused":false}))
+}
+
+async fn transfer(mut stream: BufReader<UnixStream>, source: &Path, target: &str) -> Result<()> {
     let mut tar = Command::new("tar");
     tar.args(["--exclude=leo-auth.sock", "--exclude=*.sock"]);
     if target == "/home/node" {

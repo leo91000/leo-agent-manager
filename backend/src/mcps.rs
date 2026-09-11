@@ -332,14 +332,18 @@ impl Mcps {
                 toml(&config)
             ));
         }
+        let workspace = !s.config.runner_url.is_empty();
+        if workspace {
+            args.extend(["-c".into(),format!("mcp_servers.leo_workspace={}",toml(&json!({"url":format!("{}/mcp-workspace",s.config.public_url),"bearer_token_env_var":"LEO_MCP_RUN_TOKEN","tool_timeout_sec":600}))) ]);
+        }
         let mut env = json!({});
-        if !servers.as_object().unwrap().is_empty() {
+        if workspace || !servers.as_object().unwrap().is_empty() {
             env["LEO_MCP_RUN_TOKEN"] = token.clone().into();
             s.store
                 .set(
                     &format!("mcp-grant:{}", hex_digest(&token)),
                     json!({
-                    "runId":run["id"],"servers":servers}
+                    "runId":run["id"],"servers":servers,"workspace":workspace}
                     ),
                     Some(
                         now()

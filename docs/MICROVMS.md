@@ -32,6 +32,36 @@ conversation/run needed to resume and inspect saved work. Disks are retained,
 including on failure or cancellation; back them up and account for their storage.
 Never remove a retained disk if its uncommitted work is still needed.
 
+## Projects on demand
+
+Project authorization and workspace preparation are separate. New conversations
+without a selected project start in an empty workspace. Chats and scheduled tasks
+with a selected project seed only that repository. The prompt lists the authorized
+project IDs and loaded paths; it never advertises host paths for unopened projects.
+
+Every new VM run receives a built-in `leo_workspace.open_project` MCP tool, even
+when the agent has no external MCP connections. Its short-lived bearer grant is
+limited to that run and revoked when the run ends. `project_workspaces.rs` checks
+the current agent policy and snapshotted project catalog, then prepares a private
+host seed. Selecting a project supplies initial context; restrictions belong to
+the agent's project access policy.
+
+The manager asks the authenticated controller to import the seed into that active
+attempt. The controller accepts only canonical directories beneath that run's
+private storage. The guest extracts into a temporary directory and publishes it
+only when complete. Existing destinations are reused, never replaced. Read-only
+project policy is persisted and reapplied after reboot. Workspace-write sessions
+include the private project root in their writable roots.
+
+Loaded projects are also recorded on the run, independently of the worker's
+checkpoint writes. Resuming merges that catalog into the saved execution plan;
+the persistent guest disk retains edits, Git history and caches. Legacy VM
+conversations keep their existing eagerly prepared workspaces and can open
+additional authorized projects after resuming. A failed transfer
+can be retried with `open_project`. The manager never mounts or reads the guest's
+writable filesystem. Independent VM disks do not take shared-host project locks;
+local development executions retain those locks.
+
 ## Authentication and live chat
 
 The guest has a local Unix authentication socket backed by a per-VM vsock relay.

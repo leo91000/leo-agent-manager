@@ -178,9 +178,16 @@ impl Worker {
         if s.shutdown.is_cancelled() || s.store.kv("deployment-lease").await?.is_some() {
             return Ok(());
         }
+        let locking_projects = |run: &Value| {
+            if s.config.runner_url.is_empty() {
+                run_projects(run)
+            } else {
+                Vec::new()
+            }
+        };
         let mut projects = HashSet::new();
         for id in &active {
-            for p in run_projects(&s.store.run(id).await?) {
+            for p in locking_projects(&s.store.run(id).await?) {
                 projects.insert(text(&p, "id").to_owned());
             }
         }
@@ -190,7 +197,7 @@ impl Worker {
             }
             let run_id = text(&run, "id");
             if run["status"] != "queued"
-                || run_projects(&run)
+                || locking_projects(&run)
                     .iter()
                     .any(|p| projects.contains(text(p, "id")))
             {
@@ -200,7 +207,7 @@ impl Worker {
             if run["recoveryPending"] == true
                 || checkpoint.as_ref().is_some_and(|c| c["launched"] == true)
             {
-                for project in run_projects(&run) {
+                for project in locking_projects(&run) {
                     projects.insert(text(&project, "id").to_owned());
                 }
             }
@@ -307,7 +314,7 @@ impl Worker {
                 }
                 continue;
             }
-            for project in run_projects(&run) {
+            for project in locking_projects(&run) {
                 projects.insert(text(&project, "id").to_owned());
             }
             let cancel = CancellationToken::new();

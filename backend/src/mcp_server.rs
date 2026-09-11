@@ -46,12 +46,15 @@ fn rpc_error(id: Value, code: i64, message: &str, data: Option<Value>) -> Value 
 pub async fn handle(State(app): State<App>, request: Request) -> Result<Response> {
     let s = &app.service;
     let bearer = bearer(&request);
+    let workspace = request.uri().path() == "/mcp-workspace";
     let gateway = request
         .uri()
         .path()
         .strip_prefix("/mcp-gateway/")
         .map(str::to_owned);
-    if let Some(id) = &gateway {
+    if workspace {
+        crate::project_workspaces::authorize(s, &bearer).await?;
+    } else if let Some(id) = &gateway {
         crate::validation::uuid(id)?;
         s.mcps.grant(s, id, &bearer).await?;
     } else if s.auth.verify(&bearer, None).await.is_err() {
@@ -174,7 +177,9 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
         }
         "ping" => Ok(json!({})),
         _ => {
-            if let Some(gateway) = &gateway {
+            if workspace {
+                crate::project_workspaces::rpc(s, &bearer, method, &body["params"]).await
+            } else if let Some(gateway) = &gateway {
                 proxy(s, gateway, &bearer, method, body["params"].clone()).await
             } else {
                 match method {

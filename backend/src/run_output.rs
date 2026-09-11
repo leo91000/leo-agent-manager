@@ -1,7 +1,4 @@
-use crate::{
-    service::{policy, run_projects},
-    validation::text,
-};
+use crate::{service::policy, validation::text};
 use serde_json::{Value, json};
 use std::{path::Path, sync::LazyLock};
 static TOKEN: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -145,7 +142,7 @@ pub fn prompt(run: &Value, chat: bool) -> String {
     } else {
         "This unattended task cannot answer clarification questions; report a concrete blocker if required information is missing."
     };
-    let projects = run_projects(run)
+    let projects = crate::project_workspaces::catalog(run)
         .iter()
         .map(|project| {
             let path = run["workspaces"]
@@ -154,8 +151,14 @@ pub fn prompt(run: &Value, chat: bool) -> String {
                 .flatten()
                 .find(|w| w["projectId"] == project["id"])
                 .map(|w| text(w, "path"))
-                .unwrap_or_else(|| text(project, "path"));
-            format!("- {}: {path}", text(project, "name"))
+                .unwrap_or("");
+            if !path.is_empty() {
+                format!("- {} ({}): {path}",text(project,"name"),text(project,"id"))
+            } else if run["isolated"] == true {
+                format!("- {} ({}): not loaded; call leo_workspace.open_project with this projectId when needed.",text(project,"name"),text(project,"id"))
+            } else {
+                format!("- {}: {}",text(project,"name"),text(project,"path"))
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -167,7 +170,7 @@ pub fn prompt(run: &Value, chat: bool) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "{}\n\n{}\n\nAvailable project workspaces (choose the relevant projects for this task):\n{}\n\nTooling: mise manages project runtimes and global tools. Prefer rg and fd for search. Respect mise.toml, .tool-versions, .nvmrc, .node-version, .python-version, rust-toolchain.toml, and package.json packageManager pins. Use mise exec -- <command> when project environment variables are needed; use uv for Python environments. Do not upgrade project pins unless the task requests it.\n\nSelected skills (use their supporting resources from the supplied paths):\n{skills}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. {interaction} All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.",
+        "{}\n\n{}\n\nAuthorized projects (open only those needed for the task; unopened repositories are not on disk):\n{}\n\nTooling: mise manages project runtimes and global tools. Prefer rg and fd for search. Respect mise.toml, .tool-versions, .nvmrc, .node-version, .python-version, rust-toolchain.toml, and package.json packageManager pins. Use mise exec -- <command> when project environment variables are needed; use uv for Python environments. Do not upgrade project pins unless the task requests it.\n\nSelected skills (use their supporting resources from the supplied paths):\n{skills}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. {interaction} All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.",
         text(&run["snapshot"]["agent"], "instructions"),
         text(&run["snapshot"]["task"], "prompt"),
         if projects.is_empty() {
@@ -196,6 +199,9 @@ pub fn chat_plan(
             .to_string_lossy()
             .into_owned(),
     ];
+    if let Some(root) = prepared["projectRoot"].as_str() {
+        roots.push(root.to_owned());
+    }
     roots.extend(
         prepared["workspaces"]
             .as_array()

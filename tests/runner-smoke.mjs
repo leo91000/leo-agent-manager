@@ -27,8 +27,8 @@ async function main() {
     }
     throw new Error('MicroVM test timed out')
   }
-  async function api(endpoint, method = 'GET') {
-    const response = await fetch(url + endpoint, { method, headers, signal: AbortSignal.timeout(180000) })
+  async function api(endpoint, method = 'GET', body) {
+    const response = await fetch(url + endpoint, { method, headers: { ...headers, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(180000) })
     assert.equal(response.ok, true, `${method} ${endpoint}: ${response.status}`)
     return response
   }
@@ -37,6 +37,7 @@ async function main() {
       await mkdir(path.join(root, dir), { recursive: true })
     await writeFile(path.join(root, 'data/runner-secret'), 'fixture-runner-token')
     await writeFile(path.join(root, 'data/private-manager-canary'), 'must-not-enter-guest')
+    const projectId = randomUUID()
     const runId = randomUUID()
     const runRoot = `/data/runs/${runId}`
     const source = path.join(root, 'data/runs', runId)
@@ -51,6 +52,7 @@ import net from 'node:net';
 import { execFileSync } from 'node:child_process';
 const root=${JSON.stringify(runRoot)};
 const mode=process.argv[2];
+const project=root+'/workspace/'+${JSON.stringify(projectId)};
 assert.match(execFileSync('uname',['-r'],{encoding:'utf8'}),/^6\\.12\\.109/);
 for(const path of ['/data/private-manager-canary','/data/runner-secret','/var/run/docker.sock'])assert.equal(fs.existsSync(path),false,path);
 assert.equal(process.env.RUNNER_TOKEN,undefined);
@@ -60,9 +62,15 @@ if(mode==='first') {
   for(const tool of ['cargo','rustc','pnpm','python','uv','rg','fd','gh','codex'])execFileSync(tool,['--version'],{env,timeout:30000});
   const auth=await new Promise((resolve,reject)=>{const socket=net.connect('/run/leo-auth.sock',()=>socket.write('{"refresh":false}\\n'));let data='';socket.on('data',chunk=>{data+=chunk;if(data.includes('\\n')){socket.end();resolve(JSON.parse(data))}});socket.on('error',reject);});
   assert.equal(auth.accessToken,'fixture-access-token');
+  assert.equal(fs.existsSync(project),false,'unopened project is absent');
   console.log('probe.ready');
   const deadline=Date.now()+20000;
   while(!fs.readFileSync('/run/leo-chat/messages.json','utf8').includes('steered')){assert.ok(Date.now()<deadline,'live inbox');await new Promise(r=>setTimeout(r,100));}
+  assert.equal(fs.readFileSync(project+'/hello','utf8'),'imported on demand');
+  fs.writeFileSync(project+'/hello','guest edit');
+  console.log('project.edited');
+  while(!fs.readFileSync('/run/leo-chat/messages.json','utf8').includes('reopened')){assert.ok(Date.now()<deadline,'reopen response');await new Promise(r=>setTimeout(r,100));}
+  assert.equal(fs.readFileSync(project+'/hello','utf8'),'guest edit','reopen must preserve edits');
   console.log(execFileSync('docker',['run','--rm','busybox:1.37','echo','nested-docker-ok'],{encoding:'utf8',timeout:120000}));
   fs.writeFileSync(root+'/workspace/compose.yaml',JSON.stringify({services:{probe:{image:'busybox:1.37',command:['echo','compose-ok']}}}));
   assert.match(execFileSync('docker',['compose','-f',root+'/workspace/compose.yaml','run','--rm','probe'],{encoding:'utf8',timeout:30000}),/compose-ok/);
@@ -70,6 +78,7 @@ if(mode==='first') {
   fs.writeFileSync(root+'/workspace/preserved','uncommitted work');
 } else {
   assert.equal(fs.readFileSync(root+'/workspace/preserved','utf8'),'uncommitted work');
+  assert.equal(fs.readFileSync(project+'/hello','utf8'),'guest edit','on-demand project survives restart');
   console.log(execFileSync('docker',['run','--rm','--pull=never','busybox:1.37','echo','cached-docker-ok'],{encoding:'utf8',timeout:30000}));
 }
 if(mode==='cancel'||mode==='crash') {
@@ -131,8 +140,23 @@ console.log('probe.done');
               const data = Buffer.from(event.data, 'base64').toString()
               text += data
               process.stdout.write(data)
-              if (data.includes('probe.ready'))
+              if (data.includes('probe.ready')) {
+                const directory = path.join(source, 'workspace', projectId)
+                await mkdir(directory, { recursive: true })
+                await writeFile(path.join(directory, 'hello'), 'imported on demand')
+                const body = { runId, source: `${runRoot}/workspace/${projectId}`, target: `${runRoot}/workspace/${projectId}` }
+                const denied = await fetch(`${url}/runs/${id}/projects/${projectId}`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...body, runId: randomUUID() }) })
+                assert.equal(denied.status, 409)
+                const opened = await (await api(`/runs/${id}/projects/${projectId}`, 'POST', body)).json()
+                assert.deepEqual(opened, { ok: true, reused: false })
                 await writeFile(path.join(source, 'chat-input/messages.json'), '[{"text":"steered"}]')
+              }
+              if (data.includes('project.edited')) {
+                const body = { runId, source: `${runRoot}/workspace/${projectId}`, target: `${runRoot}/workspace/${projectId}` }
+                const opened = await (await api(`/runs/${id}/projects/${projectId}`, 'POST', body)).json()
+                assert.deepEqual(opened, { ok: true, reused: true })
+                await writeFile(path.join(source, 'chat-input/messages.json'), '[{"text":"reopened"}]')
+              }
               if (text.includes('probe.pause') && mode === 'cancel')
                 await api(`/runs/${id}`, 'DELETE')
               if (text.includes('probe.pause') && mode === 'crash') {
@@ -180,6 +204,8 @@ console.log('probe.done');
       const runId = randomUUID()
       const id = randomUUID()
       const workspace = `/data/runs/${runId}/workspace`
+      const lazyId = randomUUID()
+      const lazy = `/data/runs/${runId}/projects/${lazyId}`
       const directory = path.join(root, 'data/runs', runId, 'workspace')
       await mkdir(directory, { recursive: true })
       await writeFile(path.join(directory, 'sentinel'), sandbox)
@@ -192,14 +218,41 @@ console.log('probe.done');
         const write=()=>fs.writeFileSync(${JSON.stringify(`${workspace}/created`)},'guest only');
         ${sandbox === 'read-only' ? 'assert.throws(write,e=>e.code===\'EROFS\');' : 'write();'}
         console.log('parallel.ready');
-        setTimeout(()=>console.log('parallel.done'),4000);
+        const deadline=Date.now()+30000;
+        const timer=setInterval(()=>{
+          if(Date.now()>deadline)throw Error('lazy policy import timeout');
+          if(!fs.existsSync(${JSON.stringify(`${lazy}/sentinel`)}))return;
+          clearInterval(timer);
+          assert.equal(fs.readFileSync(${JSON.stringify(`${lazy}/sentinel`)},'utf8'),'lazy');
+          const write=()=>fs.writeFileSync(${JSON.stringify(`${lazy}/changed`)},'guest');
+          ${sandbox === 'read-only' ? 'assert.throws(write,e=>e.code===\'EROFS\');' : 'write();'}
+          console.log('parallel.done');
+        },100);
+
       `
       const plan = { id, runId, expires: Date.now() + 60000, sandbox, cwd: workspace, command: ['/usr/local/bin/node', '-e', code], imports: [{ source: workspace, target: workspace, readOnly: sandbox === 'read-only' }] }
       await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
       await api(`/runs/${id}`, 'POST')
-      probes.push({ id, sandbox, directory })
+      probes.push({ id, runId, sandbox, directory, lazyId, lazy })
     }
-    const outcomes = await Promise.allSettled(probes.map(async ({ id, sandbox, directory }) => {
+    const outcomes = await Promise.allSettled(probes.map(async ({ id, runId, sandbox, directory, lazyId, lazy }) => {
+      await until(async () => {
+        let logs
+        try {
+          logs = docker('exec', name, 'cat', `/runner-state/${id}.log`)
+        }
+        catch {
+          return false
+        }
+        return logs.split('\n').filter(Boolean).some((line) => {
+          const row = JSON.parse(line)
+          return row.type === 'output' && Buffer.from(row.data, 'base64').toString().includes('parallel.ready')
+        })
+      })
+      const lazySource = path.join(root, 'data/runs', runId, 'projects', lazyId)
+      await mkdir(lazySource, { recursive: true })
+      await writeFile(path.join(lazySource, 'sentinel'), 'lazy')
+      await api(`/runs/${id}/projects/${lazyId}`, 'POST', { runId, source: lazy, target: lazy })
       const response = await api(`/runs/${id}/logs`)
       const records = (await response.text()).trim().split('\n').map(line => JSON.parse(line))
       const output = records.filter(row => row.type === 'output').map(row => Buffer.from(row.data, 'base64').toString()).join('')
@@ -213,6 +266,16 @@ console.log('probe.done');
       if (outcome.status === 'rejected')
         throw outcome.reason
     }
+    const restricted = probes.find(probe => probe.sandbox === 'read-only')
+    const previous = JSON.parse(await readFile(path.join(root, 'data/runner-plans', `${restricted.id}.json`), 'utf8'))
+    const resumedId = randomUUID()
+    const code = `const fs=require('node:fs'),assert=require('node:assert/strict');assert.equal(fs.readFileSync(${JSON.stringify(`${restricted.lazy}/sentinel`)},'utf8'),'lazy');assert.throws(()=>fs.writeFileSync(${JSON.stringify(`${restricted.lazy}/changed`)},'no'),e=>e.code==='EROFS');console.log('policy.resumed');`
+    const resumed = { ...previous, id: resumedId, expires: Date.now() + 60000, command: ['/usr/local/bin/node', '-e', code] }
+    await writeFile(path.join(root, 'data/runner-plans', `${resumedId}.json`), JSON.stringify(resumed))
+    await api(`/runs/${resumedId}`, 'POST')
+    const status = await (await api(`/runs/${resumedId}/wait`, 'POST')).json()
+    assert.equal(status.StatusCode, 0, 'lazy read-only policy survives VM restart')
+    process.stdout.write(`${JSON.stringify({ mode: 'read-only-resume', status: 'passed' })}\n`)
   }
   catch (error) {
     console.error(error)

@@ -32,3 +32,5 @@ pub mod toolkit;
 pub mod validation;
 pub mod vault;
 pub mod worker;
+
+pub mod project_workspaces;

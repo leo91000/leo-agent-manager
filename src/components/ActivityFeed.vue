@@ -128,7 +128,7 @@ onBeforeUnmount(() => viewer.value?.close())
             </p>
             <template v-for="entry in entries" :key="entry.id">
               <article v-if="entry.kind === 'message'" class="activity-message mt-6.5 mb-7.5 mx-0" :class="entry.role === 'user' ? 'ml-auto! max-w-[85%] rounded-2xl rounded-br-md bg-hover px-5 py-3' : ''">
-                <header><span class="message-dot w-[5px] h-[5px] bg-[light-dark(#4f4c73,_var(--dark-accent-surface))] rounded-full" /><strong>{{ entry.role === 'user' ? 'You' : agent }}</strong><time>{{ new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time></header>
+                <header><span class="message-dot w-[5px] h-[5px] bg-[light-dark(#4f4c73,_var(--dark-accent-surface))] rounded-full" /><strong>{{ entry.role === 'user' ? 'You' : agent }}</strong><time :datetime="new Date(entry.time).toISOString()" :title="new Date(entry.time).toLocaleString()">{{ new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time></header>
                 <p v-if="entry.role === 'user'" class="whitespace-pre-wrap text-sm leading-relaxed">
                   {{ entry.text }}
                 </p>
