@@ -367,6 +367,6 @@ test('dark appearance settings, empty states and connection sign-in feedback', a
   }
   await page.unroute('**/api/codex/accounts/login')
   await page.route('**/api/codex/accounts/login', route => route.fulfill({ json: { state: 'failed', error: 'The verification code expired. Please try again.' } }))
-  await expect(page.getByText('Sign-in needs another try', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Let’s try that again', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('connection-failed.png'), fullPage: true, animations: 'disabled' })
 })
