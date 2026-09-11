@@ -409,9 +409,23 @@ impl Worker {
         .await;
         if let Err(error) = result {
             let saved = checkpoint.value().await;
+            let recover_controller = error.status == 503
+                && saved["prepared"]["backend"] == "firecracker"
+                && saved["controllerRecoveries"].as_u64().unwrap_or(0) < 3
+                && s.store.run(&run_id).await?["sessionId"].is_string()
+                && now() < checkpoint.deadline
+                && !cancel.is_cancelled()
+                && !s.shutdown.is_cancelled();
+            if recover_controller {
+                checkpoint
+                    .save(json!({
+                        "controllerRecoveries":saved["controllerRecoveries"].as_u64().unwrap_or(0)+1
+                    }))
+                    .await?;
+            }
             let status = if cancel.is_cancelled() {
                 "cancelled"
-            } else if s.shutdown.is_cancelled() {
+            } else if s.shutdown.is_cancelled() || recover_controller {
                 "queued"
             } else {
                 "failed"
@@ -887,6 +901,17 @@ impl Worker {
             let saved = checkpoint.value().await;
             if s.shutdown.is_cancelled() && !cancel.is_cancelled() && saved["completed"] != true {
                 return Err(Error::new(409, "Worker is restarting"));
+            }
+            if prepared["backend"] == "firecracker"
+                && status == Some(crate::runner::CONTROLLER_INTERRUPTED)
+                && !cancel.is_cancelled()
+                && !timed_out
+                && !exhausted
+            {
+                return Err(Error::new(
+                    503,
+                    "VM controller interrupted execution. The saved conversation and workspace have been preserved.",
+                ));
             }
             let session = s.store.run(&id).await?["sessionId"]
                 .as_str()

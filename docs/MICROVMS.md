@@ -86,6 +86,10 @@ old releases cannot interpret their guest storage as host worktrees.
 Controller restarts fence its container PID namespace. Interrupted attempts are
 recorded as exited; the manager recreates VMs against their retained disks. Graceful
 stop requests guest shutdown and sync; forced stops rely on ext4 journal recovery.
+If only the controller restarts, saved conversations are automatically recovered,
+with at most three attempts per run. Cancellation and ordinary command failures
+do not trigger this recovery. A run without a recorded session requires review
+instead of silently starting a new conversation after an ambiguous interruption.
 No task is allowed to silently switch to host execution when VM setup fails.
 
 ## Validation

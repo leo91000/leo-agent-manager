@@ -30,6 +30,8 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+pub const CONTROLLER_INTERRUPTED: i32 = 75;
+
 struct Attempt {
     stop: CancellationToken,
     done: watch::Receiver<bool>,
@@ -393,7 +395,13 @@ pub async fn client(id: &str, stop: CancellationToken) -> Result<i32> {
             let mut reader = BufReader::new(tokio_util::io::StreamReader::new(stream));
             let mut stdout = tokio::io::stdout();
             let mut stderr = tokio::io::stderr();
-            while let Some(event) = wire::read(&mut reader).await? {
+            while let Some(event) = wire::read(&mut reader).await.map_err(|error| {
+                if error.status == 500 {
+                    Error::new(503, "VM output connection was interrupted.")
+                } else {
+                    error
+                }
+            })? {
                 if event["type"] == "heartbeat" {
                     continue;
                 }
@@ -418,7 +426,7 @@ pub async fn client(id: &str, stop: CancellationToken) -> Result<i32> {
             let value: Value = response
                 .json()
                 .await
-                .map_err(|_| Error::bad("Invalid VM exit status."))?;
+                .map_err(|_| Error::new(503, "VM completion connection was interrupted."))?;
             value["StatusCode"]
                 .as_i64()
                 .filter(|n| (0..=255).contains(n))
@@ -435,7 +443,14 @@ pub async fn client(id: &str, stop: CancellationToken) -> Result<i32> {
         .timeout(Duration::from_secs(17))
         .send()
         .await;
-    result
+    match result {
+        Err(error) if error.status == 503 => {
+            eprintln!("{}", error.message);
+            Ok(CONTROLLER_INTERRUPTED)
+        }
+        Ok(143) if !stop.is_cancelled() => Ok(CONTROLLER_INTERRUPTED),
+        result => result,
+    }
 }
 
 #[cfg(test)]

@@ -421,3 +421,92 @@ async fn chat_attachments_survive_worker_restart_and_reach_codex() {
     }
     fixture.stop(false).await;
 }
+
+#[tokio::test]
+async fn controller_interruptions_resume_saved_threads_and_stop_after_three_recoveries() {
+    use axum::{
+        Json, Router,
+        body::Body,
+        extract::{Request, State},
+        response::IntoResponse,
+        routing::any,
+    };
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    struct Controller {
+        data: std::path::PathBuf,
+        plans: tokio::sync::Mutex<Vec<Value>>,
+        failures: usize,
+    }
+    for failures in [1, usize::MAX] {
+        let mut fixture = Fixture::new().await;
+        fixture.stop(false).await;
+        let controller = Arc::new(Controller {
+            data: fixture.service.config.data_dir.clone(),
+            plans: tokio::sync::Mutex::new(Vec::new()),
+            failures,
+        });
+        let app = Router::new().fallback(any(|State(state): State<Arc<Controller>>, request: Request| async move {
+            let path = request.uri().path();
+            if request.method() == "DELETE" { return Json(json!({})).into_response(); }
+            let attempt = path.split('/').nth(2).unwrap();
+            if path.ends_with("/logs") {
+                let plans = state.plans.lock().await;
+                let index = plans.iter().position(|plan| plan["id"] == attempt).unwrap();
+                let mut output = String::from("{\"type\":\"thread.started\",\"thread_id\":\"fixture-session\"}\n");
+                if index >= state.failures {
+                    output.push_str("{\"type\":\"item.completed\",\"item\":{\"id\":\"reply\",\"type\":\"agent_message\",\"text\":\"resumed VM\"}}\n{\"type\":\"turn.completed\",\"usage\":{}}\n");
+                }
+                return Body::from(format!("{}\n",json!({"type":"output","stderr":false,"data":STANDARD.encode(output)}))).into_response();
+            }
+            if path.ends_with("/wait") {
+                let plans = state.plans.lock().await;
+                let index = plans.iter().position(|plan| plan["id"] == attempt).unwrap();
+                return Json(json!({"StatusCode":if index < state.failures {143} else {0}})).into_response();
+            }
+            let bytes = tokio::fs::read(state.data.join("runner-plans").join(format!("{attempt}.json"))).await.unwrap();
+            state.plans.lock().await.push(serde_json::from_slice(&bytes).unwrap());
+            Json(json!({})).into_response()
+        })).with_state(controller.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        Arc::get_mut(&mut fixture.service)
+            .unwrap()
+            .config
+            .runner_url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let home = fixture.service.config.home.join(".codex");
+        tokio::fs::create_dir_all(&home).await.unwrap();
+        tokio::fs::write(home.join("auth.json"), "{}")
+            .await
+            .unwrap();
+        fixture.start().await;
+        let run = fixture.enqueue("Inspect the VM fixture").await;
+        let run_id = text(&run, "id");
+        let completed = fixture
+            .until(run_id, |run| {
+                ["succeeded", "failed"].contains(&text(run, "status"))
+            })
+            .await;
+        assert_eq!(
+            completed["status"],
+            if failures == 1 { "succeeded" } else { "failed" },
+            "{completed}"
+        );
+        assert_eq!(completed["sessionId"], "fixture-session");
+        let plans = controller.plans.lock().await;
+        assert_eq!(plans.len(), if failures == 1 { 2 } else { 4 });
+        for plan in plans.iter().skip(1) {
+            assert!(
+                plan["args"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("fixture-session")),
+                "{plan}"
+            );
+            assert_eq!(plan["runId"], run_id);
+            assert_eq!(plan["cwd"], plans[0]["cwd"]);
+        }
+        drop(plans);
+        fixture.stop(false).await;
+        server.abort();
+    }
+}
