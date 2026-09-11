@@ -5,14 +5,13 @@ import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } fro
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { toolkitEnvironment } from '/app/server/toolkit.ts'
 
 async function main() {
   const directory = await mkdtemp(path.join(tmpdir(), 'leo-toolkit-probe-'))
   const stale = path.join(process.env.HOME, '.local/share/mise/installs/node/0.0.0')
   await mkdir(path.dirname(stale), { recursive: true })
   await symlink('/usr/local/share/mise/installs/node/0.0.0', stale)
-  const env = await toolkitEnvironment(process.env.HOME)
+  const env = JSON.parse(execFileSync('/usr/local/bin/leo', ['toolkit-env'], { encoding: 'utf8', timeout: 60000 }))
   await assert.rejects(lstat(stale), { code: 'ENOENT' })
   const run = (binary, args = ['--version'], cwd = directory) => execFileSync(binary, args, { env, cwd, encoding: 'utf8', timeout: 120000 }).trim()
   try {

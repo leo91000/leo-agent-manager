@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { expect, it, vi } from 'vitest'
-import { RunnerLifecycle } from '../server/runner-lifecycle.ts'
+import { RunnerLifecycle } from './legacy/server/runner-lifecycle.ts'
 
 it('fences in-flight starts, rejects delayed starts across broker restarts, and propagates removal failures', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'leo-runner-lifecycle-'))

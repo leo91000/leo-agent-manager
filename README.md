@@ -1,6 +1,6 @@
 # Leo Agent Manager
 
-A self-hosted Vue control room for Codex agents, recurring work, and reusable skills.
+A self-hosted Vue control room with a native Rust backend for Codex agents, recurring work, and reusable skills.
 Run it on a VPS so schedules keep working when your laptop is off.
 
 ![Workspace overview](docs/screenshots/overview-desktop.png)
@@ -52,6 +52,7 @@ OAuth setup, tool permissions, and credential backups.
 ## Develop with pnpm 12
 
 Use Node.js 24.12+ and **pnpm 12.3.4** (pinned in `package.json`).
+Install Rust through rustup; `rust-toolchain.toml` pins the compiler and checks.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -74,15 +75,22 @@ runs (`.env` is used by Compose, not loaded automatically by the development ser
 
 ```sh
 pnpm check                       # Antfu ESLint, types, unit/integration tests, build
+cargo test --workspace           # Native backend integration and migration tests
+cargo clippy --all-targets -- -D warnings
+cargo build --bin leo            # Native binary used by every browser fixture
 pnpm exec playwright install chromium
-pnpm test:e2e                    # Full browser journeys with a fixture subprocess
-pnpm exec tsx tests/performance.ts # Reproducible local benchmark
+pnpm test:e2e                    # Full browser journeys against the Rust backend
+pnpm build:backend               # Optimized native production binary
+node --import tsx scripts/benchmark-backend.mjs # Node/Rust comparison
 pnpm lint:fix                    # @antfu/eslint-config formatting and fixes
 ```
 
 Browser tests start a separate application, isolated home, and fixture project;
 they never use your Codex credentials. The fixture runner is only in the test suite
 and is absent from the production image.
+
+[Rust backend architecture and migration](docs/RUST-BACKEND.md) describes the
+runtime, database compatibility, execution supervision and performance evidence.
 
 ## Operations and boundaries
 

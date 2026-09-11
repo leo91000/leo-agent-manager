@@ -1,12 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { prepareExecution } from '../server/execution.ts'
-import { isolated } from '../server/policy.ts'
-import { translateMount } from '../server/runner-broker.ts'
-import { codexArgs } from '../server/worker.ts'
 import { MAIN_AGENT_ID } from '../shared/contracts.ts'
 import { fixture } from './helpers.ts'
+import { prepareExecution } from './legacy/server/execution.ts'
+import { isolated } from './legacy/server/policy.ts'
+import { translateMount } from './legacy/server/runner-broker.ts'
+import { codexArgs } from './legacy/server/worker.ts'
 
 describe('agent access and task inheritance', () => {
   let ctx: Awaited<ReturnType<typeof fixture>>

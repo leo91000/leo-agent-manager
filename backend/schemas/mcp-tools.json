@@ -1,0 +1,1118 @@
+[
+  {
+    "name": "list_agents",
+    "description": "List configured Codex agent profiles.",
+    "scope": "read",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "save_agent",
+    "description": "Create an agent profile. Execution access is explicit.",
+    "scope": "manage",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "description": {
+          "default": "",
+          "type": "string",
+          "maxLength": 500
+        },
+        "model": {
+          "default": "",
+          "type": "string",
+          "maxLength": 100
+        },
+        "reasoning": {
+          "default": "high",
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "instructions": {
+          "default": "",
+          "type": "string",
+          "maxLength": 20000
+        },
+        "timeoutMinutes": {
+          "default": 120,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 720
+        },
+        "access": {
+          "default": {
+            "projects": null,
+            "skills": null,
+            "mcps": null,
+            "mcpTools": {},
+            "github": true,
+            "sandbox": "yolo"
+          },
+          "type": "object",
+          "properties": {
+            "projects": {
+              "default": null,
+              "anyOf": [
+                {
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "skills": {
+              "default": null,
+              "anyOf": [
+                {
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 160
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mcps": {
+              "default": null,
+              "anyOf": [
+                {
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mcpTools": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "additionalProperties": {
+                "maxItems": 500,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            },
+            "github": {
+              "default": true,
+              "type": "boolean"
+            },
+            "sandbox": {
+              "default": "yolo",
+              "type": "string",
+              "enum": [
+                "yolo",
+                "workspace-write",
+                "read-only"
+              ]
+            }
+          },
+          "required": [
+            "projects",
+            "skills",
+            "mcps",
+            "mcpTools",
+            "github",
+            "sandbox"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "model",
+        "reasoning",
+        "instructions",
+        "timeoutMinutes",
+        "access"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_agent",
+    "description": "Update an existing agent, including MCP connection and tool access. Omitted fields retain their current values; access, when supplied, replaces the entire access policy. Changes apply to new runs.",
+    "scope": "manage",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "agent": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "model": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "reasoning": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
+            },
+            "instructions": {
+              "type": "string",
+              "maxLength": 20000
+            },
+            "timeoutMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 720
+            },
+            "access": {
+              "type": "object",
+              "properties": {
+                "projects": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "maxItems": 100,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "skills": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "maxItems": 100,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 160
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "mcps": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "maxItems": 100,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "mcpTools": {
+                  "default": {},
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "additionalProperties": {
+                    "maxItems": 500,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  }
+                },
+                "github": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "sandbox": {
+                  "default": "yolo",
+                  "type": "string",
+                  "enum": [
+                    "yolo",
+                    "workspace-write",
+                    "read-only"
+                  ]
+                }
+              },
+              "required": [
+                "projects",
+                "skills",
+                "mcps",
+                "mcpTools",
+                "github",
+                "sandbox"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "agent"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_mcps",
+    "description": "List MCP connections, discovered tools, authentication state and saved credential indicators. Secret values are never returned.",
+    "scope": "read",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_mcp",
+    "description": "Add an HTTP or command MCP connection. Supports bearer tokens, OAuth and command environment credentials, stored encrypted and never returned. Does not connect or execute commands. For OAuth, open managementUrl and choose Connect in the signed-in browser. Use test_mcp to discover tools, then update_agent to grant access.",
+    "scope": "manage",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "transport": {
+          "default": "http",
+          "type": "string",
+          "enum": [
+            "http",
+            "stdio"
+          ]
+        },
+        "url": {
+          "default": "",
+          "type": "string",
+          "maxLength": 2000
+        },
+        "command": {
+          "default": "",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "args": {
+          "default": [],
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "auth": {
+          "default": "none",
+          "type": "string",
+          "enum": [
+            "none",
+            "bearer",
+            "oauth"
+          ]
+        },
+        "clientId": {
+          "default": "",
+          "type": "string",
+          "maxLength": 500
+        },
+        "scopes": {
+          "default": "",
+          "type": "string",
+          "maxLength": 2000
+        },
+        "allowPrivateNetwork": {
+          "default": false,
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "enabledTools": {
+          "default": null,
+          "anyOf": [
+            {
+              "maxItems": 500,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "token": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "clientSecret": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "removeEnv": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Z_]\\w*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        }
+      },
+      "required": [
+        "name",
+        "transport",
+        "url",
+        "command",
+        "args",
+        "auth",
+        "clientId",
+        "scopes",
+        "allowPrivateNetwork",
+        "enabled",
+        "enabledTools"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_mcp",
+    "description": "Replace an existing MCP connection configuration; supply its complete non-secret settings. Omit token, clientSecret and env values to preserve saved credentials; removeEnv deletes selected variables. Changing authentication settings clears previous credentials. Invalidates active remote grants. OAuth sign-in is completed from managementUrl in the browser.",
+    "scope": "manage",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "connection": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "transport": {
+              "default": "http",
+              "type": "string",
+              "enum": [
+                "http",
+                "stdio"
+              ]
+            },
+            "url": {
+              "default": "",
+              "type": "string",
+              "maxLength": 2000
+            },
+            "command": {
+              "default": "",
+              "type": "string",
+              "maxLength": 1000
+            },
+            "args": {
+              "default": [],
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 4000
+              }
+            },
+            "auth": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "bearer",
+                "oauth"
+              ]
+            },
+            "clientId": {
+              "default": "",
+              "type": "string",
+              "maxLength": 500
+            },
+            "scopes": {
+              "default": "",
+              "type": "string",
+              "maxLength": 2000
+            },
+            "allowPrivateNetwork": {
+              "default": false,
+              "type": "boolean"
+            },
+            "enabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "enabledTools": {
+              "default": null,
+              "anyOf": [
+                {
+                  "maxItems": 500,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "token": {
+              "type": "string",
+              "maxLength": 10000
+            },
+            "clientSecret": {
+              "type": "string",
+              "maxLength": 10000
+            },
+            "removeEnv": {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Z_]\\w*$"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "maxLength": 10000
+              }
+            }
+          },
+          "required": [
+            "name",
+            "transport",
+            "url",
+            "command",
+            "args",
+            "auth",
+            "clientId",
+            "scopes",
+            "allowPrivateNetwork",
+            "enabled",
+            "enabledTools"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "connection"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "test_mcp",
+    "description": "Connect to an MCP server and discover its tools. Command servers execute in the manager environment; only test trusted commands. OAuth requiring user consent must first be connected in the MCPs UI. Returns connection state and safe diagnostics.",
+    "scope": "manage",
+    "destructive": true,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "disconnect_mcp",
+    "description": "Remove locally stored MCP credentials and invalidate active remote grants while keeping the connection configuration. Provider-side consent is not revoked; running command processes retain their environment until they stop.",
+    "scope": "manage",
+    "destructive": true,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_mcp",
+    "description": "Delete an MCP connection and its credentials, remove agent selections, and invalidate active remote grants. Running command processes are not stopped.",
+    "scope": "manage",
+    "destructive": true,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_projects",
+    "description": "List registered project workspaces.",
+    "scope": "read",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "save_project",
+    "description": "Register an existing directory inside an allowed workspace root.",
+    "scope": "manage",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "description": {
+          "default": "",
+          "type": "string",
+          "maxLength": 500
+        },
+        "baseBranch": {
+          "default": "main",
+          "type": "string",
+          "pattern": "^[a-z0-9][\\w/.-]*$"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "description",
+        "baseBranch"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_tasks",
+    "description": "List task instructions and schedules.",
+    "scope": "read",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_task",
+    "description": "Create a one-off or scheduled task. This does not execute it immediately.",
+    "scope": "manage",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50000
+        },
+        "agentId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "projectId": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "skills": {
+          "default": null,
+          "anyOf": [
+            {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 160
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tags": {
+          "default": [],
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 30
+          }
+        },
+        "cron": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timezone": {
+          "default": "Europe/Paris",
+          "type": "string",
+          "maxLength": 100
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "archived": {
+          "default": false,
+          "type": "boolean"
+        },
+        "worktree": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "prompt",
+        "agentId",
+        "projectId",
+        "skills",
+        "tags",
+        "cron",
+        "timezone",
+        "enabled",
+        "archived",
+        "worktree"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_task",
+    "description": "Update an existing task, including pausing its schedule.",
+    "scope": "manage",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "task": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50000
+            },
+            "agentId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "projectId": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "skills": {
+              "default": null,
+              "anyOf": [
+                {
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 160
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tags": {
+              "default": [],
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 30
+              }
+            },
+            "cron": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "timezone": {
+              "default": "Europe/Paris",
+              "type": "string",
+              "maxLength": 100
+            },
+            "enabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "archived": {
+              "default": false,
+              "type": "boolean"
+            },
+            "worktree": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "prompt",
+            "agentId",
+            "projectId",
+            "skills",
+            "tags",
+            "cron",
+            "timezone",
+            "enabled",
+            "archived",
+            "worktree"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "task"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_task",
+    "description": "Queue a task using its agent’s resource access and execution mode. YOLO is the default; restricted agents use isolated containers. Unattended runs never prompt for approval. May modify allowed code and external services as instructed.",
+    "scope": "run",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "taskId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "cancel_run",
+    "description": "Cancel queued or running work. Already completed external effects are preserved.",
+    "scope": "run",
+    "destructive": true,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_runs",
+    "description": "List recent runs with pagination, without bulky prompts or logs.",
+    "scope": "read",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "limit": {
+          "default": 20,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "offset": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "limit",
+        "offset"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_run",
+    "description": "Get a run summary and an incremental page of its event log.",
+    "scope": "read",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "after": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "runId",
+        "after"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_skills",
+    "description": "List global .agents skills or the skills for one registered project.",
+    "scope": "read",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "save_skill",
+    "description": "Create or update SKILL.md with validated frontmatter in .agents/skills.",
+    "scope": "manage",
+    "destructive": false,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "projectId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "name",
+        "content"
+      ],
+      "additionalProperties": false
+    }
+  }
+]

@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { Worker } from '../server/worker.ts'
 import { MAIN_AGENT_ID } from '../shared/constants.ts'
 import { accountFixture } from './codex-account-fixture.ts'
 import { fixture } from './helpers.ts'
+import { Worker } from './legacy/server/worker.ts'
 import { runnerProvider } from './runner-provider.ts'
 
 describe('interactive chats', () => {

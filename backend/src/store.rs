@@ -1,0 +1,463 @@
+use crate::{
+    config::now,
+    error::{Error, Result, required},
+};
+use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::{Value, json};
+use std::{
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+use tokio::sync::{mpsc, oneshot};
+type Job = Box<dyn FnOnce(&mut Connection) + Send>;
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Event {
+    id: i64,
+    run_id: String,
+    created_at: i64,
+    #[serde(rename = "type")]
+    kind: String,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<Box<serde_json::value::RawValue>>,
+}
+#[derive(Clone)]
+pub struct Store(Arc<Pool>);
+struct Pool {
+    writer: mpsc::Sender<Job>,
+    readers: Vec<mpsc::Sender<Job>>,
+    next: AtomicUsize,
+}
+fn actor(connection: Connection) -> mpsc::Sender<Job> {
+    let (tx, mut rx) = mpsc::channel::<Job>(256);
+    std::thread::Builder::new()
+        .name("leo-sqlite".into())
+        .spawn(move || {
+            let mut db = connection;
+            while let Some(job) = rx.blocking_recv() {
+                job(&mut db);
+            }
+        })
+        .expect("database thread");
+    tx
+}
+impl Store {
+    pub fn open(directory: &Path) -> Result<Self> {
+        std::fs::create_dir_all(directory)?;
+        let file = directory.join("manager.db");
+        let mut writer = Connection::open(&file)?;
+        let version: i64 = writer.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if version > 4 {
+            return Err(Error::bad(
+                "This database belongs to a newer application version.",
+            ));
+        }
+        writer.busy_timeout(std::time::Duration::from_secs(5))?;
+        writer.set_prepared_statement_cache_capacity(128);
+        writer.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY,kind TEXT NOT NULL,data TEXT NOT NULL,updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS records_kind ON records(kind,updated_at DESC);
+CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,task_id TEXT NOT NULL,project_id TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,data TEXT NOT NULL,dedupe TEXT UNIQUE);
+CREATE INDEX IF NOT EXISTS runs_status ON runs(status,created_at);
+CREATE INDEX IF NOT EXISTS runs_task ON runs(task_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS runs_created ON runs(created_at DESC,id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS runs_active_task ON runs(task_id) WHERE status IN ('queued','running');
+CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,created_at INTEGER NOT NULL,type TEXT NOT NULL,text TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS events_run ON events(run_id,id);
+CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY,data TEXT NOT NULL,expires INTEGER);
+CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at INTEGER NOT NULL,action TEXT NOT NULL,detail TEXT NOT NULL);",
+        )?;
+        let tx = writer.transaction()?;
+        if version < 2 {
+            tx.execute_batch("ALTER TABLE events ADD COLUMN payload TEXT;")?;
+        }
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS chat_messages(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,data TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages(chat_id,created_at); PRAGMA user_version=4;",
+        )?;
+        tx.commit()?;
+        let mut readers = Vec::new();
+        for _ in 0..2 {
+            let connection = Connection::open(&file)?;
+            connection.busy_timeout(std::time::Duration::from_secs(5))?;
+            connection.execute_batch("PRAGMA query_only=ON; PRAGMA foreign_keys=ON;")?;
+            connection.set_prepared_statement_cache_capacity(128);
+            readers.push(actor(connection));
+        }
+        Ok(Self(Arc::new(Pool {
+            writer: actor(writer),
+            readers,
+            next: AtomicUsize::new(0),
+        })))
+    }
+    async fn call<T: Send + 'static>(
+        &self,
+        tx: &mpsc::Sender<Job>,
+        f: impl FnOnce(&mut Db<'_>) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let (reply, rx) = oneshot::channel();
+        tx.send(Box::new(move |connection| {
+            let _ = reply.send(f(&mut Db(connection)));
+        }))
+        .await
+        .map_err(|_| Error::new(503, "Database is closing."))?;
+        rx.await
+            .map_err(|_| Error::new(503, "Database operation stopped."))?
+    }
+    pub async fn read<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Db<'_>) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        self.call(
+            &self.0.readers[self.0.next.fetch_add(1, Ordering::Relaxed) % self.0.readers.len()],
+            f,
+        )
+        .await
+    }
+    pub async fn write<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Db<'_>) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        self.call(&self.0.writer, f).await
+    }
+    pub async fn transaction<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Db<'_>) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        self.write(move |db| {
+            let tx = rusqlite::Transaction::new_unchecked(
+                db.0,
+                rusqlite::TransactionBehavior::Immediate,
+            )?;
+            let value = f(&mut Db(&tx))?;
+            tx.commit()?;
+            Ok(value)
+        })
+        .await
+    }
+    pub async fn get(&self, kind: &str, id: &str) -> Result<Option<Value>> {
+        let (kind, id) = (kind.to_owned(), id.to_owned());
+        self.read(move |db| db.get(&kind, &id)).await
+    }
+    pub async fn list(&self, kind: &str) -> Result<Vec<Value>> {
+        let kind = kind.to_owned();
+        self.read(move |db| db.list(&kind)).await
+    }
+    pub async fn kv(&self, key: &str) -> Result<Option<Value>> {
+        let key = key.to_owned();
+        self.read(move |db| db.kv(&key)).await
+    }
+    pub async fn set(&self, key: &str, value: Value, expires: Option<i64>) -> Result<()> {
+        let key = key.to_owned();
+        self.write(move |db| db.set(&key, &value, expires)).await
+    }
+    pub async fn delete(&self, key: &str) -> Result<()> {
+        let key = key.to_owned();
+        self.write(move |db| db.delete(&key)).await
+    }
+    pub async fn put(&self, kind: &str, value: Value) -> Result<Value> {
+        let kind = kind.to_owned();
+        self.write(move |db| db.put(&kind, &value)).await
+    }
+    pub async fn save(&self, kind: &str, value: Value, action: &str) -> Result<Value> {
+        let (kind, action) = (kind.to_owned(), action.to_owned());
+        self.transaction(move |db| {
+            let result = db.put(&kind, &value)?;
+            db.audit(&action, &json!({"id":result["id"]}))?;
+            Ok(result)
+        })
+        .await
+    }
+    pub async fn run(&self, id: &str) -> Result<Value> {
+        let id = id.to_owned();
+        self.read(move |db| required(db.run(&id)?, "Run not found"))
+            .await
+    }
+    pub async fn patch_run(&self, id: &str, patch: Value) -> Result<Value> {
+        let id = id.to_owned();
+        self.write(move |db| db.patch_run(&id, &patch)).await
+    }
+    pub async fn event(
+        &self,
+        id: &str,
+        kind: &str,
+        text: &str,
+        payload: Option<Value>,
+    ) -> Result<()> {
+        let (id, kind, text) = (id.to_owned(), kind.to_owned(), text.to_owned());
+        self.write(move |db| db.event(&id, &kind, &text, payload.as_ref()))
+            .await
+    }
+    pub async fn keys(&self, prefix: &str) -> Result<Vec<(String, Value)>> {
+        let prefix = prefix.to_owned();
+        self.read(move |db| db.keys(&prefix)).await
+    }
+    pub async fn audit(&self, action: &str, detail: Value) -> Result<()> {
+        let action = action.to_owned();
+        self.write(move |db| db.audit(&action, &detail)).await
+    }
+}
+// Database transactions and statement caches stay on their owning database thread.
+pub struct Db<'a>(pub &'a Connection);
+impl Db<'_> {
+    pub fn json_rows(&self, sql: &str, parameters: impl rusqlite::Params) -> Result<Vec<Value>> {
+        let mut stmt = self.0.prepare_cached(sql)?;
+        let rows = stmt.query_map(parameters, |row| row.get::<_, String>(0))?;
+        rows.map(|r| Ok(serde_json::from_str(&r?)?)).collect()
+    }
+    pub fn list(&self, kind: &str) -> Result<Vec<Value>> {
+        self.json_rows(
+            "SELECT data FROM records WHERE kind=? ORDER BY updated_at DESC",
+            [kind],
+        )
+    }
+    pub fn get(&self, kind: &str, id: &str) -> Result<Option<Value>> {
+        self.0
+            .prepare_cached("SELECT data FROM records WHERE kind=? AND id=?")?
+            .query_row(params![kind, id], |r| r.get::<_, String>(0))
+            .optional()?
+            .map(|s| Ok(serde_json::from_str(&s)?))
+            .transpose()
+    }
+    pub fn put(&self, kind: &str, value: &Value) -> Result<Value> {
+        self.0.prepare_cached("INSERT INTO records VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at")?.execute(params![value["id"].as_str(), kind, value.to_string(), now()])?;
+        Ok(value.clone())
+    }
+    pub fn remove(&self, kind: &str, id: &str) -> Result<()> {
+        self.0
+            .prepare_cached("DELETE FROM records WHERE kind=? AND id=?")?
+            .execute(params![kind, id])?;
+        Ok(())
+    }
+    pub fn kv(&self, key: &str) -> Result<Option<Value>> {
+        self.0
+            .prepare_cached("SELECT data FROM kv WHERE key=? AND (expires IS NULL OR expires>?)")?
+            .query_row(params![key, now()], |r| r.get::<_, String>(0))
+            .optional()?
+            .map(|s| Ok(serde_json::from_str(&s)?))
+            .transpose()
+    }
+    pub fn set(&self, key: &str, value: &Value, expires: Option<i64>) -> Result<()> {
+        self.0.prepare_cached("INSERT INTO kv VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data,expires=excluded.expires")?.execute(params![key, value.to_string(), expires])?;
+        Ok(())
+    }
+    pub fn delete(&self, key: &str) -> Result<()> {
+        self.0
+            .prepare_cached("DELETE FROM kv WHERE key=?")?
+            .execute([key])?;
+        Ok(())
+    }
+    pub fn keys(&self, prefix: &str) -> Result<Vec<(String, Value)>> {
+        let mut stmt = self.0.prepare_cached(
+            "SELECT key,data FROM kv WHERE key>=?1 AND key<?2 AND (expires IS NULL OR expires>?3)",
+        )?;
+        let rows = stmt.query_map(params![prefix, format!("{prefix}\u{10ffff}"), now()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        rows.map(|r| {
+            let (k, v) = r?;
+            Ok((k, serde_json::from_str(&v)?))
+        })
+        .collect()
+    }
+    pub fn run(&self, id: &str) -> Result<Option<Value>> {
+        self.0
+            .prepare_cached("SELECT data FROM runs WHERE id=?")?
+            .query_row([id], |r| r.get::<_, String>(0))
+            .optional()?
+            .map(|s| Ok(serde_json::from_str(&s)?))
+            .transpose()
+    }
+    pub fn add_run(&self, run: &Value, dedupe: Option<&str>) -> Result<Value> {
+        self.0
+            .prepare_cached("INSERT INTO runs VALUES(?,?,?,?,?,?,?)")?
+            .execute(params![
+                run["id"].as_str(),
+                run["taskId"].as_str(),
+                run["projectId"].as_str().unwrap_or(""),
+                run["status"].as_str(),
+                run["createdAt"].as_i64(),
+                run.to_string(),
+                dedupe
+            ])?;
+        Ok(run.clone())
+    }
+    pub fn patch_run(&self, id: &str, patch: &Value) -> Result<Value> {
+        let mut run = required(self.run(id)?, "Run not found")?;
+        merge(&mut run, patch);
+        self.0
+            .prepare_cached("UPDATE runs SET status=?,data=? WHERE id=?")?
+            .execute(params![run["status"].as_str(), run.to_string(), id])?;
+        Ok(run)
+    }
+    pub fn active(&self) -> Result<Vec<Value>> {
+        self.json_rows(
+            "SELECT data FROM runs WHERE status IN ('queued','running') ORDER BY created_at",
+            [],
+        )
+    }
+    pub fn runs(
+        &self,
+        status: Option<&str>,
+        task: Option<&str>,
+        limit: i64,
+        offset: i64,
+        full: bool,
+    ) -> Result<Vec<Value>> {
+        let (query, values) = Self::run_query(status, task, limit, offset, full);
+        self.json_rows(&query, rusqlite::params_from_iter(values))
+    }
+    pub fn run_page(
+        &self,
+        status: Option<&str>,
+        task: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Box<serde_json::value::RawValue>>> {
+        let (query, values) = Self::run_query(status, task, limit, offset, false);
+        let mut statement = self.0.prepare_cached(&query)?;
+        statement
+            .query_map(rusqlite::params_from_iter(values), |row| {
+                row.get::<_, String>(0)
+            })?
+            .map(|row| Ok(serde_json::value::RawValue::from_string(row?)?))
+            .collect()
+    }
+    fn run_query(
+        status: Option<&str>,
+        task: Option<&str>,
+        limit: i64,
+        offset: i64,
+        full: bool,
+    ) -> (String, Vec<rusqlite::types::Value>) {
+        let fields = if full {
+            "data"
+        } else {
+            "json_set(json_remove(data,'$.snapshot','$.summary'),'$.taskName',json_extract(data,'$.snapshot.task.name'),'$.agentName',json_extract(data,'$.snapshot.agent.name'))"
+        };
+        let mut filters = Vec::new();
+        let mut values: Vec<rusqlite::types::Value> = Vec::new();
+        if let Some(status) = status {
+            filters.push("status=?");
+            values.push(status.to_owned().into());
+        }
+        if let Some(task) = task {
+            filters.push("task_id=?");
+            values.push(task.to_owned().into());
+        }
+        let clause = if filters.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", filters.join(" AND "))
+        };
+        values.push(limit.into());
+        values.push(offset.into());
+        (
+            format!(
+                "SELECT {fields} FROM runs{clause} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?"
+            ),
+            values,
+        )
+    }
+    pub fn stats(&self) -> Result<Value> {
+        let mut counts = json!({});
+        let mut stmt = self
+            .0
+            .prepare_cached("SELECT status,COUNT(*) FROM runs GROUP BY status")?;
+        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            let (k, v) = row?;
+            counts[k] = v.into();
+        }
+        Ok(counts)
+    }
+    pub fn event(&self, run: &str, kind: &str, text: &str, payload: Option<&Value>) -> Result<()> {
+        let text = text.chars().take(16000).collect::<String>();
+        self.0
+            .prepare_cached(
+                "INSERT INTO events(run_id,created_at,type,text,payload) VALUES(?,?,?,?,?)",
+            )?
+            .execute(params![
+                run,
+                now(),
+                kind,
+                text,
+                payload.map(Value::to_string)
+            ])?;
+        // Prune in batches instead of executing a delete for every streamed delta.
+        if self.0.last_insert_rowid() % 256 == 0 {
+            self.0.prepare_cached("DELETE FROM events WHERE run_id=?1 AND id<(SELECT COALESCE(MAX(id),0)-10000 FROM events WHERE run_id=?1) AND run_id IN(SELECT id FROM runs WHERE json_extract(data,'$.trigger')!='chat')")?.execute([run])?;
+        }
+        Ok(())
+    }
+    pub fn events(&self, run: &str, after: i64, limit: i64) -> Result<Vec<Value>> {
+        self.event_page(run, after, limit)?
+            .into_iter()
+            .map(|event| serde_json::to_value(event).map_err(Error::from))
+            .collect()
+    }
+    // Stored payloads are already JSON. Validate their bytes without allocating
+    // thousands of intermediate object nodes just to serialize them again.
+    pub fn event_page(&self, run: &str, after: i64, limit: i64) -> Result<Vec<Event>> {
+        let mut stmt = self.0.prepare_cached("SELECT id,run_id,created_at,type,text,payload FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?")?;
+        let rows = stmt.query_map(params![run, after, limit], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (id, run, created, kind, text, payload) = row?;
+            Ok(Event {
+                id,
+                run_id: run,
+                created_at: created,
+                kind,
+                text,
+                payload: payload
+                    .map(serde_json::value::RawValue::from_string)
+                    .transpose()?,
+            })
+        })
+        .collect()
+    }
+    pub fn require_run(&self, id: &str) -> Result<()> {
+        let exists = self
+            .0
+            .prepare_cached("SELECT 1 FROM runs WHERE id=?")?
+            .exists([id])?;
+        if !exists {
+            return Err(Error::new(404, "Run not found."));
+        }
+        Ok(())
+    }
+    pub fn messages(&self, chat: &str) -> Result<Vec<Value>> {
+        self.json_rows(
+            "SELECT data FROM chat_messages WHERE chat_id=? ORDER BY created_at,rowid",
+            [chat],
+        )
+    }
+    pub fn put_message(&self, message: &Value) -> Result<Value> {
+        self.0.prepare_cached("INSERT INTO chat_messages VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data")?.execute(params![message["id"].as_str(), message["chatId"].as_str(), message.to_string(), message["createdAt"].as_i64()])?;
+        Ok(message.clone())
+    }
+    pub fn audit(&self, action: &str, detail: &Value) -> Result<()> {
+        self.0
+            .prepare_cached("INSERT INTO audit(created_at,action,detail) VALUES(?,?,?)")?
+            .execute(params![now(), action, detail.to_string()])?;
+        Ok(())
+    }
+}
+pub fn merge(value: &mut Value, patch: &Value) {
+    if let (Some(target), Some(patch)) = (value.as_object_mut(), patch.as_object()) {
+        target.extend(patch.clone());
+    }
+}

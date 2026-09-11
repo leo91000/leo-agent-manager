@@ -1,0 +1,1393 @@
+use crate::{
+    accounts::Lease,
+    config::now,
+    error::{Error, Result, required},
+    execution,
+    process::Environment,
+    recovery, run_output,
+    service::{Service, policy, run_projects},
+    skills::{atomic_write, private_dir},
+    store::{Store, merge},
+    supervisor::Supervised,
+    validation::text,
+};
+use serde_json::{Value, json};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
+    time::Duration,
+};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt},
+    sync::{Mutex, OnceCell, mpsc},
+};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
+#[derive(Default)]
+pub struct Worker {
+    pub active: Mutex<HashMap<String, CancellationToken>>,
+    tick_lock: Mutex<()>,
+    initialized: OnceCell<()>,
+    maintenance: AtomicI64,
+    tasks: TaskTracker,
+}
+struct Checkpoint {
+    store: Store,
+    id: String,
+    value: Mutex<Value>,
+    deadline: i64,
+}
+impl Checkpoint {
+    async fn value(&self) -> Value {
+        self.value.lock().await.clone()
+    }
+    async fn save(&self, patch: Value) -> Result<()> {
+        let mut value = self.value.lock().await;
+        merge(&mut value, &patch);
+        value["remainingMs"] = (self.deadline - now()).max(0).into();
+        self.store
+            .set(&format!("run-checkpoint:{}", self.id), value.clone(), None)
+            .await
+    }
+    async fn memory(&self, key: &str, value: Value) {
+        self.value.lock().await[key] = value;
+    }
+}
+impl Worker {
+    pub async fn initialize(&self, s: &Service) -> Result<()> {
+        self.initialized
+            .get_or_try_init(|| {
+                s.store.transaction(|db| {
+                    for run in db.active()? {
+                        let id = text(&run, "id");
+                        if run["status"] != "running" {
+                            if !run["cancelRequestedAt"].is_null() {
+                                db.patch_run(
+                                    id,
+                                    &json!({
+                                    "recoveryPending":true}
+                                    ),
+                                )?;
+                            }
+                            continue;
+                        }
+                        if db.kv(&format!("run-checkpoint:{id}"))?.is_none() && !run["startedAt"].is_null() {
+                            db.patch_run(
+                                id,
+                                &json!({
+                                "status":"interrupted","finishedAt":now(),"summary":"This older run has no restart checkpoint. Review its working files before retrying."}
+                                ),
+                            )?;
+                            continue;
+                        }
+                        db.patch_run(
+                            id,
+                            &json!({
+                            "status":"queued","recoveryPending":true,"finishedAt":null,"accountWaitReason":"Recovering after worker restart."}
+                            ),
+                        )?;
+                        db.event(id, "status", "Recovering after worker restart", None)?;
+                    }
+                    Ok(())
+                })
+            })
+            .await
+            .map(|_| ())
+    }
+    pub async fn start(self: &Arc<Self>, s: Arc<Service>) -> Result<()> {
+        self.initialize(&s).await?;
+        let worker = self.clone();
+        self.tasks.spawn(async move {
+            let mut timer = tokio::time::interval(Duration::from_secs(1));
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                _=s.shutdown.cancelled()=>break,_=timer.tick()=>{
+                if let Err(error)=worker.tick(&s).await{
+                let _=s.store.audit("worker.error",json!({
+                "message":error.message}
+                )).await;
+                }
+                }
+                }
+            }
+        });
+        Ok(())
+    }
+    pub async fn tick(self: &Arc<Self>, s: &Arc<Service>) -> Result<()> {
+        let Ok(_tick) = self.tick_lock.try_lock() else {
+            return Ok(());
+        };
+        if s.shutdown.is_cancelled() {
+            return Ok(());
+        }
+        self.initialize(s).await?;
+        if now() - self.maintenance.load(Ordering::Relaxed) > 3600000 {
+            s.store
+                .write(|db| {
+                    db.0.execute("DELETE FROM kv WHERE expires IS NOT NULL AND expires<=?", [now()])?;
+                    db.0.execute("DELETE FROM audit WHERE created_at<?", [now() - 90 * 86400000_i64])?;
+                    db.0.execute("DELETE FROM events WHERE created_at<? AND run_id IN (SELECT id FROM runs WHERE status NOT IN ('queued','running') AND json_extract(data,'$.trigger')!='chat')", [now() - 30 * 86400000_i64])?;
+                    Ok(())
+                })
+                .await?;
+            self.maintenance.store(now(), Ordering::Relaxed);
+        }
+        let active = self
+            .active
+            .lock()
+            .await
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        s.chat_tick(&active).await?;
+        s.schedule().await?;
+        if s.shutdown.is_cancelled() || s.store.kv("deployment-lease").await?.is_some() {
+            return Ok(());
+        }
+        let mut projects = HashSet::new();
+        for id in &active {
+            for p in run_projects(&s.store.run(id).await?) {
+                projects.insert(text(&p, "id").to_owned());
+            }
+        }
+        for run in s.store.read(|db| db.active()).await? {
+            if self.active.lock().await.len() >= s.config.concurrency {
+                break;
+            }
+            let run_id = text(&run, "id");
+            if run["status"] != "queued"
+                || run_projects(&run)
+                    .iter()
+                    .any(|p| projects.contains(text(p, "id")))
+            {
+                continue;
+            }
+            let checkpoint = s.store.kv(&format!("run-checkpoint:{run_id}")).await?;
+            if run["recoveryPending"] == true
+                || checkpoint.as_ref().is_some_and(|c| c["launched"] == true)
+            {
+                for project in run_projects(&run) {
+                    projects.insert(text(&project, "id").to_owned());
+                }
+            }
+            if run["recoveryPending"] == true {
+                let result = async {
+                    recovery::fence(s, &run).await?;
+                    s.mcps.revoke_run(s, run_id).await?;
+                    s.accounts.recover_run(s, &run).await?;
+                    if !s.store.run(run_id).await?["cancelRequestedAt"].is_null() {
+                        s.store
+                            .patch_run(
+                                run_id,
+                                json!({
+                                "status":"cancelled","finishedAt":now(),"accountWaitReason":null,"recoveryPending":false}
+                                ),
+                            )
+                            .await?;
+                        return Ok(false);
+                    }
+                    if let Some(checkpoint) = s.store.kv(&format!("run-checkpoint:{run_id}")).await? {
+                        if checkpoint["settled"].is_object() {
+                            let mut patch = checkpoint["settled"].clone();
+                            merge(
+                                &mut patch,
+                                &json!({
+                                "accountWaitReason":null,"recoveryPending":false}
+                                ),
+                            );
+                            s.store.patch_run(run_id, patch).await?;
+                            return Ok(false);
+                        }
+                        if checkpoint["completed"] == true {
+                            s.store
+                                .patch_run(
+                                    run_id,
+                                    json!({
+                                    "status":"succeeded","finishedAt":now(),"resumeAvailable":false,"accountWaitReason":null,"recoveryPending":false,"summary":if text(&checkpoint,"lastMessage").is_empty(){
+                                    "Conversation completed before worker restart. See Activity for the recorded result."}
+                                    else{
+                                    text(&checkpoint,"lastMessage")}
+                                    }
+                                    ),
+                                )
+                                .await?;
+                            return Ok(false);
+                        }
+                    }
+                    s.store
+                        .patch_run(
+                            run_id,
+                            json!({
+                            "recoveryPending":false}
+                            ),
+                        )
+                        .await?;
+                    Ok::<_, Error>(true)
+                }
+                .await;
+                match result {
+                    Ok(true) => {}
+                    Ok(false) => continue,
+                    Err(_) => {
+                        let message = "Waiting for the previous execution to stop before recovery.";
+                        if run["accountWaitReason"] != message {
+                            s.store
+                                .patch_run(
+                                    run_id,
+                                    json!({
+                                    "accountWaitReason":message}
+                                    ),
+                                )
+                                .await?;
+                        }
+                        continue;
+                    }
+                }
+            }
+            let account = match s
+                .accounts
+                .acquire(s, run_id, text(&run["snapshot"]["agent"], "model"))
+                .await
+            {
+                Ok(account) => account,
+                Err(error) => {
+                    if run["accountWaitReason"] != error.message {
+                        s.store
+                            .patch_run(
+                                run_id,
+                                json!({
+                                "accountWaitReason":error.message}
+                                ),
+                            )
+                            .await?;
+                        s.store
+                            .event(run_id, "status", &error.message, None)
+                            .await?;
+                    }
+                    continue;
+                }
+            };
+            if s.shutdown.is_cancelled() || s.store.run(run_id).await?["status"] != "queued" {
+                if let Some(account) = account {
+                    s.accounts.release(s, &account).await?;
+                }
+                continue;
+            }
+            for project in run_projects(&run) {
+                projects.insert(text(&project, "id").to_owned());
+            }
+            let cancel = CancellationToken::new();
+            self.active
+                .lock()
+                .await
+                .insert(run_id.into(), cancel.clone());
+            let s = s.clone();
+            let worker = self.clone();
+            self.tasks.spawn(async move {
+                let run_id = text(&run, "id").to_owned();
+                if let Err(error) = worker.execute(&s, run, account, cancel).await {
+                    // Keep the slot occupied until recovery is durable. A transient
+                    // disk/database failure must not strand a running record or
+                    // launch a second process before the previous one is fenced.
+                    loop {
+                        let id = run_id.clone();
+                        let lease = s.accounts.leases.lock().await.values().find(|lease| lease.run_id == id).cloned();
+                        let saved = s.store.transaction(move |db| {
+                            let Some(current) = db.run(&id)? else { return Ok(()); };
+                            let key = format!("run-checkpoint:{id}");
+                            let mut checkpoint = db.kv(&key)?.unwrap_or_else(|| json!({"remainingMs":0}));
+                            if !["queued", "running"].contains(&text(&current, "status")) {
+                                checkpoint["settled"] = json!({"status":current["status"],"summary":current["summary"],"finishedAt":current["finishedAt"]});
+                            }
+                            db.set(&key, &checkpoint, None)?;
+                            let mut patch = json!({"status":"queued","recoveryPending":true,"finishedAt":null,"accountWaitReason":"Recovering after a worker error."});
+                            if let Some(lease) = lease { patch["codexAccountId"] = lease.account_id.into(); }
+                            db.patch_run(&id, &patch)?;
+                            Ok(())
+                        }).await;
+                        if saved.is_ok() { break; }
+                        tokio::select! { _=s.shutdown.cancelled()=>break, _=tokio::time::sleep(Duration::from_secs(1))=>{} }
+                    }
+                    let _ = s
+                        .store
+                        .audit(
+                            "worker.execution_failed",
+                            json!({
+                            "runId":run_id,"message":error.message}
+                            ),
+                        )
+                        .await;
+                }
+                worker.active.lock().await.remove(&run_id);
+            });
+        }
+        Ok(())
+    }
+    async fn execute(
+        &self,
+        s: &Arc<Service>,
+        mut run: Value,
+        mut account: Option<Lease>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let run_id = text(&run, "id").to_owned();
+        let saved = s.store.kv(&format!("run-checkpoint:{run_id}")).await?;
+        let existing = saved.is_some();
+        let value = saved.unwrap_or_else(|| {
+            json!({
+            "launched":false,"remainingMs":run["snapshot"]["agent"]["timeoutMinutes"].as_i64().unwrap_or(60)*60000}
+            )
+        });
+        let checkpoint = Arc::new(Checkpoint {
+            deadline: now() + value["remainingMs"].as_i64().unwrap_or(0),
+            value: Mutex::new(value),
+            store: s.store.clone(),
+            id: run_id.clone(),
+        });
+        let stop_heartbeat = CancellationToken::new();
+        let _heartbeat_guard = stop_heartbeat.clone().drop_guard();
+        let heartbeat = {
+            let c = checkpoint.clone();
+            let stop = stop_heartbeat.clone();
+            tokio::spawn(async move {
+                let mut timer = tokio::time::interval(Duration::from_secs(5));
+                loop {
+                    tokio::select! {
+                    _=stop.cancelled()=>break,_=timer.tick()=>{
+                    let _=c.save(json!({
+                    }
+                    )).await;
+                    }
+                    }
+                }
+            })
+        };
+        let mut sensitive = Vec::new();
+        let result = Self::execute_inner(
+            s,
+            &mut run,
+            &mut account,
+            &cancel,
+            &checkpoint,
+            existing,
+            &mut sensitive,
+        )
+        .await;
+        if let Err(error) = result {
+            let saved = checkpoint.value().await;
+            let status = if cancel.is_cancelled() {
+                "cancelled"
+            } else if s.shutdown.is_cancelled() {
+                "queued"
+            } else {
+                "failed"
+            };
+            let needs_fence =
+                saved["prepared"]["isolated"] == true && saved["runnerId"].is_string();
+            let summary = run_output::redact(&error.message, &sensitive);
+            if needs_fence && status != "queued" {
+                checkpoint
+                    .save(json!({
+                    "settled":{
+                    "status":status,"summary":summary,"finishedAt":now()}
+                    }
+                    ))
+                    .await?;
+            }
+            s.store
+                .patch_run(
+                    &run_id,
+                    json!({
+                    "status":if needs_fence{
+                    "queued"}
+                    else{
+                    status}
+                    ,"recoveryPending":needs_fence||status=="queued","finishedAt":if needs_fence||status=="queued"{
+                    Value::Null}
+                    else{
+                    now().into()}
+                    ,"summary":summary,"accountWaitReason":if needs_fence{
+                    json!("Waiting for the previous isolated container to stop.")}
+                    else if status=="queued"{
+                    json!("Paused for worker restart. This run will resume automatically.")}
+                    else{
+                    Value::Null}
+                    }
+                    ),
+                )
+                .await?;
+            s.store
+                .event(
+                    &run_id,
+                    if s.shutdown.is_cancelled() {
+                        "status"
+                    } else {
+                        "error"
+                    },
+                    &summary,
+                    None,
+                )
+                .await?;
+        }
+        let saved = checkpoint.value().await;
+        let mut fenced = true;
+        if saved["prepared"]["isolated"] == true
+            && saved["runnerId"].is_string()
+            && recovery::fence(s, &s.store.run(&run_id).await?)
+                .await
+                .is_err()
+        {
+            fenced = false;
+            let current = s.store.run(&run_id).await?;
+            if current["status"] != "queued" {
+                checkpoint
+                    .save(json!({
+                    "settled":{
+                    "status":current["status"],"summary":current["summary"],"finishedAt":current["finishedAt"]}
+                    }
+                    ))
+                    .await?;
+            }
+            s.store
+                .patch_run(
+                    &run_id,
+                    json!({
+                    "status":"queued","recoveryPending":true,"finishedAt":null,"accountWaitReason":"Waiting for the previous isolated container to stop."}
+                    ),
+                )
+                .await?;
+        }
+        stop_heartbeat.cancel();
+        let _ = heartbeat.await;
+        checkpoint.save(json!({})).await?;
+        let saved = checkpoint.value().await;
+        if fenced && saved["settled"].is_object() {
+            let mut patch = saved["settled"].clone();
+            merge(
+                &mut patch,
+                &json!({
+                "recoveryPending":false,"accountWaitReason":null}
+                ),
+            );
+            s.store.patch_run(&run_id, patch).await?;
+        }
+        if fenced
+            && let Some(account) = &account
+            && s.accounts.release(s, account).await.is_err()
+        {
+            s.store
+                .audit(
+                    "codex.account.release_failed",
+                    json!({
+                    "id":account.account_id,"runId":run_id}
+                    ),
+                )
+                .await?;
+        }
+        s.mcps.revoke_run(s, &run_id).await?;
+        if fenced {
+            for relative in ["codex/auth.json", "home/.codex/auth.json"] {
+                let _ = tokio::fs::remove_file(
+                    s.config.data_dir.join("runs").join(&run_id).join(relative),
+                )
+                .await;
+            }
+            let _ = tokio::fs::remove_dir_all(
+                s.config
+                    .data_dir
+                    .join("runs")
+                    .join(&run_id)
+                    .join("home/.config/gh"),
+            )
+            .await;
+        }
+        if let Some(runner) = saved["runnerId"].as_str() {
+            let _ = tokio::fs::remove_file(
+                s.config
+                    .data_dir
+                    .join("runner-plans")
+                    .join(format!("{runner}.json")),
+            )
+            .await;
+        }
+        Ok(())
+    }
+    async fn execute_inner(
+        s: &Arc<Service>,
+        run: &mut Value,
+        account: &mut Option<Lease>,
+        cancel: &CancellationToken,
+        checkpoint: &Arc<Checkpoint>,
+        existing: bool,
+        sensitive: &mut Vec<String>,
+    ) -> Result<()> {
+        let id = text(run, "id").to_owned();
+        checkpoint.save(json!({})).await?;
+        let account_name = if let Some(account) = account {
+            s.accounts.get(s, &account.account_id).await?["name"].clone()
+        } else {
+            Value::Null
+        };
+        s.store
+            .patch_run(
+                &id,
+                json!({
+                "status":"running","startedAt":run["startedAt"].as_i64().unwrap_or_else(now),"finishedAt":null,"accountWaitReason":null,"codexAccountId":account.as_ref().map(|a|&a.account_id),"codexAccountName":account_name}
+                ),
+            )
+            .await?;
+        if let Some(name) = account_name.as_str() {
+            s.store
+                .event(&id, "status", &format!("Using Codex account: {name}"), None)
+                .await?;
+        }
+        s.store
+            .event(&id, "status", "Preparing workspace", None)
+            .await?;
+        let directory = s.config.data_dir.join("runs").join(&id);
+        private_dir(&directory).await?;
+        let current = s
+            .get("agents", text(&run["snapshot"]["agent"], "id"))
+            .await?;
+        if policy(&current) != policy(&run["snapshot"]["agent"]) {
+            return Err(Error::new(
+                409,
+                "Agent access changed after this run was queued. Run the task again with the current policy.",
+            ));
+        }
+        let saved = checkpoint.value().await;
+        if existing && !saved["prepared"].is_object() {
+            checkpoint
+                .save(json!({
+                "generation":crate::config::id()[..8].to_owned()}
+                ))
+                .await?;
+        }
+        let saved = checkpoint.value().await;
+        let github = s
+            .store
+            .kv(&format!(
+                "agent-github:{}",
+                text(&run["snapshot"]["agent"], "id")
+            ))
+            .await?;
+        let prepared = if saved["prepared"].is_object() {
+            execution::restore(
+                run,
+                saved["prepared"].clone(),
+                &s.config,
+                github.as_ref().and_then(Value::as_str),
+            )
+            .await?
+        } else {
+            execution::prepare(
+                run,
+                &s.config,
+                github.as_ref().and_then(Value::as_str),
+                account.as_ref().map(|a| a.home.as_path()),
+                saved["generation"].as_str(),
+            )
+            .await?
+        };
+        checkpoint
+            .save(json!({
+            "prepared":prepared}
+            ))
+            .await?;
+        let codex_home = directory.join(if prepared["isolated"] == true {
+            "home/.codex"
+        } else {
+            "codex"
+        });
+        private_dir(&codex_home).await?;
+        if prepared["isolated"] != true {
+            execution::codex_home(&s.config, &codex_home).await?;
+        }
+        if let Some(account) = account
+            && prepared["isolated"] == true
+        {
+            s.accounts.relocate(s, account, &codex_home).await?;
+        }
+        let patch = json!({
+        "workspace":prepared["cwd"],"workspaces":prepared["workspaces"],"isolated":prepared["isolated"]}
+        );
+        merge(run, &patch);
+        s.store.patch_run(&id, patch).await?;
+        let mut env = if prepared["isolated"] == true {
+            std::env::vars().collect::<Environment>()
+        } else {
+            crate::toolkit::environment(&s.config.home, std::env::vars().collect()).await?
+        };
+        env.insert("HOME".into(), s.config.home.to_string_lossy().into_owned());
+        env.insert(
+            "CODEX_HOME".into(),
+            codex_home.to_string_lossy().into_owned(),
+        );
+        for key in ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_THREAD_ID"] {
+            env.remove(key);
+        }
+        let mcp = s.mcps.run_configuration(s, run).await?;
+        sensitive.extend(
+            mcp["redactions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned),
+        );
+        if let Some(account) = account {
+            sensitive.extend(s.accounts.redactions(s, &account.account_id).await?);
+        }
+        for (key, value) in mcp["env"].as_object().unwrap() {
+            env.insert(key.clone(), value.as_str().unwrap_or("").into());
+        }
+        let mut resume = if checkpoint.value().await["launched"] == true {
+            Some(recovery::session(s, run, &codex_home, Path::new(text(&prepared, "cwd"))).await?)
+        } else {
+            None
+        };
+        if let Some(session) = &resume {
+            s.store
+                .patch_run(
+                    &id,
+                    json!({
+                    "sessionId":session,"resumeCount":run["resumeCount"].as_u64().unwrap_or(0)+1,"resumeAvailable":true}
+                    ),
+                )
+                .await?;
+            s.store
+                .event(
+                    &id,
+                    "status",
+                    "Resuming saved conversation and workspace",
+                    None,
+                )
+                .await?;
+        }
+        let mut total = 0;
+        loop {
+            if cancel.is_cancelled() || s.shutdown.is_cancelled() {
+                return Err(Error::new(409, "Execution stopped."));
+            }
+            if now() >= checkpoint.deadline {
+                return Err(Error::new(409, "Run exceeded its time limit."));
+            }
+            let output = text(&prepared, "output");
+            match tokio::fs::remove_file(output).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            env.insert(
+                "CODEX_HOME".into(),
+                account
+                    .as_ref()
+                    .map(|a| a.home.clone())
+                    .unwrap_or_else(|| codex_home.clone())
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            let mut prompt = if resume.is_some() {
+                "Continue the same task from the saved conversation and current workspace. Execution was interrupted. Resume the original task from its last completed step. Preserve completed work and verify external effects before repeating any action.".into()
+            } else {
+                run_output::prompt(run, false)
+            };
+            let mut binary = s.config.codex_bin.clone();
+            let mut args = mcp["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            args.extend(run_output::args(run, output, resume.as_deref()));
+            let chat = if run["chatExecution"].is_object() {
+                private_dir(&directory.join("chat-input")).await?;
+                let chat =
+                    run_output::chat_plan(run, &prepared, &directory, &mcp, resume.as_deref());
+                binary = std::env::current_exe()?.to_string_lossy().into_owned();
+                args = vec!["chat".into(), s.config.codex_bin.clone()];
+                prompt = chat.to_string();
+                Some(chat)
+            } else {
+                None
+            };
+            if prepared["isolated"] == true {
+                let runner = id::new();
+                checkpoint
+                    .save(json!({
+                    "runnerId":runner}
+                    ))
+                    .await?;
+                let plans = s.config.data_dir.join("runner-plans");
+                private_dir(&plans).await?;
+                let mut mounts = prepared["mounts"].as_array().unwrap().clone();
+                if chat.is_some() {
+                    mounts.push(json!({
+                    "source":directory.join("chat-input"),"target":"/run/leo-chat","readOnly":true}
+                    ));
+                }
+                let mut context = run.clone();
+                context["snapshot"]["skills"] = prepared["skills"].clone();
+                let mut plan = json!({
+                "id":runner,"args":args,"cwd":prepared["cwd"],"prompt":if resume.is_some(){
+                prompt.clone()}
+                else{
+                run_output::prompt(&context,false)}
+                ,"mounts":mounts,"expires":checkpoint.deadline,"sandbox":policy(&run["snapshot"]["agent"])["sandbox"],"mcpEnv":mcp["env"]}
+                );
+                if let Some(chat) = chat {
+                    plan["chat"] = chat;
+                }
+                atomic_write(
+                    &plans.join(format!("{runner}.json")),
+                    &serde_json::to_vec(&plan)?,
+                )
+                .await?;
+                env.insert("RUNNER_URL".into(), s.config.runner_url.clone());
+                env.insert(
+                    "RUNNER_TOKEN".into(),
+                    execution::secret(&s.config.data_dir, "runner-secret").await?,
+                );
+                binary = std::env::current_exe()?.to_string_lossy().into_owned();
+                args = vec!["runner-client".into(), runner];
+            }
+            let mut child =
+                Supervised::spawn(&binary, &args, &env, Path::new(text(&prepared, "cwd"))).await?;
+            let identity = recovery::process_identity(child.child.id().unwrap()).await?;
+            if run["chatExecution"].is_object() {
+                run["chatExecution"]["recovery"] = true.into();
+                s.store
+                    .patch_run(
+                        &id,
+                        json!({
+                        "chatExecution":run["chatExecution"]}
+                        ),
+                    )
+                    .await?;
+            }
+            checkpoint
+                .save(json!({
+                "process":identity,"launched":true,"completed":false}
+                ))
+                .await?;
+            if cancel.is_cancelled() || s.shutdown.is_cancelled() {
+                child.stop().await;
+                return Err(Error::new(409, "Execution stopped before launch."));
+            }
+            let (stdout, stderr) = (
+                child.child.stdout.take().unwrap(),
+                child.child.stderr.take().unwrap(),
+            );
+            let (tx, mut events) = mpsc::channel(32);
+            let out = tokio::spawn(read_output(stdout, false, tx.clone()));
+            let err = tokio::spawn(read_output(stderr, true, tx));
+            if let Err(error) = child.start(prompt).await {
+                child.stop().await;
+                out.abort();
+                err.abort();
+                return Err(error);
+            }
+            let mut exhausted = false;
+            let mut timed_out = false;
+            let mut status = None;
+            let mut open = true;
+            let timeout = tokio::time::sleep(Duration::from_millis(
+                (checkpoint.deadline - now()).max(1) as u64,
+            ));
+            tokio::pin!(timeout);
+            while status.is_none() || open {
+                tokio::select! {
+                                    _=cancel.cancelled(),if status.is_none()=>{
+                child.stop().await;
+                status=Some(143);
+                }
+                ,
+                                    _=s.shutdown.cancelled(),if status.is_none()=>{
+                child.stop().await;
+                status=Some(143);
+                }
+                ,
+                                    _=&mut timeout,if status.is_none()=>{
+                timed_out=true;
+                child.stop().await;
+                status=Some(143);
+                }
+                ,
+                                    code=child.child.wait(),if status.is_none()=>status=Some(code?.code().unwrap_or(143)),
+                                    event=events.recv(),if open=>match event{
+                Some((diagnostic,raw))=>{
+                exhausted|=record(s,&id,&raw,diagnostic,checkpoint,sensitive,&mut total).await?;
+                }
+                ,None=>open=false}
+                                }
+            }
+            let _ = out.await;
+            let _ = err.await;
+            checkpoint
+                .save(json!({
+                "process":null}
+                ))
+                .await?;
+            if prepared["isolated"] == true {
+                recovery::fence(s, &s.store.run(&id).await?).await?;
+            }
+            let saved = checkpoint.value().await;
+            if s.shutdown.is_cancelled() && !cancel.is_cancelled() && saved["completed"] != true {
+                return Err(Error::new(409, "Worker is restarting"));
+            }
+            let session = s.store.run(&id).await?["sessionId"]
+                .as_str()
+                .map(str::to_owned);
+            if exhausted
+                && status != Some(0)
+                && account.is_some()
+                && !cancel.is_cancelled()
+                && !s.shutdown.is_cancelled()
+                && !timed_out
+                && session.is_some()
+            {
+                let previous = account.take().unwrap();
+                let model = text(&run["snapshot"]["agent"], "model");
+                s.accounts.exhausted(s, &previous.account_id, model).await?;
+                s.accounts.release(s, &previous).await?;
+                s.store
+                    .patch_run(
+                        &id,
+                        json!({
+                        "accountWaitReason":"Usage exhausted. Waiting for an available Codex account to resume.","codexAccountId":null,"codexAccountName":null}
+                        ),
+                    )
+                    .await?;
+                s.store.event(&id, "status", "Usage exhausted. Saving this session and restoring capacity or switching accounts.", None).await?;
+                s.accounts.refresh(s, &previous.account_id).await?;
+                while account.is_none()
+                    && !cancel.is_cancelled()
+                    && !s.shutdown.is_cancelled()
+                    && now() < checkpoint.deadline
+                {
+                    match s.accounts.acquire(s, &id, model).await {
+                        Ok(value) => *account = value,
+                        Err(error) if error.status == 409 => {
+                            tokio::select! {
+                            _=tokio::time::sleep(Duration::from_secs(1))=>{
+                            }
+                            ,_=cancel.cancelled()=>{
+                            }
+                            ,_=s.shutdown.cancelled()=>{
+                            }
+                            }
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                if let Some(account) = account {
+                    if prepared["isolated"] == true {
+                        s.accounts.relocate(s, account, &previous.home).await?;
+                    } else {
+                        execution::codex_home(&s.config, &account.home).await?;
+                    }
+                    sensitive.extend(s.accounts.redactions(s, &account.account_id).await?);
+                    let name = s.accounts.get(s, &account.account_id).await?["name"].clone();
+                    s.store
+                        .patch_run(
+                            &id,
+                            json!({
+                            "accountWaitReason":null,"codexAccountId":account.account_id,"codexAccountName":name}
+                            ),
+                        )
+                        .await?;
+                    s.store
+                        .event(
+                            &id,
+                            "status",
+                            &format!(
+                                "Resuming saved session with Codex account: {}",
+                                name.as_str().unwrap_or("")
+                            ),
+                            None,
+                        )
+                        .await?;
+                }
+                resume = session;
+                continue;
+            }
+            let summary = crate::skills::small_file(Path::new(output))
+                .await
+                .unwrap_or_default();
+            let summary = if summary.is_empty() {
+                text(&saved, "lastMessage")
+            } else {
+                &summary
+            };
+            let summary = run_output::redact(summary, sensitive)
+                .chars()
+                .take(100000)
+                .collect::<String>();
+            let status = if cancel.is_cancelled() {
+                "cancelled"
+            } else if timed_out {
+                "failed"
+            } else if status == Some(0) || (s.shutdown.is_cancelled() && saved["completed"] == true)
+            {
+                "succeeded"
+            } else {
+                "failed"
+            };
+            let summary = if !summary.is_empty() {
+                summary
+            } else if cancel.is_cancelled() {
+                "Run stopped. You can resume this conversation.".into()
+            } else if timed_out {
+                "Run exceeded its time limit.".into()
+            } else {
+                format!("Process exited with status {status}.")
+            };
+            s.store
+                .patch_run(
+                    &id,
+                    json!({
+                    "status":status,"finishedAt":now(),"resumeAvailable":(status!="succeeded"||run["chatExecution"].is_object())&&session.is_some(),"summary":summary}
+                    ),
+                )
+                .await?;
+            s.store.event(&id, "status", status, None).await?;
+            break;
+        }
+        Ok(())
+    }
+    pub async fn cancel(&self, s: &Service, id: &str) -> Result<()> {
+        let active = self.active.lock().await;
+        let is_active = active.contains_key(id);
+        let id_owned = id.to_owned();
+        s.store
+            .transaction(move |db| {
+                let run = required(db.run(&id_owned)?, "Run not found")?;
+                if !["queued", "running"].contains(&text(&run, "status")) {
+                    return Err(Error::new(409, "This run has already finished."));
+                }
+                db.patch_run(
+                    &id_owned,
+                    &json!({
+                    "cancelRequestedAt":now()}
+                    ),
+                )?;
+                if !is_active && run["recoveryPending"] != true {
+                    db.patch_run(
+                        &id_owned,
+                        &json!({
+                        "status":"cancelled","finishedAt":now(),"summary":"Cancelled before execution."}
+                        ),
+                    )?;
+                }
+                db.audit(
+                    "run.cancelled",
+                    &json!({
+                    "id":id_owned}
+                    ),
+                )
+            })
+            .await?;
+        if let Some(cancel) = active.get(id) {
+            cancel.cancel();
+        }
+        Ok(())
+    }
+    pub async fn resume(&self, s: &Service, id: &str) -> Result<Value> {
+        let active = self.active.lock().await;
+        if active.contains_key(id) {
+            return Err(Error::new(
+                409,
+                "Wait for this run to finish stopping before resuming.",
+            ));
+        }
+        let id = id.to_owned();
+        s.store
+            .transaction(move |db| {
+                let run = required(db.run(&id)?, "Run not found")?;
+                let key = format!("run-checkpoint:{id}");
+                let checkpoint = db.kv(&key)?;
+                let before_launch = run["chatExecution"].is_object() && ["failed", "cancelled"].contains(&text(&run, "status")) && checkpoint.as_ref().is_none_or(|c| c["launched"] != true);
+                if !before_launch && (!["failed", "interrupted", "cancelled"].contains(&text(&run, "status")) || run["resumeAvailable"] != true || checkpoint.as_ref().is_none_or(|c| !c["prepared"].is_object()) || !run["workspaceCleanedAt"].is_null()) {
+                    return Err(Error::new(409, "This run has no saved conversation available to resume."));
+                }
+                if db.active()?.iter().any(|a| a["taskId"] == run["taskId"]) {
+                    return Err(Error::new(409, "This task already has an active run."));
+                }
+                if let Some(mut checkpoint) = checkpoint {
+                    checkpoint["remainingMs"] = (run["snapshot"]["agent"]["timeoutMinutes"].as_i64().unwrap_or(60) * 60000).into();
+                    if !before_launch {
+                        checkpoint["completed"] = false.into();
+                    }
+                    checkpoint.as_object_mut().unwrap().remove("settled");
+                    db.set(&key, &checkpoint, None)?;
+                }
+                let result = db.patch_run(
+                    &id,
+                    &json!({
+                    "status":"queued","recoveryPending":true,"cancelRequestedAt":null,"finishedAt":null,"accountWaitReason":if before_launch{
+                    Value::Null}
+                    else{
+                    "Resuming saved conversation.".into()}
+                    }
+                    ),
+                )?;
+                db.event(&id, "status", "Resume requested", None)?;
+                Ok(result)
+            })
+            .await
+    }
+    pub async fn close(&self) {
+        let _guard = self.tick_lock.lock().await;
+        self.tasks.close();
+        self.tasks.wait().await;
+    }
+}
+// Separate pipe readers keep stderr draining even while stdout applies database backpressure.
+async fn read_output(
+    mut reader: impl AsyncRead + Unpin,
+    diagnostic: bool,
+    events: mpsc::Sender<(bool, String)>,
+) {
+    let mut bytes = [0; 8192];
+    let mut line = Vec::new();
+    loop {
+        let n = match reader.read(&mut bytes).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        if diagnostic {
+            if events
+                .send((true, String::from_utf8_lossy(&bytes[..n]).into_owned()))
+                .await
+                .is_err()
+            {
+                return;
+            }
+            continue;
+        }
+        for byte in &bytes[..n] {
+            if *byte == b'\n' {
+                if events
+                    .send((false, String::from_utf8_lossy(&line).into_owned()))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                line.clear();
+            } else if line.len() < 2_000_000 {
+                line.push(*byte);
+            }
+        }
+    }
+    if !line.is_empty() {
+        let _ = events
+            .send((diagnostic, String::from_utf8_lossy(&line).into_owned()))
+            .await;
+    }
+}
+async fn record(
+    s: &Service,
+    id: &str,
+    raw: &str,
+    diagnostic: bool,
+    checkpoint: &Checkpoint,
+    secrets: &[String],
+    total: &mut usize,
+) -> Result<bool> {
+    if diagnostic {
+        if *total < 5_000_000 {
+            *total += raw.len();
+            s.store
+                .event(id, "diagnostic", &run_output::redact(raw, secrets), None)
+                .await?;
+        }
+        return Ok(false);
+    }
+    let event = serde_json::from_str::<Value>(raw).ok();
+    if let Some(event) = event {
+        match text(&event, "type") {
+            "chat.question" => {
+                s.question_receive(id, event["question"].clone()).await?;
+                return Ok(false);
+            }
+            "chat.question.closed" => {
+                s.question_release(id, event["questionId"].as_str()).await?;
+                return Ok(false);
+            }
+            "chat.delivered" => {
+                if let Some(message) = event["messageId"].as_str() {
+                    s.chat_acknowledge(id, message).await?;
+                }
+                return Ok(false);
+            }
+            _ => {}
+        }
+        let exhausted = run_output::exhausted(&event);
+        if event["type"] == "thread.started" && event["thread_id"].is_string() {
+            s.store
+                .patch_run(
+                    id,
+                    json!({
+                    "sessionId":event["thread_id"],"resumeAvailable":true}
+                    ),
+                )
+                .await?;
+        }
+        if event["item"]["type"] == "agent_message" && event["item"]["text"].is_string() {
+            checkpoint
+                .memory(
+                    "lastMessage",
+                    run_output::redact(text(&event["item"], "text"), secrets)
+                        .chars()
+                        .take(100000)
+                        .collect::<String>()
+                        .into(),
+                )
+                .await;
+        }
+        if event["type"] == "turn.completed" {
+            checkpoint
+                .save(json!({
+                "completed":true}
+                ))
+                .await?;
+            if !event["usage"].is_null() {
+                s.store
+                    .patch_run(
+                        id,
+                        json!({
+                        "usage":event["usage"]}
+                        ),
+                    )
+                    .await?;
+            }
+        }
+        if *total < 5_000_000 {
+            *total += raw.len();
+            let value = event["item"]
+                .get("text")
+                .or_else(|| event["item"].get("aggregated_output"))
+                .or_else(|| event["error"].get("message"));
+            let value = value
+                .map(|v| {
+                    v.as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| v.to_string())
+                })
+                .unwrap_or_else(|| raw.into());
+            s.store
+                .event(
+                    id,
+                    if text(&event, "type").is_empty() {
+                        "output"
+                    } else {
+                        text(&event, "type")
+                    },
+                    &run_output::redact(&value, secrets),
+                    Some(run_output::payload(&event, secrets)),
+                )
+                .await?;
+        }
+        return Ok(exhausted);
+    }
+    if *total < 5_000_000 {
+        *total += raw.len();
+        s.store
+            .event(id, "output", &run_output::redact(raw, secrets), None)
+            .await?;
+    }
+    Ok(false)
+}
+mod id {
+    pub fn new() -> String {
+        crate::config::id()
+    }
+}
+impl Worker {
+    pub async fn cleanup(&self, s: &Service, id: &str) -> Result<Value> {
+        let _active = self.active.lock().await;
+        let run = s.store.run(id).await?;
+        if ["queued", "running"].contains(&text(&run, "status")) || _active.contains_key(id) {
+            return Err(Error::new(
+                409,
+                "Wait for this run to finish before cleaning up.",
+            ));
+        }
+        if run["isolated"] == true {
+            return Err(Error::new(
+                409,
+                "Isolated clones are retained for review. After preserving your work, remove their directory through the server terminal.",
+            ));
+        }
+        let workspaces = run["workspaces"].as_array().cloned().unwrap_or_else(|| {
+            if run["workspace"].is_string() && run["snapshot"]["project"].is_object() {
+                vec![json!({
+                "projectId":run["snapshot"]["project"]["id"],"path":run["workspace"],"kind":"worktree"}
+                )]
+            } else {
+                vec![]
+            }
+        });
+        let managed = workspaces
+            .iter()
+            .filter(|w| w["kind"] != "direct")
+            .collect::<Vec<_>>();
+        if run["snapshot"]["task"]["worktree"] != true
+            || !run["workspace"].is_string()
+            || managed.is_empty()
+        {
+            return Err(Error::new(
+                409,
+                "This run has no managed worktree to clean up.",
+            ));
+        }
+        let checkpoint = s
+            .store
+            .kv(&format!("run-checkpoint:{id}"))
+            .await?
+            .unwrap_or(Value::Null);
+        let root = s.config.data_dir.join("runs").join(id).join(
+            checkpoint["generation"]
+                .as_str()
+                .map(|g| format!("workspace-{g}"))
+                .unwrap_or_else(|| "workspace".into()),
+        );
+        let env = std::env::vars().collect();
+        for workspace in &managed {
+            let target = Path::new(text(workspace, "path"));
+            if !target.starts_with(&root)
+                || crate::skills::workspace(target, std::slice::from_ref(&root)).await? != target
+            {
+                return Err(Error::new(
+                    409,
+                    "Workspace is outside this run’s managed directory.",
+                ));
+            }
+            let args = vec![
+                "-C".into(),
+                target.to_string_lossy().into_owned(),
+                "status".into(),
+                "--porcelain".into(),
+                "--ignored".into(),
+            ];
+            let output = crate::process::bounded_output(
+                crate::process::command("git", &args, &env, None),
+                Duration::from_secs(10),
+                100000,
+            )
+            .await?;
+            if !output.success || !output.stdout.trim().is_empty() {
+                return Err(Error::new(
+                    409,
+                    "This worktree contains changes or untracked files. Commit or move them before cleanup.",
+                ));
+            }
+        }
+        for workspace in managed {
+            if workspace["kind"] == "clone" {
+                tokio::fs::remove_dir_all(text(workspace, "path")).await?;
+                continue;
+            }
+            let project = run_projects(&run)
+                .into_iter()
+                .find(|p| p["id"] == workspace["projectId"])
+                .ok_or_else(|| Error::bad("Project not found"))?;
+            let args = vec![
+                "-C".into(),
+                text(&project, "path").into(),
+                "worktree".into(),
+                "remove".into(),
+                text(workspace, "path").into(),
+            ];
+            let output = crate::process::bounded_output(
+                crate::process::command("git", &args, &env, None),
+                Duration::from_secs(10),
+                100000,
+            )
+            .await?;
+            if !output.success {
+                return Err(Error::new(409, "Git could not remove this worktree."));
+            }
+        }
+        s.store
+            .patch_run(
+                id,
+                json!({
+                "workspace":null,"resumeAvailable":false,"workspaceCleanedAt":now()}
+                ),
+            )
+            .await?;
+        s.store
+            .audit(
+                "run.workspace.cleaned",
+                json!({
+                "id":id}
+                ),
+            )
+            .await?;
+        Ok(json!({
+        "cleaned":true}
+        ))
+    }
+}
+pub async fn routes(s: &Arc<Service>, input: &crate::http::Input) -> Option<Result<Value>> {
+    if input.method != "POST" {
+        return None;
+    }
+    let segments = input
+        .path
+        .trim_start_matches("/api/")
+        .split('/')
+        .collect::<Vec<_>>();
+    let result = match segments.as_slice() {
+        ["runs", id, "cancel"] => {
+            async {
+                s.worker.cancel(s, id).await?;
+                Ok(json!({
+                "ok":true}
+                ))
+            }
+            .await
+        }
+        ["runs", id, "resume"] => s.worker.resume(s, id).await,
+        ["runs", id, "cleanup"] => s.worker.cleanup(s, id).await,
+        ["chats", id, "pause"] => {
+            async {
+                let paused = input.boolean("paused")?;
+                let chat = s.get("chats", id).await?;
+                if !paused && let Some(id) = chat["runId"].as_str() {
+                    let run = s.store.run(id).await?;
+                    if ["failed", "interrupted", "cancelled"].contains(&text(&run, "status")) {
+                        s.worker.resume(s, id).await?;
+                    }
+                }
+                s.store.delete(&format!("chat-error:{id}")).await?;
+                s.chat_pause(id, paused).await
+            }
+            .await
+        }
+        ["chats", id, "stop"] => {
+            async {
+                let chat = s.get("chats", id).await?;
+                s.chat_pause(id, true).await?;
+                if let Some(id) = chat["runId"].as_str()
+                    && ["queued", "running"].contains(&text(&s.store.run(id).await?, "status"))
+                {
+                    s.worker.cancel(s, id).await?;
+                }
+                Ok(json!({
+                "stopped":true}
+                ))
+            }
+            .await
+        }
+        _ => return None,
+    };
+    Some(result)
+}

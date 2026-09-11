@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deploy } from '../scripts/deploy-coolify.mjs'
-import { persistentRunnerCompose } from '../scripts/runner-compose.mjs'
+import { nativeRunnerCompose, persistentRunnerCompose } from '../scripts/runner-compose.mjs'
 
 describe('coolify deployment over HTTP', () => {
   let server
@@ -128,6 +128,19 @@ describe('coolify deployment over HTTP', () => {
     const input = 'services:\n  manager:\n    volumes:\n      - data:/runner-state:ro\n  runner:\n    environment:\n      - SETTING=example:/runner-state:ro\n    volumes:\n      - "${DATA_VOLUME}:/runner-state:ro" # persistent\n      - other:/other:ro\n'
     // eslint-disable-next-line no-template-curly-in-string -- These are literal Compose expressions.
     expect(persistentRunnerCompose(input)).toBe(input.replace('"${DATA_VOLUME}:/runner-state:ro"', '"${DATA_VOLUME}:/runner-state:rw"'))
+  })
+
+  it.each([
+    '    entrypoint: [node, --import, tsx, /app/server/runner-broker.ts]',
+    '    entrypoint:\n      - node\n      - --import\n      - tsx\n      - /app/server/runner-broker.ts',
+  ])('migrates the stored runner entrypoint and preserves the manager configuration', (entrypoint) => {
+    const input = `services:\n  manager:\n    command: keep-this\n  runner:\n${entrypoint}\n    environment:\n      RUNNER_MANAGER_CONTAINER: unchanged\n    volumes:\n      - state:/runner-state\n`
+    const migrated = nativeRunnerCompose(input)
+    expect(migrated).toContain('    entrypoint: [/usr/local/bin/leo, runner-broker]')
+    expect(migrated).toContain('command: keep-this')
+    expect(migrated).toContain('RUNNER_MANAGER_CONTAINER: unchanged')
+    expect(migrated).not.toContain('tsx')
+    expect(nativeRunnerCompose(migrated)).toBe(migrated)
   })
 
   it.each([undefined, 'services: {}', 'services:\n  runner:\n    environment:\n      - SETTING=example:/runner-state:ro\n', 'services:\n  runner:\n    volumes:\n      - type: volume\n        target: /runner-state\n'])('rejects unverified custom Compose layouts', (input) => {

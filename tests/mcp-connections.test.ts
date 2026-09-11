@@ -3,10 +3,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { describe, expect, it } from 'vitest'
-import { isPrivateAddress, mcpFetch } from '../server/mcp-fetch.ts'
-import { isolated, policy } from '../server/policy.ts'
 import { MAIN_AGENT_ID } from '../shared/contracts.ts'
 import { fixture } from './helpers.ts'
+import { isPrivateAddress, mcpFetch } from './legacy/server/mcp-fetch.ts'
+import { isolated, policy } from './legacy/server/policy.ts'
 import { mcpProvider } from './mcp-provider.ts'
 
 async function consent(url: string) {

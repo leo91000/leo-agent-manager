@@ -63,7 +63,7 @@ process.stdin.on('end', () => {
     docker('run', '-d', '--name', manager, '-v', `${root}:${root}`, '--entrypoint', '/usr/local/bin/node', image, '-e', 'setInterval(()=>{},1000)')
     // Match production volume ownership even when the CI host user is UID 1001.
     docker('exec', '--user', '0:0', manager, 'chown', '-R', '1000:1000', root)
-    docker('run', '-d', '--name', broker, '--user', '0:0', '-v', `${root}:${root}:ro`, '-v', `${root}/runner-state:/runner-state`, '-v', '/var/run/docker.sock:/var/run/docker.sock', '-p', '127.0.0.1::4311', '-e', `DATA_DIR=${root}/data`, '-e', `RUNNER_MANAGER_CONTAINER=${manager}`, '-e', `RUNNER_APPARMOR_PROFILE=${apparmor ? 'leo-agent-sandbox' : ''}`, '--entrypoint', 'node', image, '--import', 'tsx', '/app/server/runner-broker.ts')
+    docker('run', '-d', '--name', broker, '--user', '0:0', '-v', `${root}:${root}:ro`, '-v', `${root}/runner-state:/runner-state`, '-v', '/var/run/docker.sock:/var/run/docker.sock', '-p', '127.0.0.1::4311', '-e', `DATA_DIR=${root}/data`, '-e', `RUNNER_MANAGER_CONTAINER=${manager}`, '-e', `RUNNER_APPARMOR_PROFILE=${apparmor ? 'leo-agent-sandbox' : ''}`, '--entrypoint', '/usr/local/bin/leo', image, 'runner-broker')
     url = `http://${docker('port', broker, '4311/tcp')}`
     let ready = false
     for (let attempt = 0; attempt < 150; attempt++) {
@@ -76,25 +76,24 @@ process.stdin.on('end', () => {
     assert.ok(ready, `Runner broker did not become ready: ${docker('logs', '--tail', '30', broker)}`)
     assert.equal((await fetch(`${url}/runs/${randomUUID()}`, { method: 'POST' })).status, 401)
     const prepare = `
-      import { prepareExecution } from '/app/server/execution.ts';
-      import { codexArgs } from '/app/server/worker.ts';
-      import { agentInput, taskInput } from '/app/shared/contracts.ts';
+      import {execFileSync} from 'node:child_process';
       import { writeFile } from 'node:fs/promises';
       const {root,id,mode,probe,hang}=JSON.parse(process.argv.at(-1));
       const project={id:'11111111-1111-4111-8111-111111111111',name:'Allowed',path:root+'/project',baseBranch:'main'};
-      const agent={...agentInput.parse({name:'Restricted',access:{projects:[project.id],skills:[],github:false,sandbox:mode}}),id:'22222222-2222-4222-8222-222222222222'};
-      const task=taskInput.parse({name:'Test',prompt:hang?'hang':'test',agentId:agent.id,worktree:false});
+      const agent={name:'Restricted',model:'',reasoning:'high',timeoutMinutes:60,instructions:'',access:{projects:[project.id],skills:[],mcps:[],github:false,sandbox:mode},id:'22222222-2222-4222-8222-222222222222'};
+      const task={name:'Test',prompt:hang?'hang':'test',agentId:agent.id,worktree:false};
       const run={id,snapshot:{agent,task,project,projects:[project],skills:[]}};
-      const prepared=await prepareExecution(run,{dataDir:root+'/data',home:root+'/home',workspaceRoots:[root],runnerUrl:'http://runner'});
+      const config={dataDir:root+'/data',home:root+'/home',workspaceRoots:[root],runnerUrl:'http://runner',publicUrl:'http://localhost:4310',host:'127.0.0.1',port:4310,setupToken:'',codexBin:'codex',ghBin:'gh',concurrency:1,logger:false,workerEnabled:false};
+      const prepared=JSON.parse(execFileSync('/usr/local/bin/leo',['prepare-execution'],{input:JSON.stringify({run,config}),encoding:'utf8'}));
       run.workspace=prepared.cwd; run.workspaces=prepared.workspaces;
-      const args=probe ? ['sandbox','-c','sandbox_mode='+JSON.stringify(mode),'--','node','-e', 'const fs=require("fs"),a=require("assert/strict"),cp=require("child_process");'+(mode==='read-only' ? 'a.throws(()=>fs.writeFileSync("sandbox-forbidden","bad"));' : 'fs.writeFileSync("sandbox-allowed","ok");')+'a.throws(()=>fs.writeFileSync("/home/node/sandbox-denied","bad"));for(const bin of ["rg","fd","jq","python","uv","cargo"])cp.execFileSync(bin,["--version"],{stdio:"inherit"});console.log("Real Codex sandbox denied out-of-workspace write; toolkit available")'] : codexArgs(run,prepared.output);
+      const args=probe ? ['sandbox','-c','sandbox_mode='+JSON.stringify(mode),'--','node','-e', 'const fs=require("fs"),a=require("assert/strict"),cp=require("child_process");'+(mode==='read-only' ? 'a.throws(()=>fs.writeFileSync("sandbox-forbidden","bad"));' : 'fs.writeFileSync("sandbox-allowed","ok");')+'a.throws(()=>fs.writeFileSync("/home/node/sandbox-denied","bad"));for(const bin of ["rg","fd","jq","python","uv","cargo"])cp.execFileSync(bin,["--version"],{stdio:"inherit"});console.log("Real Codex sandbox denied out-of-workspace write; toolkit available")'] : prepared.args;
       if(!probe) prepared.mounts.push({source:root+'/codex-fixture',target:'/pnpm/bin/codex',readOnly:true});
       await writeFile(root+'/data/runner-plans/'+id+'.json',JSON.stringify({id,args,cwd:prepared.cwd,prompt:task.prompt,mounts:prepared.mounts,expires:Date.now()+120000,sandbox:mode,mcpEnv:{LEO_MCP_RUN_TOKEN:'fixture-run-scoped-token'}}));
     `
     for (const [mode, probe] of [['yolo', false], ['read-only', false], ['workspace-write', true], ['read-only', true]]) {
       const id = randomUUID()
       runs.push(id)
-      docker('exec', manager, 'node', '--import', 'tsx', '--input-type=module', '-e', prepare, JSON.stringify({ root, id, mode, probe }))
+      docker('exec', manager, 'node', '--input-type=module', '-e', prepare, JSON.stringify({ root, id, mode, probe }))
       const start = await fetch(`${url}/runs/${id}`, { method: 'POST', headers })
       assert.equal(start.status, 200, await start.text())
       const result = await fetch(`${url}/runs/${id}/wait`, { method: 'POST', headers }).then(response => response.json())
@@ -113,10 +112,9 @@ process.stdin.on('end', () => {
     }
     const clientId = randomUUID()
     runs.push(clientId)
-    docker('exec', manager, 'node', '--import', 'tsx', '--input-type=module', '-e', prepare, JSON.stringify({ root, id: clientId, mode: 'yolo' }))
+    docker('exec', manager, 'node', '--input-type=module', '-e', prepare, JSON.stringify({ root, id: clientId, mode: 'yolo' }))
     const brokerIp = JSON.parse(docker('inspect', broker))[0].NetworkSettings.Networks.bridge.IPAddress
-    const loader = docker('exec', manager, 'node', '--input-type=module', '-e', 'console.log(import.meta.resolve("tsx"))')
-    const clientOutput = docker('exec', '--workdir', `${root}/project`, '-e', `RUNNER_URL=http://${brokerIp}:4311`, '-e', 'RUNNER_TOKEN=runner-smoke-secret', manager, 'node', '--import', loader, '/app/server/runner-client.ts', clientId)
+    const clientOutput = docker('exec', '--workdir', `${root}/project`, '-e', `RUNNER_URL=http://${brokerIp}:4311`, '-e', 'RUNNER_TOKEN=runner-smoke-secret', manager, '/usr/local/bin/leo', 'runner-client', clientId)
     assert.match(clientOutput, /Isolation assertions passed/)
     assert.throws(() => docker('inspect', `leo-run-${clientId}`))
     process.stdout.write('Remote client: streamed events, exit status, workspace module resolution, and container cleanup passed\n')
@@ -127,12 +125,12 @@ process.stdin.on('end', () => {
         break
       await setTimeout(200)
     }
-    assert.equal((await fetch(`${url}/runs/${clientId}`, { method: 'POST', headers })).status, 500)
+    assert.equal((await fetch(`${url}/runs/${clientId}`, { method: 'POST', headers })).status, 409)
     assert.throws(() => docker('inspect', `leo-run-${clientId}`))
     process.stdout.write('Broker restart: stopped attempt cannot start again; durable state survives\n')
     const id = randomUUID()
     runs.push(id)
-    docker('exec', manager, 'node', '--import', 'tsx', '--input-type=module', '-e', prepare, JSON.stringify({ root, id, mode: 'yolo', hang: true }))
+    docker('exec', manager, 'node', '--input-type=module', '-e', prepare, JSON.stringify({ root, id, mode: 'yolo', hang: true }))
     assert.equal((await fetch(`${url}/runs/${id}`, { method: 'POST', headers })).status, 200)
     assert.equal((await fetch(`${url}/runs/${id}`, { method: 'DELETE', headers })).status, 200)
     assert.throws(() => docker('inspect', `leo-run-${id}`))

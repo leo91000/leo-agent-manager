@@ -42,7 +42,7 @@ describe('cLI update deployment and rollback', () => {
         response.end('{}')
       }
       else if (request.url === '/api/v1/services/service') {
-        response.end(JSON.stringify({ docker_compose_raw: 'services:\n  runner:\n    volumes:\n      - state:/runner-state\n' }))
+        response.end(JSON.stringify({ docker_compose_raw: 'services:\n  runner:\n    entrypoint: [/usr/local/bin/leo, runner-broker]\n    volumes:\n      - state:/runner-state\n' }))
       }
       else if (request.url === '/health') {
         response.end(JSON.stringify({ status: 'ok', commit: plan.commit, runtimeId: selectedImage === candidate && !failCandidate ? 'cli-123-1' : 'old-runtime' }))

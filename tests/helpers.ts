@@ -1,8 +1,8 @@
-import type { Config } from '../server/config.ts'
+import type { Config } from './legacy/server/config.ts'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { buildApp } from '../server/app.ts'
+import { buildApp } from './legacy/server/app.ts'
 
 export async function fixture(overrides: Partial<Config> = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'leo-manager-test-'))

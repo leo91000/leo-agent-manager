@@ -1,0 +1,432 @@
+use crate::{
+    auth::token,
+    config::Config,
+    error::{Error, Result},
+    process::{Environment, bounded_output, command},
+    service::{isolated, policy, run_projects},
+    skills::{atomic_write, private_dir, workspace},
+    validation::text,
+};
+use serde_json::{Value, json};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
+pub async fn secret(directory: &Path, name: &str) -> Result<String> {
+    use tokio::io::AsyncWriteExt;
+    let file = directory.join(name);
+    match tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&file)
+        .await
+    {
+        Ok(mut file) => {
+            file.write_all(token().as_bytes()).await?;
+            file.sync_all().await?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(tokio::fs::read_to_string(file).await?.trim().to_owned())
+}
+async fn git(args: Vec<String>, timeout: u64) -> Result<String> {
+    let mut env = std::env::vars().collect::<Environment>();
+    env.insert("GIT_NO_LAZY_FETCH".into(), "0".into());
+    let output = bounded_output(
+        command("git", &args, &env, None),
+        Duration::from_secs(timeout),
+        100000,
+    )
+    .await?;
+    if !output.success {
+        return Err(Error::bad(
+            "Git could not prepare this workspace. Check the branch and repository permissions.",
+        ));
+    }
+    Ok(output.stdout.trim().into())
+}
+fn args(values: &[&str]) -> Vec<String> {
+    values.iter().map(|s| (*s).to_owned()).collect()
+}
+fn path(path: &Path) -> Result<&str> {
+    path.to_str()
+        .ok_or_else(|| Error::bad("Workspace paths must use UTF-8."))
+}
+async fn copy_tree(source: &Path, target: &Path, reject_symlinks: bool) -> Result<()> {
+    let mut queue = vec![(source.to_owned(), target.to_owned())];
+    while let Some((source, target)) = queue.pop() {
+        let metadata = tokio::fs::symlink_metadata(&source).await?;
+        if metadata.is_symlink() {
+            if reject_symlinks {
+                return Err(Error::bad(
+                    "Selected skill resources must not contain symbolic links.",
+                ));
+            }
+            tokio::fs::symlink(tokio::fs::read_link(&source).await?, target).await?;
+            continue;
+        }
+        if metadata.is_dir() {
+            private_dir(&target).await?;
+            let mut entries = tokio::fs::read_dir(&source).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                queue.push((entry.path(), target.join(entry.file_name())));
+            }
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(Error::bad(
+                "Only regular files can be copied into an execution workspace.",
+            ));
+        }
+        tokio::fs::copy(source, target).await?;
+    }
+    Ok(())
+}
+async fn github_home(
+    home: &Path,
+    config: &Config,
+    shared: bool,
+    github: Option<&str>,
+) -> Result<()> {
+    let destination = home.join(".config/gh");
+    if shared {
+        let source = config.home.join(".config/gh");
+        if tokio::fs::try_exists(&source).await? {
+            copy_tree(&source, &destination, false).await?;
+        }
+    }
+    if !shared && let Some(token) = github.filter(|s| !s.is_empty()) {
+        private_dir(&destination).await?;
+        atomic_write(
+            &destination.join("hosts.yml"),
+            serde_yaml_ng::to_string(&json!({
+            "github.com":{
+            "oauth_token":token,"git_protocol":"https"}
+            }
+            ))
+            .map_err(Error::internal)?
+            .as_bytes(),
+        )
+        .await?;
+    }
+    Ok(())
+}
+pub async fn prepare(
+    run: &Value,
+    config: &Config,
+    github: Option<&str>,
+    codex_home: Option<&Path>,
+    generation: Option<&str>,
+) -> Result<Value> {
+    let directory = config.data_dir.join("runs").join(text(run, "id"));
+    let is_isolated = isolated(&run["snapshot"]["agent"]);
+    let access = policy(&run["snapshot"]["agent"]);
+    if is_isolated && config.runner_url.is_empty() {
+        return Err(Error::new(
+            503,
+            "Isolated runner is not configured. This agent will not fall back to shared execution.",
+        ));
+    }
+    let root = directory.join(
+        generation
+            .map(|g| format!("workspace-{g}"))
+            .unwrap_or_else(|| "workspace".into()),
+    );
+    private_dir(&root).await?;
+    let projects = run_projects(run);
+    let mut workspaces = Vec::new();
+    let mut mounts = Vec::new();
+    for project in &projects {
+        let source = workspace(Path::new(text(project, "path")), &config.workspace_roots).await?;
+        if path(&source)? != text(project, "path") {
+            return Err(Error::bad(
+                "Project directory changed location after this run was queued.",
+            ));
+        }
+        let mut target = source.clone();
+        let mut kind = "direct";
+        if run["snapshot"]["task"]["worktree"] == true {
+            target = if !is_isolated && projects.len() == 1 {
+                root.clone()
+            } else {
+                root.join(text(project, "id"))
+            };
+            if is_isolated {
+                kind = "clone";
+                git(
+                    args(&[
+                        "clone",
+                        "--no-hardlinks",
+                        "--no-local",
+                        "--branch",
+                        text(project, "baseBranch"),
+                        path(&source)?,
+                        path(&target)?,
+                    ]),
+                    120,
+                )
+                .await?;
+                if let Ok(mut remote) = git(
+                    args(&["-C", path(&source)?, "config", "--get", "remote.origin.url"]),
+                    10,
+                )
+                .await
+                {
+                    if remote.starts_with("http:") || remote.starts_with("https:") {
+                        let mut url = url::Url::parse(&remote)
+                            .map_err(|_| Error::bad("Invalid repository remote"))?;
+                        let _ = url.set_username("");
+                        let _ = url.set_password(None);
+                        remote = url.to_string();
+                    }
+                    if !remote.is_empty() {
+                        git(
+                            args(&["-C", path(&target)?, "remote", "set-url", "origin", &remote]),
+                            10,
+                        )
+                        .await?;
+                    }
+                }
+            } else {
+                kind = "worktree";
+                if target == root {
+                    tokio::fs::remove_dir(&root).await?;
+                }
+                let branch = format!(
+                    "feat/run-{}-{}{}",
+                    &text(run, "id")[..8],
+                    &text(project, "id")[..8],
+                    generation.map(|g| format!("-{g}")).unwrap_or_default()
+                );
+                git(
+                    args(&[
+                        "-C",
+                        path(&source)?,
+                        "worktree",
+                        "add",
+                        "-b",
+                        &branch,
+                        path(&target)?,
+                        text(project, "baseBranch"),
+                    ]),
+                    30,
+                )
+                .await?;
+            }
+        }
+        workspaces.push(json!({
+        "projectId":project["id"],"path":target,"kind":kind}
+        ));
+        if is_isolated {
+            mounts.push(json!({
+            "source":target,"target":target,"readOnly":access["sandbox"]=="read-only"}
+            ));
+        }
+    }
+    let cwd = if workspaces.len() == 1 {
+        PathBuf::from(text(&workspaces[0], "path"))
+    } else {
+        root.clone()
+    };
+    let output_directory = directory.join("output");
+    private_dir(&output_directory).await?;
+    let output = output_directory.join("result.md");
+    if !is_isolated {
+        return Ok(json!({
+        "cwd":cwd,"output":output,"workspaces":workspaces,"isolated":false,"mounts":mounts,"skills":run["snapshot"]["skills"]}
+        ));
+    }
+    let home = directory.join("home");
+    private_dir(&home.join(".codex")).await?;
+    let auth = codex_home
+        .map(Path::to_owned)
+        .unwrap_or_else(|| config.home.join(".codex"))
+        .join("auth.json");
+    let bytes = tokio::fs::read(&auth)
+        .await
+        .map_err(|_| Error::bad("Connect Codex before starting an isolated agent."))?;
+    atomic_write(&home.join(".codex/auth.json"), &bytes).await?;
+    atomic_write(
+        &home.join(".codex/config.toml"),
+        b"cli_auth_credentials_store = \"file\"\n",
+    )
+    .await?;
+    github_home(&home, config, access["github"] == true, github).await?;
+    let git_config = home.join(".gitconfig");
+    for (key, value) in [
+        ("user.name", text(&run["snapshot"]["agent"], "name")),
+        ("user.email", "agent@localhost"),
+    ] {
+        git(
+            args(&["config", "--file", path(&git_config)?, key, value]),
+            10,
+        )
+        .await?;
+    }
+    if github.is_some() || access["github"] == true {
+        git(
+            args(&[
+                "config",
+                "--file",
+                path(&git_config)?,
+                "credential.https://github.com.helper",
+                "!gh auth git-credential",
+            ]),
+            10,
+        )
+        .await?;
+    }
+    let mut skills = Vec::new();
+    for (index, skill) in run["snapshot"]["skills"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let relative = format!("{index}/{}", text(skill, "name"));
+        let target = home.join(".agents/skills").join(&relative);
+        private_dir(target.parent().unwrap()).await?;
+        let source = Path::new(text(skill, "path"))
+            .parent()
+            .ok_or_else(|| Error::bad("Invalid selected skill path."))?;
+        copy_tree(source, &target, true).await?;
+        atomic_write(&target.join("SKILL.md"), text(skill, "content").as_bytes()).await?;
+        let mut skill = skill.clone();
+        skill["path"] = format!("/home/node/.agents/skills/{relative}/SKILL.md").into();
+        skills.push(skill);
+    }
+    mounts.insert(
+        0,
+        json!({
+        "source":root,"target":root,"readOnly":false}
+        ),
+    );
+    mounts.extend([
+        json!({
+        "source":home,"target":"/home/node","readOnly":false}
+        ),
+        json!({
+        "source":output_directory,"target":output_directory,"readOnly":false}
+        ),
+    ]);
+    let empty = directory.join("empty");
+    private_dir(&empty).await?;
+    for workspace in &workspaces {
+        for relative in [".codex", ".agents/skills"] {
+            let target = Path::new(text(workspace, "path")).join(relative);
+            if tokio::fs::try_exists(&target).await? {
+                mounts.push(json!({
+                "source":empty,"target":target,"readOnly":true}
+                ));
+            }
+        }
+    }
+    Ok(json!({
+    "cwd":cwd,"output":output,"workspaces":workspaces,"isolated":true,"mounts":mounts,"skills":skills}
+    ))
+}
+pub async fn codex_home(config: &Config, home: &Path) -> Result<()> {
+    private_dir(home).await?;
+    let source = config.home.join(".codex");
+    for file in ["config.toml", "AGENTS.md"] {
+        match tokio::fs::read(source.join(file)).await {
+            Ok(bytes) => atomic_write(&home.join(file), &bytes).await?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    for directory in ["rules", "skills", "plugins"] {
+        if !tokio::fs::try_exists(source.join(directory)).await? {
+            continue;
+        }
+        match tokio::fs::symlink(source.join(directory), home.join(directory)).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
+}
+pub async fn restore(
+    run: &Value,
+    prepared: Value,
+    config: &Config,
+    github: Option<&str>,
+) -> Result<Value> {
+    if prepared["isolated"] != isolated(&run["snapshot"]["agent"]) {
+        return Err(Error::new(
+            409,
+            "Execution isolation changed; this run cannot be resumed.",
+        ));
+    }
+    if prepared["isolated"] == true && config.runner_url.is_empty() {
+        return Err(Error::new(503, "The isolated runner is not configured."));
+    }
+    let projects = run_projects(run);
+    for project in &projects {
+        if workspace(Path::new(text(project, "path")), &config.workspace_roots).await?
+            != Path::new(text(project, "path"))
+        {
+            return Err(Error::new(
+                409,
+                "A project moved outside its permitted location.",
+            ));
+        }
+    }
+    let root = config.data_dir.join("runs").join(text(run, "id"));
+    let mut allowed = vec![root.clone()];
+    let workspaces = prepared["workspaces"]
+        .as_array()
+        .ok_or_else(|| Error::bad("Invalid saved execution workspace."))?;
+    for w in workspaces {
+        if w["kind"] == "direct" {
+            let p = projects
+                .iter()
+                .find(|p| p["id"] == w["projectId"])
+                .ok_or_else(|| {
+                    Error::new(
+                        409,
+                        "A saved workspace is no longer in the agent’s project scope.",
+                    )
+                })?;
+            allowed.push(PathBuf::from(text(p, "path")));
+        }
+    }
+    let mut paths = vec![
+        PathBuf::from(text(&prepared, "cwd")),
+        Path::new(text(&prepared, "output"))
+            .parent()
+            .ok_or_else(|| Error::bad("Invalid output directory."))?
+            .to_owned(),
+    ];
+    paths.extend(workspaces.iter().map(|w| PathBuf::from(text(w, "path"))));
+    paths.extend(
+        prepared["mounts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|m| PathBuf::from(text(m, "source"))),
+    );
+    paths.sort();
+    paths.dedup();
+    for source in paths {
+        if workspace(&source, &allowed).await? != source {
+            return Err(Error::new(
+                409,
+                "A saved workspace changed location. Working files were preserved.",
+            ));
+        }
+    }
+    if prepared["isolated"] == true {
+        github_home(
+            &root.join("home"),
+            config,
+            policy(&run["snapshot"]["agent"])["github"] == true,
+            github,
+        )
+        .await?;
+    }
+    Ok(prepared)
+}

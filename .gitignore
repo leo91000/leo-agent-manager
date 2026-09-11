@@ -10,3 +10,4 @@ playwright-report/
 *.db-wal
 *.log
 .DS_Store
+/target

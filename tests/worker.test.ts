@@ -3,9 +3,9 @@ import { readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { deviceDetails } from '../server/connections.ts'
-import { codexArgs, redact, redactPayload, Worker } from '../server/worker.ts'
 import { fixture } from './helpers.ts'
+import { deviceDetails } from './legacy/server/connections.ts'
+import { codexArgs, redact, redactPayload, Worker } from './legacy/server/worker.ts'
 import { mcpProvider } from './mcp-provider.ts'
 
 const exec = promisify(execFile)

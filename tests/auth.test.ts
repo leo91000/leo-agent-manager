@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { digest, safeEqual } from '../server/auth.ts'
 import { fixture } from './helpers.ts'
+import { digest, safeEqual } from './legacy/server/auth.ts'
 
 describe('administrator and OAuth credentials', () => {
   let ctx: Awaited<ReturnType<typeof fixture>>

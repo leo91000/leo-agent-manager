@@ -1,13 +1,13 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CodexAccounts } from '../server/codex-accounts'
-import { codexSession } from '../server/codex-rpc'
-import { prepareExecution } from '../server/execution'
-import { codexArgs, usageExhausted } from '../server/worker'
 import { remainingUsage, usageRecovered } from '../shared/codex-accounts'
 import { accountFixture, credential, limits } from './codex-account-fixture'
 import { fixture } from './helpers'
+import { CodexAccounts } from './legacy/server/codex-accounts'
+import { codexSession } from './legacy/server/codex-rpc'
+import { prepareExecution } from './legacy/server/execution'
+import { codexArgs, usageExhausted } from './legacy/server/worker'
 
 const binary = path.resolve('tests/fixtures/codex.mjs')
 describe('codex account pool', () => {

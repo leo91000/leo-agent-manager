@@ -4,8 +4,8 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { prepareExecution } from '../server/execution.ts'
 import { fixture } from './helpers.ts'
+import { prepareExecution } from './legacy/server/execution.ts'
 
 const exec = promisify(execFile)
 async function git(directory: string, ...args: string[]) {

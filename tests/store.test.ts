@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { Store } from '../server/store.ts'
 import { fixture } from './helpers.ts'
+import { Store } from './legacy/server/store.ts'
 
 describe('durable storage and API boundaries', () => {
   it('returns the latest lightweight run for every current task beyond a page of history', async () => {

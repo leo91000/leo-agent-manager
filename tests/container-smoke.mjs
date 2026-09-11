@@ -24,8 +24,6 @@ async function main() {
       name,
       '-p',
       '127.0.0.1::4310',
-      '-e',
-      'SETUP_TOKEN=container-smoke-bootstrap',
       '-v',
       `${volumes[0]}:/data`,
       '-v',
@@ -67,7 +65,7 @@ async function main() {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        setupToken: 'container-smoke-bootstrap',
+        setupToken: (await docker('exec', name, 'cat', '/data/setup-token')).stdout.trim(),
         password: 'container-test-password-long',
       }),
     })
@@ -98,7 +96,7 @@ async function main() {
     assert.ok(ghVersion.startsWith(`gh version ${version.tools.gh} `))
     if (version.toolkit) {
       const toolkitProbe = await readFile(new URL('./toolkit-probe.mjs', import.meta.url), 'utf8')
-      const result = await exec('docker', ['--context', 'default', 'exec', name, '/usr/local/bin/node', '--import', 'tsx', '--input-type=module', '-e', toolkitProbe], { timeout: 240000, maxBuffer: 1024 * 1024 })
+      const result = await exec('docker', ['--context', 'default', 'exec', name, '/usr/local/bin/node', '--input-type=module', '-e', toolkitProbe], { timeout: 240000, maxBuffer: 1024 * 1024 })
       process.stdout.write(result.stdout)
     }
     const browserProbe = await readFile(new URL('./browser-smoke.mjs', import.meta.url), 'utf8')

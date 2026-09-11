@@ -1,8 +1,8 @@
 import type { RunEvent } from '../shared/contracts'
 import { describe, expect, it } from 'vitest'
-import { redactPayload } from '../server/worker.ts'
 import { activityEntries } from '../src/activity'
 import sample from './fixtures/activity-events.json'
+import { redactPayload } from './legacy/server/worker.ts'
 
 const events: RunEvent[] = sample.map((payload, index) => ({ id: index + 1, runId: 'test', createdAt: index, type: payload.type, text: '', payload }))
 describe('conversation activity', () => {

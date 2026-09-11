@@ -3,9 +3,9 @@ import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { nextOccurrences } from '../server/service.ts'
-import { boundedPath } from '../server/skills.ts'
 import { fixture } from './helpers.ts'
+import { nextOccurrences } from './legacy/server/service.ts'
+import { boundedPath } from './legacy/server/skills.ts'
 
 const skill
   = '---\nname: review\ndescription: Review a project\n---\nRun the relevant checks.\n'

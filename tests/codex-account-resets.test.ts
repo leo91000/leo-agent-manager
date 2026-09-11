@@ -1,8 +1,8 @@
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CodexAccounts } from '../server/codex-accounts'
 import { accountFixture, limits } from './codex-account-fixture'
 import { fixture } from './helpers'
+import { CodexAccounts } from './legacy/server/codex-accounts'
 
 const banked = (primary = 98, secondary = 40, availableCount = 3) => ({ ...limits(primary, secondary), rateLimitResetCredits: { availableCount } })
 

@@ -1,11 +1,11 @@
-import type { CodexSession } from '../server/codex-rpc'
 import type { AccountLimits, CodexAccount } from '../shared/codex-accounts'
 import type { fixture } from './helpers'
+import type { CodexSession } from './legacy/server/codex-rpc'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { CodexAccounts } from '../server/codex-accounts'
+import { CodexAccounts } from './legacy/server/codex-accounts'
 
 export function limits(primary = 20, secondary = 40): AccountLimits {
   return { ordinaryUsageAllowed: true, rateLimits: { limitId: 'codex', limitName: 'Codex', primary: { usedPercent: primary, windowDurationMins: 300, resetsAt: Math.floor(Date.now() / 1000) + 7200 }, secondary: { usedPercent: secondary, windowDurationMins: 10080, resetsAt: Math.floor(Date.now() / 1000) + 86400 } } }

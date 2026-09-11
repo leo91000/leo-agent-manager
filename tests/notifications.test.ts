@@ -1,8 +1,8 @@
 import type { ChatQuestion } from '../shared/chats.ts'
 import { createECDH, randomBytes } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Notifications } from '../server/notifications.ts'
 import { fixture } from './helpers.ts'
+import { Notifications } from './legacy/server/notifications.ts'
 
 function subscription() {
   const curve = createECDH('prime256v1')

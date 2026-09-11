@@ -38,6 +38,8 @@ async function main() {
         result = { account: auth ? { type: 'chatgpt', email: `${id}@example.test`, planType: 'plus' } : null }
       if (request.method === 'account/rateLimits/read')
         result = { ordinaryUsageAllowed: true, accountId: id, rateLimits: { limitId: 'codex', limitName: 'Codex', primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: Math.floor(Date.now() / 1000) + 7200 }, secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: Math.floor(Date.now() / 1000) + 172800 } } }
+      if (request.method === 'account/rateLimits/read' && process.env.LEO_FIXTURE_USAGE)
+        result = JSON.parse(readFileSync(process.env.LEO_FIXTURE_USAGE, 'utf8'))[id] ?? result
       process.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`)
     }
     return

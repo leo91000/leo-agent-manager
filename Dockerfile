@@ -11,9 +11,22 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lo
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
 COPY shared ./shared
-COPY server ./server
 COPY public ./public
-RUN pnpm build && pnpm prune --prod --ignore-scripts
+RUN pnpm build
+
+FROM rust:1.97.1-bookworm AS backend
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY backend/Cargo.toml ./backend/Cargo.toml
+# A separate dependency layer survives application edits in remote BuildKit
+# caches. Cargo cache mounts alone do not persist on fresh GitHub runners.
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    mkdir -p backend/src && printf 'fn main() {}\n' > backend/src/main.rs \
+    && printf '' > backend/src/lib.rs && cargo build --locked --release --bin leo
+COPY backend ./backend
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    touch backend/src/main.rs backend/src/lib.rs && \
+    cargo build --locked --release --bin leo && cp target/release/leo /usr/local/bin/leo
 
 FROM base AS runtime
 ARG PLAYWRIGHT_VERSION=1.63.0
@@ -46,10 +59,9 @@ RUN ln -s /usr/local/bin/node /pnpm/bin/node
 COPY deploy/toolkit/profile.sh /etc/profile.d/leo-toolkit.sh
 ENV LEO_TOOLKIT_DIR=/opt/leo-toolkit
 ENV PATH=/usr/local/bin:/home/node/.local/share/mise/shims:/usr/local/share/mise/shims:$PATH
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=backend /usr/local/bin/leo /usr/local/bin/leo
+COPY backend/schemas/runner-seccomp.LICENSE /usr/share/doc/leo/runner-seccomp.LICENSE
 COPY --from=build --chown=node:node /app/dist ./dist
-COPY --from=build --chown=node:node /app/server ./server
-COPY --from=build --chown=node:node /app/shared ./shared
 COPY --from=build --chown=node:node /app/package.json ./package.json
 RUN mkdir -p /data /workspaces /home/node/.agents/skills /home/node/.codex \
     && chown -R node:node /data /workspaces /home/node /app
@@ -59,4 +71,4 @@ USER node
 VOLUME ["/data", "/home/node", "/workspaces"]
 EXPOSE 4310
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --start-interval=1s CMD /usr/local/bin/node -e "fetch('http://127.0.0.1:4310/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["/usr/local/bin/node", "--import", "tsx", "server/index.ts"]
+CMD ["/usr/local/bin/leo", "serve"]

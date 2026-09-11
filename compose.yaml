@@ -26,7 +26,7 @@ services:
   runner:
     image: ${LEO_IMAGE:-ghcr.io/leo91000/leo-agent-manager:latest}
     user: '0:0'
-    entrypoint: [node, --import, tsx, /app/server/runner-broker.ts]
+    entrypoint: [/usr/local/bin/leo, runner-broker]
     restart: unless-stopped
     environment:
       RUNNER_MANAGER_CONTAINER: leo-manager

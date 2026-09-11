@@ -54,3 +54,26 @@ export function persistentRunnerCompose(compose) {
   lines.splice(volumeStart + offset + 1, 0, `${' '.repeat(volumeIndent + 2)}- runner-state:/runner-state`)
   return lines.join('\n')
 }
+
+// Upgrade the existing service in place without parsing or serializing its
+// environment expressions. Coolify retains Compose independently of the repo.
+export function nativeRunnerCompose(compose) {
+  const lines = persistentRunnerCompose(compose).split('\n')
+  const start = lines.findIndex(line => /^\s+runner:\s*$/.test(line))
+  const indent = lines[start].search(/\S/)
+  for (let index = start + 1; index < lines.length; index++) {
+    if (!lines[index].trim() || lines[index].trimStart().startsWith('#'))
+      continue
+    if (lines[index].search(/\S/) <= indent)
+      break
+    if (!/^\s+entrypoint:/.test(lines[index]))
+      continue
+    const entryIndent = lines[index].search(/\S/)
+    let end = index + 1
+    while (end < lines.length && lines[end].trim() && lines[end].search(/\S/) > entryIndent) end++
+    lines.splice(index, end - index, `${' '.repeat(entryIndent)}entrypoint: [/usr/local/bin/leo, runner-broker]`)
+    return lines.join('\n')
+  }
+  lines.splice(start + 1, 0, `${' '.repeat(indent + 2)}entrypoint: [/usr/local/bin/leo, runner-broker]`)
+  return lines.join('\n')
+}
