@@ -203,8 +203,8 @@ watch(() => route.query.new, (value) => {
   <div class="toolbar flex items-center justify-between gap-5 mb-[23px] tablet:items-start tablet:flex-wrap phone:gap-4 phone:min-w-0 focus-filters mt-0 phone:mb-[19px] mx-0">
     <UiSegments v-model="filter" label="Filter tasks" compact :options="[{ value: 'all', label: 'All tasks' }, { value: 'scheduled', label: 'Scheduled' }, { value: 'once', label: 'One-off' }, { value: 'paused', label: 'Paused' }, { value: 'archived', label: 'Archived' }]" />
   </div>
-  <div v-if="tasks.length" class="task-focus-layout grid flex-1 min-h-0 grid-cols-[minmax(230px,300px)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] items-stretch gap-[25px] pr-1 pb-1 [@media(901px<=width<=1150px)]:grid-cols-[225px_minmax(0,1fr)] [@media(901px<=width<=1150px)]:gap-5 tablet:grid-cols-1 tablet:grid-rows-[auto_minmax(0,1fr)] tablet:gap-3 short:gap-2">
-    <section class="task-inbox flex min-h-0 min-w-0 flex-col rounded-card border border-line bg-surface px-3 py-[17px] tablet:px-2.5 tablet:py-2 short:py-0" :class="{ choosing }" aria-label="Task list">
+  <div v-if="tasks.length" class="task-focus-layout grid flex-1 min-h-0 grid-cols-[minmax(230px,300px)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] items-stretch gap-7 pr-1 pb-1 [@media(901px<=width<=1150px)]:grid-cols-[225px_minmax(0,1fr)] [@media(901px<=width<=1150px)]:gap-5 tablet:grid-cols-1 tablet:grid-rows-[auto_minmax(0,1fr)] tablet:gap-3 short:gap-2">
+    <section class="task-inbox flex min-h-0 min-w-0 flex-col px-3 py-[17px] tablet:px-2.5 tablet:py-2 short:py-0" :class="{ choosing }" aria-label="Task list">
       <header>
         <div class="task-inbox-title flex-1 min-w-0 mr-auto">
           <h2 class="task-inbox-heading">
@@ -226,7 +226,7 @@ watch(() => route.query.new, (value) => {
         </section>
       </div>
     </section>
-    <section v-if="selected" class="task-focus-detail task-card min-h-0 min-w-0 wrap-anywhere overflow-auto overscroll-contain [scrollbar-width:thin] rounded-[14px] border border-[light-dark(#34334e,#817c9e)] bg-surface shadow-arcade p-[25px] compact:p-5 phone:p-3 [&.has-run]:flex [&.has-run]:flex-col [&.has-run]:overflow-hidden" :class="{ 'has-run': selectedRun }" aria-label="Selected task">
+    <section v-if="selected" class="task-focus-detail task-card min-h-0 min-w-0 wrap-anywhere overflow-auto overscroll-contain [scrollbar-width:thin] border-l border-line tablet:border-l-0 tablet:border-t p-[25px] compact:p-5 phone:p-3 [&.has-run]:flex [&.has-run]:flex-col [&.has-run]:overflow-hidden" :class="{ 'has-run': selectedRun }" aria-label="Selected task">
       <header class="task-focus-actions static flex shrink-0 items-center gap-[11px] mb-3.5 tablet:gap-1.5 tablet:mb-2">
         <span v-if="selected.cron" class="focus-schedule flex items-center gap-1.5 text-muted text-3xs mt-[-7px] mb-5 mx-0">
           <Icon :name="Clock" :size="13" />{{ selected.enabled ? `Next: ${date(selected.nextRun)}` : 'Schedule paused' }}

@@ -181,7 +181,7 @@ async function copyCallback() {
     <label class="search-field flex flex-row items-center gap-[7px] text-subtle bg-raised border border-line rounded-[7px] min-w-0 phone:w-full px-2.5 py-0"><Icon :name="Search" :size="17" /><input v-model="query" aria-label="Search MCPs" placeholder="Search connections"></label><span class="muted text-muted">{{ state.mcps.filter(item => item.state === 'connected' && item.enabled).length }} connected</span>
   </div>
   <div v-if="filtered.length" class="mcp-grid grid grid-cols-[repeat(auto-fill,_minmax(min(340px,_100%),_1fr))] gap-5.5">
-    <article v-for="item in filtered" :key="item.id" class="mcp-card min-w-0 border border-line rounded-[15px] bg-surface p-5.5 phone:p-4.5" :class="{ disabled: !item.enabled }">
+    <article v-for="item in filtered" :key="item.id" class="mcp-card min-w-0 border-t border-line py-5.5 phone:py-4.5" :class="{ disabled: !item.enabled }">
       <header>
         <span class="mcp-mark grid place-items-center w-[45px] h-[45px] shrink-0 text-accent bg-soft rounded-xl border border-line"><Icon v-if="item.transport === 'http'" :name="Server" :size="23" /><Icon v-else :name="Terminal" :size="23" /></span><div><h2>{{ item.name }}</h2><span class="mcp-transport text-muted text-2xs">{{ item.transport === 'http' ? 'Remote server' : 'Command server' }}</span></div><details class="task-action-menu relative" @click="($event.target as HTMLElement).closest('button') && (($event.currentTarget as HTMLDetailsElement).open = false)">
           <summary :class="twMerge(iconButton, 'icon-button')" :aria-label="`Actions for ${item.name}`">

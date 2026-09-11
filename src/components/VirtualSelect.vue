@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   clearable?: boolean
   compact?: boolean
+  variant?: 'default' | 'ghost'
   hideLabel?: boolean
 }>(), { placeholder: 'Select an option', emptyText: 'No options available' })
 const model = defineModel<string>({ default: '' })
@@ -217,7 +218,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="virtual-select min-w-0 w-full relative" :class="{ 'vs-compact': compact, 'vs-open': open, 'vs-disabled': disabled, 'vs-invalid': invalid }">
+  <div ref="root" class="virtual-select min-w-0 w-full relative" :class="{ 'vs-ghost': variant === 'ghost', 'vs-compact': compact, 'vs-open': open, 'vs-disabled': disabled, 'vs-invalid': invalid }">
     <label v-if="!hideLabel" :for="`${id}-input`" class="vs-label block mb-2 text-xs font-medium text-muted">{{ label }}</label>
     <div class="vs-control flex items-center gap-2.5 min-h-12 w-full pr-2.5 pl-[13px] bg-raised border border-control rounded-[10px] [transition:border-color_.15s,_box-shadow_.15s] phone:min-h-12 phone:gap-2 [@media(prefers-reduced-motion:_reduce)]:[transition:none] py-0">
       <span v-if="leadingIcon" class="vs-leading grid place-items-center w-[29px] h-[29px] rounded-lg text-muted bg-surface shrink-0"><Icon :name="leadingIcon" :size="17" /></span>

@@ -142,7 +142,7 @@ async function remove() {
     <article
       v-for="skill in items"
       :key="`${skill.scope}/${skill.name}`"
-      class="skill-card bg-surface border border-line rounded-card p-[21px]"
+      class="skill-card border-t border-line py-6"
     >
       <div class="skill-card-top flex items-center gap-2 mb-[17px]">
         <span class="skill-symbol text-muted bg-surface w-[35px] h-[35px] grid place-items-center rounded-[9px]"><Icon :name="BookOpen" :size="21" /></span><span class="pill inline-flex bg-soft text-accent rounded-[5px] text-xs font-[650] whitespace-nowrap px-2 py-1" :class="{ 'error-pill': !skill.valid }">{{

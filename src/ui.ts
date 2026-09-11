@@ -1,8 +1,8 @@
 // Shared interactive styles. Call sites own layout; these variants own controls.
 export const buttonBase = 'button inline-flex shrink-0 items-center justify-center gap-[9px] rounded-lg border font-semibold whitespace-nowrap transition-[background,transform,box-shadow] duration-150 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:transform-none focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-accent phone:min-h-11'
 export const buttonVariants = {
-  'default': 'border-control bg-raised text-ink enabled:hover:bg-hover',
-  'primary': 'primary border-brand-edge bg-brand text-white shadow-arcade enabled:hover:bg-brand-hover enabled:active:translate-x-px enabled:active:translate-y-px enabled:active:shadow-pressed',
+  'default': 'border-line bg-transparent text-ink enabled:hover:bg-hover',
+  'primary': 'primary border-transparent bg-brand text-white enabled:hover:bg-brand-hover enabled:active:scale-[.98]',
   'danger': 'danger border-danger bg-danger text-white enabled:hover:brightness-95',
   'danger-outline': 'danger-outline border-control bg-raised text-danger enabled:hover:bg-danger-surface',
 } as const

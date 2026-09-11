@@ -55,7 +55,7 @@ test('uploads images and files, previews them and preserves attachments while ed
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.mouse.move(0, 0)
-  await expect(page.getByRole('button', { name: 'Steer now', exact: true })).toHaveCSS('background-color', 'rgb(37, 38, 55)')
+  await expect(page.getByRole('button', { name: 'Steer now', exact: true })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expectSingleScroll(page)
   await page.screenshot({ path: test.info().outputPath('attachments-mobile-dark.png'), animations: 'disabled' })
   await page.setViewportSize({ width: 320, height: 600 })

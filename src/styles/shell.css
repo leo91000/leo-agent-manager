@@ -341,9 +341,9 @@ body:has(.sidebar.open), body:has(dialog[open]) {
 }
 
 h1 {
-  font-size: 38px;
-  font-weight: 780;
-  letter-spacing: -1.7px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -1.1px;
 }
 
 h2 {
@@ -369,9 +369,8 @@ h2 {
 }
 
 .sidebar a.active {
-  background: #4545f5;
-  color: #fff;
-  box-shadow: 2px 2px 0 light-dark(#292943, #0d0d18);
+  background: light-dark(#e9e7f6, #32303f);
+  color: var(--color-accent);
 }
 
 .breadcrumb strong {
@@ -437,8 +436,7 @@ h2 {
     width: 36px;
     height: 36px;
     border: 1px solid light-dark(#292943, #9390fb);
-    box-shadow: 2px 2px 0 light-dark(#292943, #0d0d18);
-    transform: rotate(-6deg);
+    box-shadow: none;
   }
   .auth-story h1 {
     font-size: 32px;

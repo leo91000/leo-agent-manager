@@ -245,27 +245,37 @@ function key(event: KeyboardEvent) {
       <NotificationSettings />
     </div>
   </Modal>
-  <div class="flex h-full min-h-0 flex-col gap-5 phone:gap-3">
+  <div class="chat-page flex h-full min-h-0 flex-col gap-3 phone:gap-2">
     <header class="flex shrink-0 items-center justify-between gap-3">
       <div class="flex min-w-0 items-center gap-3">
-        <button :class="iconButton" aria-label="Chat history" :aria-expanded="history" @click="history = !history">
+        <button :class="iconButton" aria-label="Chat history" title="Show or hide chat history" :aria-expanded="history" @click="history = !history">
           <Icon :name="MessageCircle" :size="21" />
         </button>
-        <h1 class="truncate text-2xl! tracking-tight!">
-          Chats<span class="text-accent">.</span>
+        <h1 v-if="!detail" class="text-xs! font-normal! tracking-normal! text-muted">
+          Chats
         </h1>
+        <div v-else class="min-w-0">
+          <h1 class="truncate text-sm! tracking-normal!">
+            {{ detail.agentName }}
+          </h1>
+          <p class="m-0! flex items-center gap-2 text-[11px] text-muted">
+            <span class="truncate phone:max-w-22">{{ detail.projectName || 'Agent workspace' }}</span>
+            <span class="size-1 shrink-0 rounded-full" :class="active ? 'bg-accent' : 'bg-muted'" />
+            <span>{{ detail.paused ? 'Paused' : active ? detail.run?.status === 'queued' ? 'Waiting' : 'Working' : 'Ready' }}</span>
+          </p>
+        </div>
       </div>
       <div class="flex items-center gap-2">
         <button :class="iconButton" aria-label="Question notifications" @click="notifications = true">
           <Icon :name="Bell" :size="20" />
         </button>
-        <RouterLink to="/chats" class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-surface px-3 py-2 text-xs font-semibold hover:bg-soft" @click="draft = ''; clearAttachments(); agentId = MAIN_AGENT_ID; projectId = ''; createdChat = undefined; editing = null">
+        <RouterLink to="/chats" class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium text-muted hover:bg-hover hover:text-ink" @click="draft = ''; clearAttachments(); agentId = MAIN_AGENT_ID; projectId = ''; createdChat = undefined; editing = null">
           <Icon :name="Plus" :size="16" />New chat
         </RouterLink>
       </div>
     </header>
-    <div class="grid min-h-0 flex-1 grid-cols-[230px_minmax(0,1fr)] gap-5 tablet:grid-cols-1 phone:gap-0">
-      <aside class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface tablet:hidden" :class="{ 'tablet:flex!': history, 'tablet:flex-1': history }" aria-label="Chat history">
+    <div class="grid min-h-0 flex-1 gap-8 phone:gap-0" :class="history ? 'grid-cols-[210px_minmax(0,1fr)] tablet:grid-cols-1' : 'grid-cols-1'">
+      <aside v-if="history" class="flex min-h-0 flex-col overflow-hidden" aria-label="Chat history">
         <div class="flex items-center justify-between p-4 text-xs font-semibold text-muted">
           Recent chats <button class="hidden! tablet:inline-flex!" :class="iconButton" aria-label="Close chat history" @click="history = false">
             <Icon :name="X" :size="16" />
@@ -275,50 +285,25 @@ function key(event: KeyboardEvent) {
           <p v-if="!chats.length" class="px-3 py-5 text-xs text-muted">
             Your conversations live here.
           </p>
-          <RouterLink v-for="chat in chats" :key="chat.id" :to="`/chats/${chat.id}`" class="mb-1 block rounded-xl border border-transparent px-3 py-3 hover:bg-soft" :class="chat.id === detail?.id ? 'border-accent/30! bg-accent/8 text-accent' : ''" @click="history = false">
+          <RouterLink v-for="chat in chats" :key="chat.id" :to="`/chats/${chat.id}`" class="mb-1 block rounded-lg px-3 py-3 hover:bg-hover" :class="chat.id === detail?.id ? 'bg-hover text-ink' : ''" @click="history = false">
             <span class="mb-1 block truncate text-xs font-semibold">{{ chat.title }}</span><span v-if="chat.pendingQuestions" class="mb-1 inline-block rounded-full bg-accent/12 px-2 py-0.5 text-[10px] font-semibold text-accent">{{ chat.pendingQuestions }} awaiting answer</span>
             <span class="flex items-center gap-1.5 truncate text-[10px] text-muted"><span v-if="chat.status === 'running'" class="size-1.5 shrink-0 rounded-full bg-accent" />{{ chat.agentName }}<span v-if="chat.projectName"> · {{ chat.projectName }}</span></span>
           </RouterLink>
         </div>
       </aside>
-      <section class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-[3px_3px_0_var(--color-line)] phone:shadow-none" :class="{ 'tablet:hidden': history }" aria-label="Chat workspace">
-        <header v-if="detail" class="flex shrink-0 items-center gap-3 border-b border-line px-5 py-3 phone:px-3">
-          <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-soft text-accent"><Icon :name="Bot" :size="20" /></span>
-          <div class="min-w-0 flex-1">
-            <h2 class="truncate text-sm">
-              {{ detail.agentName }}
-            </h2><p class="m-0! truncate text-[11px] text-muted">
-              {{ detail.projectName || 'Agent workspace' }}
-            </p>
-          </div>
-          <span class="flex items-center gap-1.5 text-[10px] font-medium text-muted"><span class="size-1.5 rounded-full" :class="active ? 'bg-accent' : 'bg-muted'" />{{ detail.paused ? 'Paused' : active ? detail.run?.status === 'queued' ? 'Waiting' : 'Working' : 'Ready' }}</span>
-        </header>
-        <div v-if="!detail?.run" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 py-8 text-center phone:px-4 phone:py-5">
-          <div class="mb-5 grid size-14 rotate-[-6deg] place-items-center rounded-2xl border border-accent/30 bg-accent/10 text-accent shadow-[3px_3px_0_var(--color-line)]">
-            <Icon :name="MessageCircle" :size="28" />
-          </div>
-          <h2 class="mb-2 text-2xl tracking-tight">
+      <section class="flex min-h-0 min-w-0 flex-col overflow-hidden" :class="{ 'tablet:hidden': history }" aria-label="Chat workspace">
+        <div v-if="!detail?.run" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 pb-[8vh] pt-8 text-center phone:px-2 phone:py-5">
+          <h2 class="mb-7 text-[30px] font-semibold tracking-tight phone:text-2xl">
             What are we building?
           </h2>
-          <p class="mt-0! mb-7! text-sm text-muted">
-            A quick question. A fresh idea. Your next release.
-          </p>
-          <div v-if="!detail" class="grid w-full max-w-115 grid-cols-2 gap-3 phone:grid-cols-1">
-            <div class="text-left">
-              <VirtualSelect v-model="agentId" :options="agents" label="Chat agent" />
-            </div>
-            <div class="text-left">
-              <VirtualSelect v-model="projectId" :options="projects" label="Chat project" />
-            </div>
-          </div>
-          <div v-if="!detail" class="mt-5 flex flex-wrap justify-center gap-2">
-            <button v-for="idea in ['Explore this project', 'Review recent changes', 'Help me build…']" :key="idea" class="rounded-full border border-line px-3 py-2 text-[11px] text-muted hover:border-accent hover:text-accent" @click="draft = idea; textarea?.focus()">
+          <div v-if="!detail" class="flex flex-wrap justify-center gap-2">
+            <button v-for="idea in ['Explore this project', 'Review recent changes', 'Help me build…']" :key="idea" class="rounded-full bg-surface px-4 py-2.5 text-xs text-muted hover:bg-hover hover:text-ink" @click="draft = idea; textarea?.focus()">
               {{ idea }}
             </button>
           </div>
         </div>
         <ActivityFeed v-else :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="false" :loading="false" :trimmed="0" chat />
-        <div class="shrink-0 border-t border-line bg-surface p-4 phone:p-3">
+        <div class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
           <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" @answered="load" />
           <UiAlert v-if="error || detail?.error || detail?.run?.status === 'failed'" class="mb-3">
             {{ error || detail?.error || detail?.run?.summary }}<button :class="iconButton" aria-label="Dismiss error" @click="error = ''">
@@ -355,9 +340,13 @@ function key(event: KeyboardEvent) {
               </li>
             </ul>
           </div>
-          <form class="relative rounded-xl border border-line bg-raised p-3 focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/10" @submit.prevent="send()" @dragenter.prevent="dragging++" @dragover.prevent @dragleave.prevent="dragging = Math.max(0, dragging - 1)" @drop.prevent="dropFiles" @paste="pasteFiles">
+          <form class="chat-composer relative rounded-2xl border border-line/60 bg-raised p-4 shadow-[0_4px_24px_#00000006] focus-within:border-accent/50 phone:p-3" @submit.prevent="send()" @dragenter.prevent="dragging++" @dragover.prevent @dragleave.prevent="dragging = Math.max(0, dragging - 1)" @drop.prevent="dropFiles" @paste="pasteFiles">
             <div v-if="dragging" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-accent bg-surface/95 text-sm font-semibold text-accent">
               <Icon :name="Paperclip" :size="20" />Drop files here
+            </div>
+            <div v-if="!detail" class="mb-3 flex max-w-100 items-center gap-1 phone:mb-2">
+              <VirtualSelect v-model="agentId" :options="agents" label="Chat agent" hide-label compact variant="ghost" />
+              <VirtualSelect v-model="projectId" :options="projects" label="Chat project" hide-label compact variant="ghost" />
             </div>
             <div v-if="editing" class="mb-2 flex items-center justify-between text-[11px] text-accent">
               Editing queued message<button type="button" :class="iconButton" aria-label="Cancel edit" @click="editing = null; draft = ''; clearAttachments()">

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { twMerge } from 'tailwind-merge'
 import { computed, ref } from 'vue'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, notify, refresh, state } from '../api'
@@ -10,7 +9,7 @@ import ModelSettings from '../components/ModelSettings.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import { Bot, FolderGit2, Pencil, Plus, ShieldCheck, Trash2 } from '../icons'
+import { Bot, FolderGit2, GitBranch, MessageCircle, Pencil, Plus, ShieldCheck, Trash2 } from '../icons'
 import { iconButton } from '../ui'
 
 const props = defineProps<{
@@ -18,6 +17,25 @@ const props = defineProps<{
 }>()
 const isAgent = computed(() => props.kind === 'agents')
 const items = computed(() => [...state[props.kind]].sort((a, b) => Number(b.id === MAIN_AGENT_ID) - Number(a.id === MAIN_AGENT_ID)))
+const taskCounts = computed(() => {
+  const counts = new Map<string, number>()
+  for (const task of state.tasks) {
+    if (task.projectId && !task.archived)
+      counts.set(task.projectId, (counts.get(task.projectId) || 0) + 1)
+  }
+  return counts
+})
+function repositoryLabel(origin?: string) {
+  if (!origin)
+    return 'Local project'
+  try {
+    const url = new URL(origin.replace(/^git@([^:]+):/, 'ssh://git@$1/'))
+    return (url.hostname + url.pathname).replace(/\.git$/, '')
+  }
+  catch {
+    return 'Git repository'
+  }
+}
 const editing = ref<string | null>(null)
 const open = ref(false)
 const deleting = ref<any>(null)
@@ -133,58 +151,45 @@ async function remove() {
   <UiAlert v-if="error && !open">
     {{ error }}
   </UiAlert>
-  <div v-if="items.length" class="resource-grid grid grid-cols-2 gap-5.5 tablet:grid-cols-1">
-    <article v-for="item in items" :key="item.id" class="resource-card min-w-0 wrap-anywhere bg-surface border border-line rounded-card p-6 phone:p-5.5">
-      <div class="resource-top flex justify-between items-center mb-5">
-        <span class="resource-avatar w-11.5 h-11.5 bg-soft text-accent grid place-items-center rounded-xl border border-line"><Icon v-if="isAgent" :name="Bot" :size="25" /><Icon v-else :name="FolderGit2" :size="25" /></span>
-        <div>
-          <button
-            :class="twMerge(iconButton, 'icon-button')"
-            :aria-label="`Edit ${item.name}`"
-            @click="edit(item)"
-          >
-            <Icon :name="Pencil" :size="17" />
-          </button><button
-            v-if="item.id !== MAIN_AGENT_ID"
-            :class="twMerge(iconButton, 'icon-button')" :aria-label="`Delete ${item.name}`"
-            @click="deleting = item"
-          >
-            <Icon :name="Trash2" :size="16" />
+  <div v-if="items.length" class="resource-grid grid" :class="isAgent ? 'grid-cols-2 gap-4 tablet:grid-cols-1' : 'grid-cols-1 border-t border-line'">
+    <article v-for="item in items" :key="item.id" class="resource-card grid min-w-0 gap-x-3" :class="isAgent ? 'grid-cols-[36px_minmax(0,1fr)] grid-rows-[1fr_auto] gap-y-4 rounded-xl border border-line/70 bg-surface/50 p-5 phone:p-4' : 'grid-cols-[36px_minmax(0,1fr)_auto] items-center border-b border-line py-4 phone:items-start phone:gap-y-2'">
+      <span class="grid size-9 place-items-center rounded-lg text-accent" :class="isAgent ? 'bg-accent/8' : 'bg-soft'"><Icon :name="isAgent ? Bot : FolderGit2" :size="20" /></span>
+      <div class="min-w-0" :class="!isAgent ? 'flex items-center gap-5 phone:block' : ''">
+        <div class="min-w-0 flex-1">
+          <h2 class="text-sm font-semibold">
+            <button class="max-w-full truncate text-left hover:text-accent focus-visible:rounded" :title="item.name" @click="edit(item)">
+              {{ item.name }}
+            </button>
+          </h2>
+          <p v-if="isAgent && item.description" class="mt-1 line-clamp-2 text-xs text-muted" :title="item.description">
+            {{ item.description }}
+          </p>
+          <p v-if="'path' in item" class="mt-0.5 truncate text-xs text-muted" :title="repositoryLabel(item.origin)">
+            {{ repositoryLabel(item.origin) }}
+          </p>
+        </div>
+        <div v-if="'reasoning' in item" class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted">
+          <span class="max-w-full truncate" :title="item.model || 'Codex default'">{{ item.model || 'Codex default' }}</span>
+          <span class="inline-flex items-center gap-1.5"><Icon :name="ShieldCheck" :size="13" />{{ item.access.projects === null ? 'All projects' : item.access.projects.length === 0 ? 'No projects' : item.access.projects.length === 1 ? '1 project' : `${item.access.projects.length} projects` }}</span>
+        </div>
+        <div v-else-if="'path' in item" class="flex shrink-0 items-center gap-5 pr-6 text-xs text-muted phone:mt-2 phone:gap-4 phone:pr-0">
+          <span class="inline-flex max-w-36 items-center gap-1.5" :title="item.baseBranch"><Icon :name="GitBranch" :size="13" /><span class="truncate">{{ item.baseBranch }}</span></span>
+          <span class="min-w-12 tabular-nums">{{ taskCounts.get(item.id) || 0 }} {{ taskCounts.get(item.id) === 1 ? 'task' : 'tasks' }}</span>
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-4" :class="isAgent ? 'col-span-2 border-t border-line/60 pt-3' : 'col-start-3 row-start-1 phone:col-start-2 phone:row-start-2'">
+        <RouterLink :to="{ path: '/chats', query: { [isAgent ? 'agent' : 'project']: item.id } }" class="inline-flex min-h-8 items-center gap-2 rounded-lg text-xs font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent phone:min-h-11">
+          <Icon :name="MessageCircle" :size="15" />Start chat
+        </RouterLink>
+        <div class="flex items-center gap-1">
+          <button :class="iconButton" :aria-label="`Edit ${item.name}`" :title="`Edit ${item.name}`" @click="edit(item)">
+            <Icon :name="Pencil" :size="15" />
+          </button>
+          <button v-if="item.id !== MAIN_AGENT_ID" :class="iconButton" :aria-label="`Delete ${item.name}`" :title="`Delete ${item.name}`" @click="deleting = item">
+            <Icon :name="Trash2" :size="15" />
           </button>
         </div>
       </div>
-      <h2>{{ item.name }}</h2>
-      <p>
-        {{
-          item.description
-            || (isAgent
-              ? "Ready for a clear brief and a meaningful assignment."
-              : "A dedicated workspace for your agent’s next assignment.")
-        }}
-      </p>
-      <template v-if="'reasoning' in item">
-        <div class="resource-facts grid grid-cols-[1fr_1fr] text-xs text-subtle">
-          <span>Access<strong>{{ item.access.projects === null ? 'All projects' : `${item.access.projects.length} projects` }}</strong></span><span>Model<strong>{{ item.model || "Codex default" }}</strong></span><span>Reasoning<strong>{{ item.reasoning || 'Model default' }}</strong></span>
-        </div>
-        <div class="resource-bottom flex items-center gap-1.5 pt-4.5 [border-top:1px_solid_light-dark(#e7e6f1,_var(--dark-border))] text-xs text-muted mt-5">
-          <Icon :name="ShieldCheck" :size="15" />{{ item.access.sandbox === 'yolo' ? 'YOLO mode' : item.access.sandbox }}<span>{{ item.timeoutMinutes }} min limit</span>
-        </div>
-      </template><template v-else-if="'path' in item">
-        <code class="path-label block bg-surface rounded-[6px] text-muted p-2.5">{{ item.path }}</code>
-        <p v-if="item.origin" class="path-label block bg-surface rounded-[6px] text-muted p-2.5">
-          {{ item.origin }}
-        </p>
-        <div class="resource-bottom flex items-center gap-1.5 pt-4.5 [border-top:1px_solid_light-dark(#e7e6f1,_var(--dark-border))] text-xs text-muted mt-5">
-          <Icon :name="FolderGit2" :size="15" />{{ item.baseBranch
-          }}<span>{{
-            state.tasks.filter((t) => t.projectId === item.id).length
-          }}
-            tasks</span>
-        </div>
-      </template>
-      <RouterLink :to="{ path: '/chats', query: { [isAgent ? 'agent' : 'project']: item.id } }" class="mt-5 flex items-center justify-center gap-2 rounded-lg border border-line bg-soft px-3 py-2.5 text-sm font-semibold text-accent hover:bg-control focus-visible:outline-2 focus-visible:outline-accent">
-        Start chat
-      </RouterLink>
     </article>
   </div>
   <Empty

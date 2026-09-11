@@ -73,7 +73,7 @@ onBeforeUnmount(() => clearInterval(timer))
   <UiAlert v-if="error">
     {{ error }}
   </UiAlert>
-  <div v-if="runs.length" class="panel bg-surface border border-line rounded-card overflow-hidden table-wrap overflow-auto relative">
+  <div v-if="runs.length" class="panel border-t border-line overflow-hidden table-wrap overflow-auto relative">
     <table class="run-table phone:whitespace-normal">
       <thead>
         <tr>

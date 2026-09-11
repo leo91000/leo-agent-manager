@@ -27,7 +27,6 @@
 .activity-toolbar-controls .icon-button {
   min-width: 40px;
   min-height: 40px;
-  border: 1px solid light-dark(#dedde9, var(--dark-control-border));
   border-radius: 9px;
 }
 

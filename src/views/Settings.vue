@@ -77,7 +77,7 @@ async function copy(value: string) {
     {{ error }}
   </UiAlert>
   <template v-if="settings">
-    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 appearance-section p-[27px] phone:p-[21px]">
+    <section class="panel border-b border-line overflow-hidden settings-section mb-5.5 appearance-section px-0 py-7 phone:py-5">
       <div class="section-intro flex gap-[17px] items-center mb-6 phone:items-start phone:gap-[13px]">
         <div><h2>Appearance</h2></div>
       </div>
@@ -86,10 +86,10 @@ async function copy(value: string) {
         Saved in this browser. System follows your device’s appearance automatically.
       </p>
     </section>
-    <section class="panel bg-surface border border-line rounded-card settings-section mb-5.5 p-[27px] phone:p-[21px]">
+    <section class="panel border-b border-line settings-section mb-5.5 px-0 py-7 phone:py-5">
       <NotificationSettings />
     </section>
-    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 p-[27px] phone:p-[21px]">
+    <section class="panel border-b border-line overflow-hidden settings-section mb-5.5 px-0 py-7 phone:py-5">
       <div class="section-intro flex gap-[17px] items-center mb-6 phone:items-start phone:gap-[13px]">
         <span class="resource-avatar w-11.5 h-11.5 bg-soft text-accent grid place-items-center rounded-xl border border-line"><Icon :name="ExternalLink" :size="22" /></span>
         <div>
@@ -119,7 +119,7 @@ async function copy(value: string) {
         transport supported by Codex and other compatible MCP clients.
       </div>
     </section>
-    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 p-[27px] phone:p-[21px]">
+    <section class="panel border-b border-line overflow-hidden settings-section mb-5.5 px-0 py-7 phone:py-5">
       <header class="panel-heading flex justify-between items-center gap-[15px] pt-[23px] pb-5 px-6 phone:p-[19px]">
         <div>
           <h2>Connected clients & access tokens</h2>
@@ -159,7 +159,7 @@ async function copy(value: string) {
         No external clients have access yet.
       </p>
     </section>
-    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 p-[27px] phone:p-[21px]">
+    <section class="panel border-b border-line overflow-hidden settings-section mb-5.5 px-0 py-7 phone:py-5">
       <h2>Worker environment</h2>
       <dl class="settings-facts grid grid-cols-[160px_1fr] gap-[17px] text-xs phone:grid-cols-[95px_minmax(0,_1fr)] phone:text-xs mx-0 my-[25px]">
         <dt>Version</dt>
@@ -182,7 +182,7 @@ async function copy(value: string) {
         environment.
       </p>
     </section>
-    <section class="panel bg-surface border border-line rounded-card overflow-hidden settings-section mb-5.5 p-[27px] phone:p-[21px]">
+    <section class="panel border-b border-line overflow-hidden settings-section mb-5.5 px-0 py-7 phone:py-5">
       <h2>Recent changes</h2>
       <div class="audit-list mt-4.5">
         <div v-for="item in audit.slice(0, 20)" :key="item.id">

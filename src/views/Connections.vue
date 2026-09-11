@@ -75,7 +75,7 @@ onBeforeUnmount(() => clearInterval(timer))
   </UiAlert>
   <CodexAccounts />
   <div class="connection-grid grid grid-cols-2 gap-5.5 tablet:grid-cols-1">
-    <article v-for="item in items.filter(item => item.provider === 'github')" :key="item.provider" class="connection-card bg-surface border border-line rounded-card p-6.5 phone:p-5.5">
+    <article v-for="item in items.filter(item => item.provider === 'github')" :key="item.provider" class="connection-card border-t border-line py-6.5 phone:py-5.5">
       <div class="connection-brand flex items-center gap-[15px]">
         <span><Icon
           :name="Github"

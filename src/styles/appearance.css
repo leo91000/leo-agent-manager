@@ -129,12 +129,12 @@
 }
 
 .theme-preview[data-preview="dark"] {
-  background: #171823;
-  border-color: #414258;
+  background: #1b1b20;
+  border-color: #35353e;
 }
 
 .theme-preview[data-preview="dark"] > span > i {
-  background: #414258;
+  background: #35353e;
 }
 
 .theme-preview[data-preview="dark"] > span > i:first-child {
@@ -142,5 +142,5 @@
 }
 
 .theme-preview[data-preview="system"] {
-  background: linear-gradient(110deg, #f2f1ff 50%, #171823 50%);
+  background: linear-gradient(110deg, #f2f1ff 50%, #1b1b20 50%);
 }

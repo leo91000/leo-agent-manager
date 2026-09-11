@@ -263,7 +263,7 @@ async function logout() {
           <Icon :name="item.icon" :size="18" />{{ item.label
           }}<span
             v-if="item.to === '/tasks' && state.tasks.length"
-            class="nav-count ml-auto text-3xs bg-[#ffffff20] text-white min-w-4.5 text-center rounded-[4px] p-0.5"
+            class="nav-count ml-auto text-3xs bg-hover text-muted min-w-4.5 text-center rounded-[4px] p-0.5"
           >{{ state.tasks.length }}</span>
         </RouterLink>
       </nav>
@@ -281,13 +281,13 @@ async function logout() {
         </RouterLink><button @click="logout">
           <Icon :name="LogOut" :size="18" />Sign out
         </button>
-        <div class="sidebar-user mt-[17px] [border-top:1px_solid_#353345] flex items-center gap-[9px] text-2xs text-ink border-line phone:pb-[max(22px,_env(safe-area-inset-bottom))] px-1 py-5.5">
+        <div class="sidebar-user mt-[17px] border-t flex items-center gap-[9px] text-2xs text-ink border-line phone:pb-[max(22px,_env(safe-area-inset-bottom))] px-1 py-5.5">
           <span class="workspace-avatar grid place-items-center bg-[light-dark(#eeedff,_#34314c)] border-0 text-accent text-2xs w-7 h-7 rounded-full shrink-0">L</span><span>Workspace owner</span><span class="online-dot w-1.5 h-1.5 rounded-full bg-[light-dark(#7772e4,_#b8b2ff)] ml-auto" />
         </div>
       </div>
     </aside>
     <div class="main-area ml-50.5 flex h-full min-h-0 min-w-0 w-[calc(100%_-_202px)] flex-col phone:ml-0 phone:w-full [@media(641px<=width<=1150px)]:ml-45 [@media(641px<=width<=1150px)]:w-[calc(100%_-_180px)]" :inert="narrow && mobile">
-      <header class="topbar short:h-[calc(48px_+_env(safe-area-inset-top))] short:min-h-12 h-18 border-b border-line flex items-center justify-between bg-transparent phone:min-h-[calc(62px_+_env(safe-area-inset-top))] phone:[padding:env(safe-area-inset-top)_max(12px,_env(safe-area-inset-right))_0_max(12px,_env(safe-area-inset-left))] phone:h-[63px] [@media(max-width:_1150px)_and_(min-width:_641px)]:pt-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pr-6 [@media(max-width:_1150px)_and_(min-width:_641px)]:pb-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pl-6 px-9 py-0 phone:px-4.5 phone:py-0 shrink-0">
+      <header class="topbar short:h-[calc(48px_+_env(safe-area-inset-top))] short:min-h-12 h-15 flex items-center justify-between bg-transparent phone:min-h-[calc(62px_+_env(safe-area-inset-top))] phone:[padding:env(safe-area-inset-top)_max(12px,_env(safe-area-inset-right))_0_max(12px,_env(safe-area-inset-left))] phone:h-[63px] [@media(max-width:_1150px)_and_(min-width:_641px)]:pt-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pr-6 [@media(max-width:_1150px)_and_(min-width:_641px)]:pb-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pl-6 px-9 py-0 phone:px-4.5 phone:py-0 shrink-0">
         <div class="breadcrumb flex items-center gap-3 text-2xs text-muted phone:gap-[7px] phone:text-3xs">
           <button
             ref="menuButton"
@@ -317,7 +317,7 @@ async function logout() {
           </button><ThemeControl compact />
         </div>
       </header>
-      <main class="page mx-auto flex-1 min-h-0 min-w-0 w-full max-w-375 overflow-auto overscroll-contain [scrollbar-width:thin] px-9 pt-8.5 pb-7 [@media(641px<=width<=1150px)]:px-6 phone:mb-[calc(74px_+_env(safe-area-inset-bottom))] phone:px-3 phone:py-3.5 short:py-2.5 [&.page-tasks]:flex [&.page-tasks]:flex-col [&.page-tasks]:overflow-hidden [&.page-run]:flex [&.page-run]:flex-col [&.page-run]:overflow-hidden" :class="{ 'page-tasks': route.path === '/tasks', 'page-run': route.path.startsWith('/runs/') || route.path.startsWith('/chats') }">
+      <main class="page mx-auto flex-1 min-h-0 min-w-0 w-full max-w-340 overflow-auto overscroll-contain [scrollbar-width:thin] px-9 pt-6 pb-7 [@media(641px<=width<=1150px)]:px-6 phone:mb-[calc(74px_+_env(safe-area-inset-bottom))] phone:px-3 phone:py-3.5 short:py-2.5 [&.page-chat]:max-w-none [&.page-chat]:pt-1 [&.page-chat]:pb-4 phone:[&.page-chat]:pb-2 [&.page-tasks]:flex [&.page-chat]:max-w-none [&.page-chat]:pt-1 [&.page-chat]:pb-4 phone:[&.page-chat]:pb-2 [&.page-tasks]:flex-col [&.page-tasks]:overflow-hidden [&.page-run]:flex [&.page-run]:flex-col [&.page-run]:overflow-hidden" :class="{ 'page-tasks': route.path === '/tasks', 'page-run': route.path.startsWith('/runs/') || route.path.startsWith('/chats'), 'page-chat': route.path.startsWith('/chats') }">
         <RouterView :key="route.path" />
       </main>
       <nav v-if="!mobile" class="mobile-bottom-nav hidden phone:fixed phone:bottom-0 phone:left-0 phone:right-0 phone:z-20 phone:flex phone:items-center phone:justify-around phone:[padding:11px_10px_max(15px,_env(safe-area-inset-bottom))] phone:border-t border-line phone:bg-surface" aria-label="Quick navigation">

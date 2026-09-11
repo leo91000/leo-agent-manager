@@ -329,7 +329,7 @@ test('appearance follows the device, persists overrides, syncs tabs and paints b
   await page.reload()
   await expect(page.locator('#app')).toBeEmpty()
   await expect(root).toHaveAttribute('data-theme', 'dark')
-  expect(await root.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(23, 24, 35)')
+  expect(await root.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(27, 27, 32)')
 })
 
 test('dark appearance settings, empty states and connection sign-in feedback', async ({ page }, testInfo) => {

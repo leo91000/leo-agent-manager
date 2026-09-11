@@ -192,3 +192,19 @@
     transition: none;
   }
 }
+
+/* Inline selectors retain the same searchable, keyboard-accessible popup. */
+.vs-ghost .vs-control {
+  background: transparent;
+  border-color: transparent;
+  min-height: 36px;
+  padding-inline: 6px;
+  gap: 5px;
+}
+.vs-ghost .vs-control:hover { background: var(--color-hover); }
+.vs-ghost .vs-control:focus-within { border-color: var(--color-accent); }
+.vs-ghost .vs-control > input { height: 34px; font-size: 12px; }
+.vs-ghost .vs-leading { background: transparent; width: 20px; }
+@media (max-width: 640px) {
+  .vs-ghost .vs-control, .vs-ghost .vs-control > input { min-height: 44px; }
+}

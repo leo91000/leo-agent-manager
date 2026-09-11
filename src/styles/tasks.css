@@ -55,8 +55,8 @@
 }
 
 .task-inbox-row.selected {
-  background: light-dark(#eeedff, #33304b);
-  border-color: light-dark(#cecbff, #7973b2);
+  background: var(--color-hover);
+  border-color: transparent;
 }
 
 .task-inbox-row .inbox-status {
@@ -183,12 +183,6 @@
 
 .task-focus-detail .run-title-meta > span {
   overflow-wrap: anywhere;
-}
-
-.task-focus-detail .run-panel {
-  border: 1px solid var(--color-line);
-  box-shadow: none;
-  border-radius: 10px;
 }
 
 .task-focus-detail .activity-toolbar {
