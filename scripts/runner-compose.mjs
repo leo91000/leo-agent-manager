@@ -71,6 +71,19 @@ export function nativeRunnerCompose(compose) {
     const entryIndent = lines[index].search(/\S/)
     let end = index + 1
     while (end < lines.length && lines[end].trim() && lines[end].search(/\S/) > entryIndent) end++
+    // Coolify serializes flow sequences as block sequences. Recognize the
+    // already-correct argv without rewriting its formatting on every deploy.
+    const scalar = value => value.trim().replace(/\s+#.*$/, '').replace(/^(['"])(.*)\1$/, '$2')
+    const value = lines[index].slice(lines[index].indexOf(':') + 1).trim()
+    const args = value.startsWith('[') && value.endsWith(']')
+      ? value.slice(1, -1).split(',').map(scalar)
+      : value
+        ? [scalar(value)]
+        : lines.slice(index + 1, end).filter(line => !line.trimStart().startsWith('#')).map(line => scalar(line.replace(/^\s*-\s*/, '')))
+    if ((args.length === 2 && args[0] === '/usr/local/bin/leo' && args[1] === 'runner-broker')
+      || (args.length === 1 && args[0] === '/usr/local/bin/leo runner-broker')) {
+      return lines.join('\n')
+    }
     lines.splice(index, end - index, `${' '.repeat(entryIndent)}entrypoint: [/usr/local/bin/leo, runner-broker]`)
     return lines.join('\n')
   }

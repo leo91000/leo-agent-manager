@@ -13,12 +13,14 @@ describe('coolify deployment over HTTP', () => {
   let healthResponses
   let compose
   let persistCompose
+  let normalizeCompose
 
   beforeEach(async () => {
     requests = []
     patchStatus = 201
     compose = readFileSync(new URL('../compose.yaml', import.meta.url), 'utf8')
     persistCompose = true
+    normalizeCompose = false
     healthResponses = [{ status: 'ok', commit: 'new-commit' }]
     server = createServer(async (request, response) => {
       let body = ''
@@ -32,8 +34,11 @@ describe('coolify deployment over HTTP', () => {
       })
       response.setHeader('content-type', 'application/json')
       if (request.url === '/api/v1/services/leo-service') {
-        if (request.method === 'PATCH' && patchStatus < 300 && persistCompose)
+        if (request.method === 'PATCH' && patchStatus < 300 && persistCompose) {
           compose = Buffer.from(JSON.parse(body).docker_compose_raw, 'base64').toString()
+          if (normalizeCompose)
+            compose = compose.replace('entrypoint: [/usr/local/bin/leo, runner-broker]', 'entrypoint:\n      - /usr/local/bin/leo\n      - runner-broker')
+        }
         response.statusCode = request.method === 'PATCH' ? patchStatus : 200
         response.end(JSON.stringify({ docker_compose_raw: compose }))
         return
@@ -116,6 +121,15 @@ describe('coolify deployment over HTTP', () => {
     ])
   })
 
+  it('accepts Coolify reformatting the migrated entrypoint before deploying', async () => {
+    compose = compose.replace('entrypoint: [/usr/local/bin/leo, runner-broker]', 'entrypoint: [node, --import, tsx, /app/server/runner-broker.ts]')
+    normalizeCompose = true
+    await deploy(config, { intervalMs: 0, timeoutMs: 1000 })
+    expect(compose).toContain('entrypoint:\n      - /usr/local/bin/leo\n      - runner-broker')
+    expect(requests.some(request => request.path.endsWith('/restart'))).toBe(true)
+    expect(nativeRunnerCompose(compose)).toBe(compose)
+  })
+
   it('does not deploy when the mount migration was not persisted', async () => {
     compose = compose.replace('      - runner-state:/runner-state\n', '').replace('  runner-state:\n', '')
     persistCompose = false
@@ -141,6 +155,15 @@ describe('coolify deployment over HTTP', () => {
     expect(migrated).toContain('RUNNER_MANAGER_CONTAINER: unchanged')
     expect(migrated).not.toContain('tsx')
     expect(nativeRunnerCompose(migrated)).toBe(migrated)
+  })
+
+  it.each([
+    '    entrypoint: ["/usr/local/bin/leo", "runner-broker"]',
+    '    entrypoint:\n      - \'/usr/local/bin/leo\'\n      - \'runner-broker\'',
+    '    entrypoint: \'/usr/local/bin/leo runner-broker\'',
+  ])('preserves equivalent native entrypoints', (entrypoint) => {
+    const compose = `services:\n  runner:\n${entrypoint}\n    volumes:\n      - state:/runner-state\n`
+    expect(nativeRunnerCompose(compose)).toBe(compose)
   })
 
   it.each([undefined, 'services: {}', 'services:\n  runner:\n    environment:\n      - SETTING=example:/runner-state:ro\n', 'services:\n  runner:\n    volumes:\n      - type: volume\n        target: /runner-state\n'])('rejects unverified custom Compose layouts', (input) => {

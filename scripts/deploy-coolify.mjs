@@ -32,7 +32,7 @@ export async function deploy(config, { timeoutMs = 600000, intervalMs = 2000 } =
     await api(servicePath, 'PATCH', { docker_compose_raw: Buffer.from(compose).toString('base64') })
     const updatedService = await api(servicePath, 'GET', undefined, true)
     if (nativeRunnerCompose(updatedService.docker_compose_raw) !== updatedService.docker_compose_raw)
-      throw new Error('Coolify did not persist the runner state volume.')
+      throw new Error('Coolify did not persist the runner configuration.')
   }
   await api(`${servicePath}/envs`, 'PATCH', {
     key: 'LEO_IMAGE',
