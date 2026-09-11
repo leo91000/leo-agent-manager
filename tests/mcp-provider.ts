@@ -6,7 +6,9 @@ import Fastify from 'fastify'
 import { z } from 'zod'
 
 export async function mcpProvider(options: { clientSecret?: string } = {}) {
-  const app = Fastify()
+  // The manager outlives this fixture and can retain HTTP/SSE connections.
+  // Closing the provider must also close those sockets, without waiting for the client.
+  const app = Fastify({ forceCloseConnections: true })
   await app.register(formbody)
   let origin = ''
   let challenge = ''
