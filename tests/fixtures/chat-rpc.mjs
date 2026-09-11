@@ -61,7 +61,7 @@ export function chatFixture() {
       }
       if (method === 'turn/start') {
         hold = params.input[0].text.includes('fixture:chat-hang') && !params.input[0].text.startsWith('Continue the interrupted')
-        active = { id: `turn-${++counter}`, status: 'inProgress', items: [], model: params.model }
+        active = { id: `turn-${++counter}`, status: 'inProgress', items: [], model: params.model, effort: params.effort }
         thread.turns.push(active)
         notify('turn/started', { threadId: thread.id, turn: active })
       }

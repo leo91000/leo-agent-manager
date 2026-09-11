@@ -290,7 +290,7 @@ impl Accounts {
         self.initialized
             .get_or_try_init(|| async {
                 for account in s.store.list("codexAccounts").await? {
-                    for relative in ["codex-monitor", "codex-login"] {
+                    for relative in ["codex-monitor", "codex-login", "codex-model-discovery"] {
                         let directory = s.config.data_dir.join(relative).join(text(&account, "id"));
                         let home = if relative == "codex-login" {
                             directory.join(".codex")
@@ -370,6 +370,11 @@ impl Accounts {
                     &mut session,
                 )
                 .await;
+            if result.is_ok() {
+                // Refresh capabilities using the existing authenticated monitor,
+                // without making a model-list outage fail usage polling.
+                let _ = crate::models::refresh_from_session(s, id, &mut session).await;
+            }
             session.close().await;
             result?;
             self.capture(s, id, &home).await
@@ -394,6 +399,36 @@ impl Accounts {
             remove_directory(&home).await?;
         }
         Ok(())
+    }
+    pub async fn discover_models(&self, s: &Service, id: &str) -> Result<Value> {
+        let _guard = self.lock(id).await;
+        self.get(s, id).await?;
+        if self.connecting.lock().await.as_deref() == Some(id) || self.recovering(s, id).await? {
+            return Err(Error::new(
+                409,
+                "Account sign-in or recovery is in progress.",
+            ));
+        }
+        let lease = self.leases.lock().await.get(id).cloned();
+        let home = lease
+            .as_ref()
+            .map(|l| l.home.clone())
+            .unwrap_or_else(|| s.config.data_dir.join("codex-model-discovery").join(id));
+        let result = async {
+            if lease.is_none() {
+                self.materialize(s, id, &home).await?;
+            }
+            let mut session = Session::codex(&s.config, &home, &[], None).await?;
+            let result = crate::models::discover(&mut session).await;
+            session.close().await;
+            self.capture(s, id, &home).await?;
+            result
+        }
+        .await;
+        if lease.is_none() {
+            remove_directory(&home).await?;
+        }
+        result
     }
     async fn read_usage(
         &self,
@@ -689,6 +724,7 @@ impl Accounts {
                 && connecting.as_deref() != Some(id)
                 && !blocked(&account["limits"], model)
                 && remaining(&account["limits"], model).unwrap_or(0.) > 0.
+                && crate::models::account_supports(s, id, model).await?
             {
                 candidates.push(account);
             }

@@ -21,12 +21,8 @@
       "reasoning": {
         "default": "high",
         "type": "string",
-        "enum": [
-          "low",
-          "medium",
-          "high",
-          "xhigh"
-        ]
+        "maxLength": 40,
+        "pattern": "^(?:[a-z][a-z0-9_-]*)?$"
       },
       "instructions": {
         "default": "",
@@ -356,6 +352,12 @@
         "type": "string",
         "maxLength": 120,
         "pattern": "^[\\w./:-]*$"
+      },
+      "reasoning": {
+        "default": "",
+        "type": "string",
+        "maxLength": 40,
+        "pattern": "^(?:[a-z][a-z0-9_-]*)?$"
       }
     },
     "required": [
@@ -363,7 +365,8 @@
       "text",
       "attachmentIds",
       "mode",
-      "model"
+      "model",
+      "reasoning"
     ],
     "additionalProperties": false
   },

@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 export const name = z.string().trim().min(1).max(100)
 export const id = z.string().uuid()
+// Codex exposes effort names as strings, so new catalog levels need no app release.
+export const reasoningEffort = z.string().max(40).regex(/^(?:[a-z][a-z0-9_-]*)?$/)
 export { MAIN_AGENT_ID } from './constants'
 export const accessPolicy = z.object({
   projects: z.array(id).max(100).nullable().default(null),
@@ -15,7 +17,7 @@ export const agentInput = z.object({
   name,
   description: z.string().max(500).default(''),
   model: z.string().max(100).default(''),
-  reasoning: z.enum(['low', 'medium', 'high', 'xhigh']).default('high'),
+  reasoning: reasoningEffort.default('high'),
   instructions: z.string().max(20000).default(''),
   timeoutMinutes: z.number().int().min(1).max(720).default(120),
   access: accessPolicy.default(() => accessPolicy.parse({})),

@@ -10,6 +10,7 @@ import ChatAttachments from '../components/ChatAttachments.vue'
 import ChatQuestions from '../components/ChatQuestions.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
+import ModelSettings from '../components/ModelSettings.vue'
 import NotificationSettings from '../components/NotificationSettings.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
@@ -24,6 +25,7 @@ const detail = ref<(ChatDetail & { error?: string }) | null>(null)
 const events = ref<RunEvent[]>([])
 const draft = ref('')
 const model = ref('')
+const reasoning = ref('')
 const options = ref(false)
 const notifications = ref(false)
 const history = ref(false)
@@ -96,7 +98,7 @@ function pasteFiles(event: ClipboardEvent) {
 }
 const active = computed(() => !!detail.value?.run && ['queued', 'running'].includes(detail.value.run.status))
 const pending = computed(() => detail.value?.messages.filter(message => message.status !== 'delivered') ?? [])
-const selectedAgent = computed(() => state.agents.find(agent => agent.id === agentId.value))
+const selectedAgent = computed(() => state.agents.find(agent => agent.id === (detail.value?.agentId || agentId.value)))
 const agents = computed(() => state.agents.map(agent => ({ value: agent.id, label: agent.name, icon: Bot, description: agent.id === MAIN_AGENT_ID ? 'Full access' : agent.description })))
 const projects = computed(() => [{ value: '', label: 'No project', description: 'Use the agent’s available workspaces', icon: FolderGit2 }, ...state.projects.filter(project => selectedAgent.value?.access.projects === null || selectedAgent.value?.access.projects.includes(project.id)).map(project => ({ value: project.id, label: project.name, icon: FolderGit2 }))])
 const draftKey = `leo-chat-draft:${route.params.id || `new:${agentId.value}:${projectId.value}`}`
@@ -146,7 +148,7 @@ onBeforeUnmount(() => {
   clearInterval(timer)
   clearAttachments()
 })
-let submission: { id: string, text: string, mode: 'queue' | 'steer', model: string, attachmentIds: string[] } | undefined
+let submission: { id: string, text: string, mode: 'queue' | 'steer', model: string, reasoning: string, attachmentIds: string[] } | undefined
 let createdChat: Chat | undefined
 async function send(mode: 'queue' | 'steer' = 'queue') {
   const originalDraft = draft.value
@@ -170,8 +172,8 @@ async function send(mode: 'queue' | 'steer' = 'queue') {
     uploadProgress.value = ''
     const attachmentIds = attachments.value.map(attachment => attachment.id)
     // Retain the id after a network failure so retry cannot duplicate a message.
-    if (!submission || submission.text !== text || submission.mode !== mode || submission.model !== model.value || submission.attachmentIds.join() !== attachmentIds.join())
-      submission = { id: crypto.randomUUID(), text, mode, model: model.value, attachmentIds }
+    if (!submission || submission.text !== text || submission.mode !== mode || submission.model !== model.value || submission.reasoning !== reasoning.value || submission.attachmentIds.join() !== attachmentIds.join())
+      submission = { id: crypto.randomUUID(), text, mode, model: model.value, reasoning: reasoning.value, attachmentIds }
     await api(`/chats/${chat.id}/messages${editing.value ? `/${editing.value}` : ''}`, { method: editing.value ? 'PUT' : 'POST', body: JSON.stringify(submission) })
     if (draft.value === originalDraft)
       draft.value = ''
@@ -223,6 +225,7 @@ function edit(message: ChatMessage) {
   attachments.value = [...(message.attachments ?? [])]
   draft.value = message.text
   model.value = message.model
+  reasoning.value = message.reasoning || ''
   textarea.value?.focus()
 }
 function key(event: KeyboardEvent) {
@@ -367,8 +370,8 @@ function key(event: KeyboardEvent) {
             </div>
             <textarea ref="textarea" v-model="draft" aria-label="Message" :placeholder="active ? 'Add a follow-up…' : 'Message your agent…'" rows="2" maxlength="50000" class="block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!" @keydown="key" />
             <div v-if="options" class="mb-3 border-t border-line pt-3">
-              <label class="text-xs text-muted">Model for next message<input v-model="model" placeholder="Agent default" maxlength="120" aria-label="Message model" class="mt-1!" autocomplete="off"></label><p class="my-1! text-[10px] text-muted">
-                Model changes take effect on the next turn.
+              <ModelSettings v-model:model="model" v-model:reasoning="reasoning" inherit :default-model="selectedAgent?.model" :default-reasoning="selectedAgent?.reasoning" :disabled="busy" /><p class="my-1! text-[10px] text-muted">
+                Model and reasoning changes apply to the next turn.
               </p>
             </div>
             <div class="flex items-center justify-between gap-2 pt-2">

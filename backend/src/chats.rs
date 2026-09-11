@@ -56,16 +56,19 @@ fn view(db: &Db<'_>, mut chat: Value) -> Result<Value> {
     Ok(chat)
 }
 fn validate_steer(db: &Db<'_>, chat: &Value, message: &Value) -> Result<()> {
-    if message["mode"] != "steer" || text(message, "model").is_empty() {
+    if message["mode"] != "steer" {
         return Ok(());
     }
     if let Some(run) = db.run(text(chat, "runId"))?
         && ["queued", "running"].contains(&text(&run, "status"))
-        && message["model"] != run["snapshot"]["agent"]["model"]
+        && ((!text(message, "model").is_empty()
+            && message["model"] != run["snapshot"]["agent"]["model"])
+            || (!text(message, "reasoning").is_empty()
+                && message["reasoning"] != run["snapshot"]["agent"]["reasoning"]))
     {
         return Err(Error::new(
             409,
-            "Queue this message to change model on the next turn.",
+            "Queue this message to change model or reasoning on the next turn.",
         ));
     }
     Ok(())
@@ -82,6 +85,7 @@ fn send(
     if let Some(existing) = messages.iter().find(|m| m["id"] == values["id"]) {
         if existing["text"] != values["text"]
             || existing["model"] != values["model"]
+            || text(existing, "reasoning") != text(&values, "reasoning")
             || !crate::attachments::same(existing, &values)
             || answer
                 .as_ref()
@@ -532,12 +536,16 @@ impl Service {
         let mut snapshot = self.snapshot(task, "chat").await?;
         if !text(&message, "model").is_empty() {
             snapshot["snapshot"]["agent"]["model"] = message["model"].clone();
+            snapshot["snapshot"]["agent"]["reasoning"] = text(&message, "reasoning").into();
+        }
+        if !text(&message, "reasoning").is_empty() {
+            snapshot["snapshot"]["agent"]["reasoning"] = message["reasoning"].clone();
         }
         self.store
             .transaction(move |db| {
                 let mut current_chat = self::chat(db, text(&chat, "id"))?;
                 let current = db.messages(text(&chat, "id"))?.into_iter().find(|m| m["id"] == message["id"]);
-                if current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"] || !crate::attachments::same(m,&message)) {
+                if current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"] || text(m,"reasoning") != text(&message,"reasoning") || !crate::attachments::same(m,&message)) {
                     return Ok(());
                 }
                 let execution = json!({

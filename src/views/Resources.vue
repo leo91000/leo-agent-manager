@@ -6,10 +6,11 @@ import { api, notify, refresh, state } from '../api'
 import Empty from '../components/Empty.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
+import ModelSettings from '../components/ModelSettings.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import { Bot, FolderGit2, Pencil, Plus, ShieldCheck, Sparkles, Trash2 } from '../icons'
+import { Bot, FolderGit2, Pencil, Plus, ShieldCheck, Trash2 } from '../icons'
 import { iconButton } from '../ui'
 
 const props = defineProps<{
@@ -26,12 +27,6 @@ const form = ref<any>({})
 const githubToken = ref('')
 const githubConfigured = ref(false)
 const removeGithub = ref(false)
-const reasoningOptions = [
-  { value: 'low', label: 'Low', description: 'Quick responses for straightforward work' },
-  { value: 'medium', label: 'Medium', description: 'A balance of speed and depth' },
-  { value: 'high', label: 'High', description: 'More time for complex reasoning' },
-  { value: 'xhigh', label: 'Extra high', description: 'The deepest reasoning for demanding tasks' },
-]
 const sandboxOptions = [
   { value: 'yolo', label: 'YOLO', description: 'Autonomous execution · default' },
   { value: 'workspace-write', label: 'Workspace write', description: 'Codex sandbox limits writes to task workspaces' },
@@ -71,7 +66,7 @@ async function edit(item?: any) {
           name: '',
           description: '',
           model: '',
-          reasoning: 'high',
+          reasoning: '',
           instructions: '',
           timeoutMinutes: 120,
           access: { projects: null, skills: null, mcps: null, mcpTools: {}, github: true, sandbox: 'yolo' },
@@ -169,7 +164,7 @@ async function remove() {
       </p>
       <template v-if="'reasoning' in item">
         <div class="resource-facts grid grid-cols-[1fr_1fr] text-xs text-subtle">
-          <span>Access<strong>{{ item.access.projects === null ? 'All projects' : `${item.access.projects.length} projects` }}</strong></span><span>Model<strong>{{ item.model || "Codex default" }}</strong></span><span>Reasoning<strong>{{ item.reasoning }}</strong></span>
+          <span>Access<strong>{{ item.access.projects === null ? 'All projects' : `${item.access.projects.length} projects` }}</strong></span><span>Model<strong>{{ item.model || "Codex default" }}</strong></span><span>Reasoning<strong>{{ item.reasoning || 'Model default' }}</strong></span>
         </div>
         <div class="resource-bottom flex items-center gap-1.5 pt-4.5 [border-top:1px_solid_light-dark(#e7e6f1,_var(--dark-border))] text-xs text-muted mt-5">
           <Icon :name="ShieldCheck" :size="15" />{{ item.access.sandbox === 'yolo' ? 'YOLO mode' : item.access.sandbox }}<span>{{ item.timeoutMinutes }} min limit</span>
@@ -225,10 +220,7 @@ async function remove() {
           maxlength="500"
           placeholder="A short reminder of what this is for."
         /></label><template v-if="isAgent">
-          <label>Model<input
-            v-model="form.model"
-            placeholder="Use Codex default"
-          ><small>Leave blank to follow CLI settings.</small></label><VirtualSelect v-model="form.reasoning" label="Reasoning" :options="reasoningOptions" :icon="Sparkles" /><div class="span-2 col-span-2 phone:col-span-1 agent-access-panel">
+          <ModelSettings v-model:model="form.model" v-model:reasoning="form.reasoning" :disabled="busy" /><div class="span-2 col-span-2 phone:col-span-1 agent-access-panel">
             <div class="agent-access-heading">
               <Icon :name="ShieldCheck" :size="20" /><div><h3>Access &amp; execution</h3><p>Choose the resources this agent can use.</p></div>
             </div>

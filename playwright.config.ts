@@ -9,6 +9,8 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', ...devices['Desktop Chrome'] },
   projects: [
+    { name: 'journeys-models', testMatch: 'models.spec.ts' },
+    { name: 'layout-webkit-models', testMatch: 'models.spec.ts', use: { browserName: 'webkit', hasTouch: true } },
     { name: 'journeys-chats', testMatch: 'chats.spec.ts' },
     { name: 'journeys-chat-attachments', testMatch: 'chat-attachments.spec.ts' },
     { name: 'layout-webkit-chat-attachments', testMatch: 'chat-attachments.spec.ts', use: { browserName: 'webkit', hasTouch: true } },

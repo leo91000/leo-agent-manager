@@ -25,6 +25,11 @@ async function main() {
       const authPath = path.join(process.env.CODEX_HOME, 'auth.json')
       const auth = existsSync(authPath) ? JSON.parse(readFileSync(authPath, 'utf8')) : null
       const id = auth?.tokens.account_id ?? 'fixture'
+      if (request.method === 'model/list') {
+        const fast = { id: 'fast-id', model: 'fixture-fast', displayName: 'Quick coder', description: 'Fast everyday coding', hidden: false, isDefault: true, defaultReasoningEffort: 'low', supportedReasoningEfforts: [{ reasoningEffort: 'low', description: 'Quick responses' }, { reasoningEffort: 'high', description: 'Think through complex changes' }] }
+        const deep = { id: 'deep-id', model: 'fixture-deep', displayName: 'Deep thinker', description: 'Complex investigations', hidden: false, isDefault: false, defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Balanced depth' }, { reasoningEffort: 'ultra', description: 'Take time for the hardest problems' }] }
+        result = request.params.cursor ? { data: [{ ...fast, model: 'fixture-hidden', hidden: true, isDefault: false }], nextCursor: null } : { data: id === 'fast-only' ? [fast] : [fast, deep], nextCursor: 'page-2' }
+      }
       const conversation = path.join(process.env.CODEX_HOME, 'fixture-conversation.json')
       if (request.method === 'thread/read' || request.method === 'thread/list') {
         if (!existsSync(conversation)) {

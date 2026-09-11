@@ -61,6 +61,7 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
             let run = s.store.run(id).await?;
             s.enqueue(text(&run, "taskId"), "retry", None).await
         }
+        ("GET", ["codex", "models"]) => s.models.list(s).await,
         ("GET", ["chats"]) => Ok(s.chat_list().await?.into()),
         ("POST", ["chats"]) => s.chat_create(input.body.clone()).await,
         ("GET", ["chats", id]) => {

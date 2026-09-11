@@ -27,6 +27,40 @@ fn plan(root: &TempDir, text: &str) -> Value {
     json!({"execution":{"messageId":"original-message","text":text,"recovery":false},"instructions":"Test instructions","inputDirectory":root.path().join("inbox"),"output":root.path().join("result.md"),"cwd":root.path(),"model":"","reasoning":"medium","sandbox":"yolo","writableRoots":[],"args":[]})
 }
 #[tokio::test]
+async fn model_and_reasoning_reach_codex_and_model_changes_resolve_the_new_default() {
+    let root = TempDir::new().unwrap();
+    std::fs::create_dir(root.path().join("inbox")).unwrap();
+    std::fs::create_dir(root.path().join("codex")).unwrap();
+    let config = config(&root);
+    let home = root.path().join("codex");
+    for (index, (model, reasoning, expected)) in [
+        ("fixture-deep", "ultra", "ultra"),
+        ("fixture-fast", "", "low"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut plan = plan(&root, "Check the model setting");
+        plan["model"] = model.into();
+        plan["reasoning"] = reasoning.into();
+        plan["execution"]["messageId"] = format!("message-{index}").into();
+        if index > 0 {
+            plan["sessionId"] = "fixture-chat".into();
+        }
+        let (tx, mut rx) = mpsc::channel(64);
+        let output = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        chat_process::run(&config, &home, plan, tx, CancellationToken::new())
+            .await
+            .unwrap();
+        output.await.unwrap();
+        let thread: Value =
+            serde_json::from_slice(&std::fs::read(home.join("fixture-conversation.json")).unwrap())
+                .unwrap();
+        assert_eq!(thread["turns"][index]["model"], model);
+        assert_eq!(thread["turns"][index]["effort"], expected);
+    }
+}
+#[tokio::test]
 async fn native_in_flight_question_accepts_answer_and_preserves_receipt() {
     let root = TempDir::new().unwrap();
     std::fs::create_dir(root.path().join("inbox")).unwrap();

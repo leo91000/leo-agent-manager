@@ -13,6 +13,7 @@ pub mod mcp_client;
 pub mod mcp_oauth;
 pub mod mcp_server;
 pub mod mcps;
+pub mod models;
 pub mod network;
 pub mod notifications;
 pub mod process;

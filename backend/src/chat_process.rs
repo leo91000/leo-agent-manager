@@ -252,17 +252,36 @@ impl Chat {
         }
     }
     async fn execute(&mut self, plan: &Value) -> Result<()> {
+        let mut effort = text(plan, "reasoning").to_owned();
+        if effort.is_empty() {
+            // A resumed thread can retain the previous model's effort. Resolve the
+            // new model default explicitly instead of accidentally inheriting it.
+            if let Ok(models) = crate::models::discover(&mut self.session).await
+                && let Some(model) = models.as_array().into_iter().flatten().find(|m| {
+                    if text(plan, "model").is_empty() {
+                        m["isDefault"] == true
+                    } else {
+                        m["model"] == plan["model"]
+                    }
+                })
+            {
+                effort = text(model, "defaultReasoningEffort").to_owned();
+            }
+        }
         let mut settings = json!({
         "cwd":plan["cwd"],"approvalPolicy":"never","sandbox":if plan["sandbox"]=="yolo"{
         "danger-full-access"}
         else{
         text(plan,"sandbox")}
         ,"developerInstructions":plan["instructions"],"config":{
-        "features.default_mode_request_user_input":true,"model_reasoning_effort":plan["reasoning"],"sandbox_workspace_write":{
+        "features.default_mode_request_user_input":true,"sandbox_workspace_write":{
         "network_access":true,"writable_roots":plan["writableRoots"]}
         }
         }
         );
+        if !effort.is_empty() {
+            settings["config"]["model_reasoning_effort"] = effort.clone().into();
+        }
         if !text(plan, "model").is_empty() {
             settings["model"] = plan["model"].clone();
         }
@@ -369,8 +388,11 @@ impl Chat {
             text(&plan["execution"], "text").to_owned()
         };
         let mut params = json!({
-        "threadId":self.thread,"input":crate::attachments::input(&message, &plan["execution"]["attachments"], Path::new(text(plan,"inputDirectory"))),"effort":plan["reasoning"]}
+        "threadId":self.thread,"input":crate::attachments::input(&message, &plan["execution"]["attachments"], Path::new(text(plan,"inputDirectory")))}
         );
+        if !effort.is_empty() {
+            params["effort"] = effort.into();
+        }
         if previous.is_none() {
             params["clientUserMessageId"] = plan["execution"]["messageId"].clone();
         }

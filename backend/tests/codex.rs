@@ -27,6 +27,116 @@ fn config(root: &TempDir) -> Config {
     }
 }
 #[tokio::test]
+async fn models_are_paginated_cached_and_keep_last_known_options_when_codex_is_down() {
+    let root = TempDir::new().unwrap();
+    let mut configuration = config(&root);
+    let executable = root.path().join("codex");
+    std::os::unix::fs::symlink(&configuration.codex_bin, &executable).unwrap();
+    configuration.codex_bin = executable.to_string_lossy().into_owned();
+    let service = Service::new(configuration).await.unwrap();
+    let catalog = service.models.list(&service).await.unwrap();
+    assert_eq!(catalog["models"].as_array().unwrap().len(), 3);
+    assert_eq!(catalog["stale"], false);
+    assert!(
+        catalog["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["hidden"] == true)
+    );
+    assert!(
+        catalog["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["supportedReasoningEfforts"][1]["reasoningEffort"] == "ultra")
+    );
+    std::fs::remove_file(executable).unwrap();
+    assert_eq!(service.models.list(&service).await.unwrap(), catalog);
+    let mut cache = service.store.kv("codex-models:").await.unwrap().unwrap();
+    cache["checkedAt"] = 1.into();
+    cache["attemptedAt"] = 1.into();
+    service
+        .store
+        .set("codex-models:", cache, None)
+        .await
+        .unwrap();
+    let stale = service.models.list(&service).await.unwrap();
+    assert_eq!(stale["models"], catalog["models"]);
+    assert_eq!(stale["stale"], true);
+    assert!(!stale["error"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn model_catalog_respects_enabled_accounts_and_routes_to_an_account_with_the_model() {
+    let root = TempDir::new().unwrap();
+    let service = Service::new(config(&root)).await.unwrap();
+    service.accounts.initialize(&service).await.unwrap();
+    let mut ids = Vec::new();
+    for name in ["fast-only", "all-models"] {
+        let account = service.accounts.new_account(&service, name).await.unwrap();
+        let id = account["id"].as_str().unwrap().to_owned();
+        service
+            .vault
+            .set(
+                &format!("codex-account:{id}"),
+                &json!({"tokens":{"access_token":"synthetic","account_id":name}}),
+            )
+            .await
+            .unwrap();
+        service.accounts.refresh(&service, &id).await.unwrap();
+        ids.push(id);
+    }
+    let catalog = service.models.list(&service).await.unwrap();
+    assert_eq!(catalog["models"].as_array().unwrap().len(), 3);
+    for id in &ids {
+        assert!(
+            !service
+                .config
+                .data_dir
+                .join("codex-model-discovery")
+                .join(id)
+                .exists()
+        );
+    }
+    let lease = service
+        .accounts
+        .acquire(
+            &service,
+            "11111111-1111-4111-8111-111111111111",
+            "fixture-deep",
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lease.account_id, ids[1]);
+    service.accounts.release(&service, &lease).await.unwrap();
+    service
+        .accounts
+        .update(
+            &service,
+            &ids[1],
+            json!({"name":"all-models","enabled":false}),
+        )
+        .await
+        .unwrap();
+    let catalog = service.models.list(&service).await.unwrap();
+    assert!(
+        !catalog["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["model"] == "fixture-deep")
+    );
+    service.accounts.remove(&service, &ids[0]).await.unwrap();
+    assert!(
+        service.models.list(&service).await.unwrap()["models"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+#[tokio::test]
 async fn native_rpc_runs_a_turn_and_resumes_its_persisted_thread() {
     let root = TempDir::new().unwrap();
     let config = config(&root);
@@ -69,6 +179,54 @@ async fn native_rpc_runs_a_turn_and_resumes_its_persisted_thread() {
     assert_eq!(turns["data"][0]["status"], "completed");
     assert_eq!(turns["data"][0]["items"][0]["clientId"], "message-1");
     resumed.close().await;
+}
+#[tokio::test]
+async fn queued_reasoning_is_idempotent_editable_and_part_of_the_run_snapshot() {
+    use leo_agent_manager::config::id;
+    let root = TempDir::new().unwrap();
+    std::fs::create_dir(root.path().join("home")).unwrap();
+    let service = Service::new(config(&root)).await.unwrap();
+    let chat = service.chat_create(json!({})).await.unwrap();
+    let chat_id = chat["id"].as_str().unwrap();
+    let message_id = id();
+    let mut message =
+        json!({"id":message_id,"text":"Review this","model":"fixture-deep","reasoning":"ultra"});
+    let first = service.chat_send(chat_id, message.clone()).await.unwrap();
+    assert_eq!(
+        service.chat_send(chat_id, message.clone()).await.unwrap(),
+        first
+    );
+    message["reasoning"] = "medium".into();
+    assert_eq!(
+        service
+            .chat_send(chat_id, message.clone())
+            .await
+            .unwrap_err()
+            .status,
+        409
+    );
+    service
+        .chat_edit(chat_id, &message_id, Some(message))
+        .await
+        .unwrap();
+    service.chat_tick(&Default::default()).await.unwrap();
+    let detail = service.chat_detail(chat_id).await.unwrap();
+    assert!(
+        detail["run"].is_object(),
+        "{:?}",
+        service
+            .store
+            .kv(&format!("chat-error:{chat_id}"))
+            .await
+            .unwrap()
+    );
+    assert_eq!(detail["run"]["snapshot"]["agent"]["reasoning"], "medium");
+    assert_eq!(detail["run"]["snapshot"]["agent"]["model"], "fixture-deep");
+    let steer = json!({"id":id(),"text":"More detail","mode":"steer","reasoning":"ultra"});
+    assert_eq!(
+        service.chat_send(chat_id, steer).await.unwrap_err().status,
+        409
+    );
 }
 #[tokio::test]
 async fn device_login_verifies_identity_then_leases_private_credentials() {

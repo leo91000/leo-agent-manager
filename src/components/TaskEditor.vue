@@ -27,7 +27,7 @@ const form = ref({
   worktree: props.task?.worktree ?? true,
 })
 const cadence = ref(props.task?.cron ? 'custom' : 'once')
-const agents = computed(() => state.agents.map(agent => ({ value: agent.id, label: agent.name, description: agent.description || `${agent.model || 'Codex default'} · ${agent.reasoning} reasoning` })))
+const agents = computed(() => state.agents.map(agent => ({ value: agent.id, label: agent.name, description: agent.description || `${agent.model || 'Codex default'} · ${agent.reasoning || 'default'} reasoning` })))
 const selectedAgent = computed(() => state.agents.find(agent => agent.id === form.value.agentId))
 const allowedProjects = computed(() => state.projects.filter(project => selectedAgent.value?.access?.projects === null || selectedAgent.value?.access.projects?.includes(project.id)))
 const projects = computed(() => [{ value: '', label: 'Let the agent choose', description: 'Work across its allowed projects' }, ...allowedProjects.value.map(project => ({ value: project.id, label: project.name, description: project.path }))])

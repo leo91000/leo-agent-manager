@@ -1,6 +1,7 @@
 import type { Run } from './contracts'
 import { z } from 'zod'
 import { MAIN_AGENT_ID } from './constants'
+import { reasoningEffort } from './contracts'
 
 export const chatInput = z.object({
   agentId: z.string().uuid().default(MAIN_AGENT_ID),
@@ -12,6 +13,7 @@ export const chatMessageInput = z.object({
   attachmentIds: z.array(z.string().uuid()).max(8).default([]),
   mode: z.enum(['queue', 'steer']).default('queue'),
   model: z.string().trim().max(120).regex(/^[\w./:-]*$/).default(''),
+  reasoning: reasoningEffort.default(''),
 }).refine(message => message.text.length > 0 || message.attachmentIds.length > 0, 'Write a message or attach a file')
 export interface ChatAttachment {
   id: string
@@ -39,6 +41,7 @@ export interface ChatMessage {
   chatId: string
   text: string
   model: string
+  reasoning?: string
   mode: 'queue' | 'steer'
   status: 'queued' | 'sending' | 'delivered'
   createdAt: number

@@ -121,10 +121,12 @@ pub fn args(run: &Value, output: &str, session: Option<&str>) -> Vec<String> {
     if session.is_none() {
         args.extend(["--color", "never"].map(str::to_owned));
     }
-    args.extend([
-        "-c".into(),
-        format!("model_reasoning_effort={}", agent["reasoning"]),
-    ]);
+    if !text(agent, "reasoning").is_empty() {
+        args.extend([
+            "-c".into(),
+            format!("model_reasoning_effort={}", agent["reasoning"]),
+        ]);
+    }
     if !text(agent, "model").is_empty() {
         args.extend(["--model".into(), text(agent, "model").into()]);
     }
