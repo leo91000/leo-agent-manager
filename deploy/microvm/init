@@ -26,6 +26,7 @@ ip link set lo up
 printf '127.0.0.1 localhost leo\n' > /etc/hosts
 printf 'nameserver 1.1.1.1\noptions single-request-reopen\n' > /etc/resolv.conf
 export HOME=/home/node CODEX_HOME=/home/node/.codex
+export LEO_TOOLKIT_DIR=/opt/leo-toolkit PNPM_HOME=/pnpm
 export PATH=/usr/local/bin:/home/node/.local/share/mise/shims:/usr/local/share/mise/shims:/pnpm/bin:/pnpm:/usr/bin:/bin:/usr/sbin:/sbin
 /usr/local/bin/leo guest
 sync
