@@ -86,13 +86,10 @@ engines as the normal worker user, without custom library paths. This dependency
 layer is cached independently of application code; validated tags reuse the image.
 Install project-specific toolchains such as Rust in a derived image
 or in the persistent worker home before scheduling projects that require them.
-YOLO is the default execution mode. Unrestricted YOLO agents use the shared manager
-container and its mounted resources. Restricted agents use disposable containers
-through the runner sidecar; workspace-write and read-only add the Codex sandbox.
-The Docker socket belongs only to the trusted runner sidecar. See
-[agent access and runner setup](AGENT-ACCESS.md), including the AppArmor profile
-required on Ubuntu hosts. Running an unrestricted worker directly on a host gives
-it the same access as that host user.
+YOLO is the default inside each private Firecracker microVM. All production agents,
+including Main, use the VM runner. It requires a Linux x86-64 host with KVM and
+TUN; it does not mount the host Docker socket. See [agent scope](AGENT-ACCESS.md)
+and [microVM deployment](MICROVMS.md) for privileges, storage and network rules.
 
 ## Coolify
 

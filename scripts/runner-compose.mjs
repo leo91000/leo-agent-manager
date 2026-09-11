@@ -1,5 +1,7 @@
 // Preserve the service document, including any secret expressions, while adding
 // the persistent storage required by the runner's stop markers.
+import { parseDocument } from 'yaml'
+
 export function persistentRunnerCompose(compose) {
   if (typeof compose !== 'string')
     throw new Error('Cannot verify runner storage: missing service Compose.')
@@ -89,4 +91,56 @@ export function nativeRunnerCompose(compose) {
   }
   lines.splice(start + 1, 0, `${' '.repeat(indent + 2)}entrypoint: [/usr/local/bin/leo, runner-broker]`)
   return lines.join('\n')
+}
+
+// Preserve Coolify's generated names, labels, networks and environment expressions.
+// Only the execution infrastructure changes when upgrading from container runners.
+export function firecrackerRunnerCompose(compose) {
+  const normalized = nativeRunnerCompose(compose)
+  const document = parseDocument(normalized)
+  let changed = normalized !== compose
+  if (document.errors.length)
+    throw new Error('Cannot migrate invalid service Compose.')
+  const runner = document.getIn(['services', 'runner'])
+  if (!runner || typeof runner.set !== 'function')
+    throw new Error('Runner service not found.')
+  const mounts = runner.get('volumes')?.toJSON()
+  if (!Array.isArray(mounts))
+    throw new Error('Runner storage not found.')
+  const data = mounts.find(mount => typeof mount === 'string' && /:\/data(?::ro|:rw)?$/.test(mount))
+  const state = mounts.find(mount => typeof mount === 'string' && /:\/runner-state(?::ro|:rw)?$/.test(mount))
+  if (!data || !state)
+    throw new Error('Runner data and persistent disk storage are required.')
+  const values = {
+    user: '0:0',
+    entrypoint: ['/usr/local/bin/leo', 'runner-broker'],
+    stop_grace_period: '30s',
+    read_only: true,
+    cap_drop: ['ALL'],
+    cap_add: ['SYS_ADMIN', 'NET_ADMIN', 'SYS_CHROOT', 'SETUID', 'SETGID', 'MKNOD', 'CHOWN', 'FOWNER', 'KILL', 'DAC_OVERRIDE'],
+    security_opt: ['apparmor:unconfined', 'seccomp:unconfined'],
+    devices: ['/dev/kvm:/dev/kvm', '/dev/net/tun:/dev/net/tun'],
+    sysctls: { 'net.ipv4.ip_forward': '1', 'net.ipv6.conf.all.disable_ipv6': '1' },
+    tmpfs: ['/run', '/tmp'],
+    environment: { DATA_DIR: '/data' },
+    volumes: [data.replace(/:(ro|rw)$/, ''), state.replace(/:(ro|rw)$/, '')],
+    mem_limit: '20g',
+    cpus: 8,
+    pids_limit: 256,
+    healthcheck: {
+      test: ['CMD', 'node', '-e', 'fetch(\'http://127.0.0.1:4311/health\').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'],
+      start_period: '120s',
+    },
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (JSON.stringify(runner.get(key)?.toJSON?.() ?? runner.get(key)) !== JSON.stringify(value)) {
+      runner.set(key, value)
+      changed = true
+    }
+  }
+  if (runner.has('privileged')) {
+    runner.delete('privileged')
+    changed = true
+  }
+  return changed ? document.toString() : compose
 }

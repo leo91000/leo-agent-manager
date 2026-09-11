@@ -441,7 +441,7 @@ impl Worker {
                     else{
                     now().into()}
                     ,"summary":summary,"accountWaitReason":if needs_fence{
-                    json!("Waiting for the previous isolated container to stop.")}
+                    json!("Waiting for the previous VM to stop.")}
                     else if status=="queued"{
                     json!("Paused for worker restart. This run will resume automatically.")}
                     else{
@@ -486,7 +486,7 @@ impl Worker {
                 .patch_run(
                     &run_id,
                     json!({
-                    "status":"queued","recoveryPending":true,"finishedAt":null,"accountWaitReason":"Waiting for the previous isolated container to stop."}
+                    "status":"queued","recoveryPending":true,"finishedAt":null,"accountWaitReason":"Waiting for the previous VM to stop."}
                     ),
                 )
                 .await?;
@@ -776,11 +776,11 @@ impl Worker {
                 let mut context = run.clone();
                 context["snapshot"]["skills"] = prepared["skills"].clone();
                 let mut plan = json!({
-                "id":runner,"args":args,"cwd":prepared["cwd"],"prompt":if resume.is_some(){
+                "id":runner,"runId":id,"args":args,"cwd":prepared["cwd"],"prompt":if resume.is_some(){
                 prompt.clone()}
                 else{
                 run_output::prompt(&context,false)}
-                ,"mounts":mounts,"expires":checkpoint.deadline,"sandbox":policy(&run["snapshot"]["agent"])["sandbox"],"mcpEnv":mcp["env"]}
+                ,"imports":mounts,"expires":checkpoint.deadline,"sandbox":policy(&run["snapshot"]["agent"])["sandbox"],"mcpEnv":mcp["env"]}
                 );
                 if let Some(chat) = chat {
                     plan["chat"] = chat;
@@ -1270,7 +1270,7 @@ impl Worker {
         if run["isolated"] == true {
             return Err(Error::new(
                 409,
-                "Isolated clones are retained for review. After preserving your work, remove their directory through the server terminal.",
+                "This workspace is retained on a private VM disk. Resume the run to review and preserve its work.",
             ));
         }
         let workspaces = run["workspaces"].as_array().cloned().unwrap_or_else(|| {

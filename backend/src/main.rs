@@ -80,6 +80,10 @@ async fn entry(args: Vec<String>) -> Result<i32> {
     let stop = CancellationToken::new();
     tokio::spawn(shutdown(stop.clone()));
     match mode {
+        "guest" => {
+            leo_agent_manager::microvm::guest::serve(stop).await?;
+            Ok(0)
+        }
         "toolkit-env" => {
             let config = Config::load()?;
             let environment =

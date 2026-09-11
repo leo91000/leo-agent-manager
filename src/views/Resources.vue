@@ -193,7 +193,7 @@ async function remove() {
     :description="
       isAgent
         ? 'Create a profile with the right instructions and model for the job.'
-        : 'Add an existing directory on your server. Your agents can use isolated worktrees to keep changes separate.'
+        : 'Add an existing directory on your server. Agents work on private copies in their VMs.'
     "
   >
     <UiButton @click="edit()">
@@ -258,7 +258,7 @@ async function remove() {
             </p>
             <VirtualSelect v-model="form.access.sandbox" label="Execution mode" :options="sandboxOptions" :icon="ShieldCheck" />
             <p class="muted text-muted">
-              YOLO is the default. Resource restrictions use a separate container. Sandboxed runs never bypass denied operations or wait for unattended approvals.
+              YOLO is the default. Every agent runs in a private VM. Sandboxed runs never bypass denied operations or wait for unattended approvals.
             </p>
           </div><label>Time limit (minutes)<input
             v-model.number="form.timeoutMinutes"
@@ -281,7 +281,7 @@ async function remove() {
             v-model="form.baseBranch"
             required
             placeholder="main"
-          ><small>Used when creating isolated worktrees.</small></label>
+          ><small>Used for new private workspaces.</small></label>
         </template>
         <UiAlert v-if="error" class="col-span-2 phone:col-span-1">
           {{ error }}

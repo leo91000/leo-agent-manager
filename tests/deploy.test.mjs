@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { deploy } from '../scripts/deploy-coolify.mjs'
-import { nativeRunnerCompose, persistentRunnerCompose } from '../scripts/runner-compose.mjs'
+import { firecrackerRunnerCompose, nativeRunnerCompose, persistentRunnerCompose } from '../scripts/runner-compose.mjs'
 
 describe('coolify deployment over HTTP', () => {
   let server
@@ -109,8 +109,8 @@ describe('coolify deployment over HTTP', () => {
     const original = compose
     await deploy(config, { intervalMs: 0, timeoutMs: 1000 })
     const migration = requests.find(request => request.method === 'PATCH' && request.path === '/api/v1/services/leo-service')
-    expect(Buffer.from(migration.body.docker_compose_raw, 'base64').toString()).toBe(persistentRunnerCompose(original))
-    expect(compose).toContain('data:/data:ro')
+    expect(Buffer.from(migration.body.docker_compose_raw, 'base64').toString()).toBe(firecrackerRunnerCompose(original))
+    expect(compose).toContain('data:/data')
     expect(compose).toContain('      - runner-state:/runner-state')
     expect(compose).toContain('\nvolumes:\n  runner-state:')
     expect(requests.slice(0, 4).map(request => [request.method, request.path])).toEqual([
@@ -125,7 +125,7 @@ describe('coolify deployment over HTTP', () => {
     compose = compose.replace('entrypoint: [/usr/local/bin/leo, runner-broker]', 'entrypoint: [node, --import, tsx, /app/server/runner-broker.ts]')
     normalizeCompose = true
     await deploy(config, { intervalMs: 0, timeoutMs: 1000 })
-    expect(compose).toContain('entrypoint:\n      - /usr/local/bin/leo\n      - runner-broker')
+    expect(firecrackerRunnerCompose(compose)).toBe(compose)
     expect(requests.some(request => request.path.endsWith('/restart'))).toBe(true)
     expect(nativeRunnerCompose(compose)).toBe(compose)
   })

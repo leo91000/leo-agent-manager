@@ -71,7 +71,7 @@ are always blocked. Use the final server URL rather than a redirecting URL.
 
 ## Command servers
 
-Choose **Command in agent container**, an executable, and one argument per line.
+Choose **Command in agent VM**, an executable, and one argument per line.
 Add credentials as environment variables, rather than command arguments.
 Executables must be available in the agent image; the built-in toolkit includes
 Node, pnpm, Python, uv, and mise. Package runners can install a server on demand.

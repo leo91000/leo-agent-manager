@@ -55,7 +55,7 @@ async function consent(approved: boolean) {
             scope === "read"
               ? "Read tasks, profiles, skills, and run results"
               : scope === "run"
-                ? "Start and cancel tasks in YOLO mode with full container access"
+                ? "Start and cancel tasks in YOLO mode with full access inside a private VM"
                 : "Create and modify tasks, projects, agents, and skills"
           }}
         </li>

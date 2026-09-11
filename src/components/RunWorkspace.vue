@@ -219,7 +219,7 @@ async function copy() {
             Clean up worktree
           </UiButton>
           <p v-if="!active && run.isolated && run.snapshot.task.worktree" class="muted text-muted">
-            Isolated clones are retained for review. Preserve your changes before removing their directories through the server terminal.
+            Workspace and conversation are saved in a private VM disk. Resume this run to continue working.
           </p>
           <h3>Selected skills</h3>
           <p>

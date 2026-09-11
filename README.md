@@ -9,7 +9,7 @@ Run it on a VPS so schedules keep working when your laptop is off.
 
 - Choose Light, Dark, or System appearance, with a saved browser preference and automatic device changes.
 - Create agent profiles with model, reasoning, instructions and time limits.
-- Register project directories; run tasks in isolated Git worktrees or directly in a project.
+- Register project directories; run agents in private Firecracker microVMs with persistent workspaces.
 - Schedule daily, weekly, or custom cron tasks with timezone previews and overlap protection.
 - Follow runs, inspect results and original instructions, cancel, retry, archive tasks, and clean up reviewed worktrees.
 - Edit global and project `.agents/skills`, including supporting files and Markdown previews.
@@ -25,6 +25,10 @@ Appearance is available from the top bar, the sign-in screen, and **Settings →
 [Theme implementation and browser QA](docs/THEMES.md) cover the palette and checks.
 
 ## Run with Docker
+
+The production runner requires a Linux x86-64 host with KVM. Docker deploys the
+manager and trusted VM controller; agents execute inside Firecracker microVMs.
+See [microVM requirements and architecture](docs/MICROVMS.md).
 
 ```sh
 cp .env.example .env
@@ -53,7 +57,7 @@ Attachments work with image-only messages, queue editing, steering, and restart
 recovery. PNG, JPEG, WebP, and GIF images go directly to Codex as image inputs;
 other files are available for the agent to inspect with its tools. Downloads
 require sign-in, and sandboxed runs receive private copies through their existing
-read-only chat input mount.
+private guest inbox.
 
 [MCP connections for agents](docs/MCP-CONNECTIONS.md) covers outbound servers,
 OAuth setup, tool permissions, and credential backups.

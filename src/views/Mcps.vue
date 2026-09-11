@@ -232,7 +232,7 @@ async function copyCallback() {
       <div class="modal-body mcp-form grid gap-5 px-6.5 py-6 phone:p-5">
         <UiAlert v-if="formError">
           {{ formError }}
-        </UiAlert><label>Name<input v-model="form.name" required maxlength="100" placeholder="e.g. Design tools"></label><VirtualSelect v-model="form.transport" label="Connection type" :options="[{ value: 'http', label: 'Remote HTTP server', icon: Server }, { value: 'stdio', label: 'Command in agent container', icon: Terminal }]" />
+        </UiAlert><label>Name<input v-model="form.name" required maxlength="100" placeholder="e.g. Design tools"></label><VirtualSelect v-model="form.transport" label="Connection type" :options="[{ value: 'http', label: 'Remote HTTP server', icon: Server }, { value: 'stdio', label: 'Command in agent VM', icon: Terminal }]" />
         <template v-if="form.transport === 'http'">
           <label>Server URL<input v-model="form.url" type="url" required placeholder="https://example.com/mcp"></label><VirtualSelect v-model="form.auth" label="Authentication" :options="[{ value: 'none', label: 'No authentication' }, { value: 'oauth', label: 'OAuth · sign in with your account' }, { value: 'bearer', label: 'Bearer token' }]" /><label v-if="form.auth === 'bearer'">Bearer token<input v-model="form.token" type="password" autocomplete="new-password" :placeholder="editing?.hasToken ? 'Saved · leave blank to keep' : 'Enter token'"></label><template v-if="form.auth === 'oauth'">
             <div class="mcp-oauth-note flex gap-2.5 items-center bg-soft border border-line text-accent rounded-[10px] text-xs p-3.5">

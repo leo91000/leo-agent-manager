@@ -205,9 +205,6 @@ async function save() {
             </div>
           </fieldset>
         </template>
-        <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] span-2 col-span-2 phone:col-span-1 mx-0 my-[9px]"><input v-model="form.worktree" type="checkbox">Use an isolated Git
-          worktree
-          <small>Keep changes separate from your main checkout.</small></label>
         <UiAlert v-if="error" class="col-span-2 phone:col-span-1">
           {{ error }}
         </UiAlert>

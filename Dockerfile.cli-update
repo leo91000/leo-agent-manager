@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # The original deployed application image, never a moving tag or a chain of updates.
 ARG BASE_IMAGE
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS updated
 USER root
 ARG CODEX_VERSION
 ARG GH_VERSION
@@ -28,3 +28,20 @@ ARG UPDATE_ID
 ENV APP_BASE_IMAGE=$BASE_IMAGE APP_RUNTIME_ID=$UPDATE_ID APP_CODEX_VERSION=$CODEX_VERSION APP_GH_VERSION=$GH_VERSION
 USER node
 RUN codex --version && gh --version
+
+# CLI updates also refresh the immutable guest root, rather than only updating
+# the manager container while agents continue using an older embedded Codex.
+FROM updated AS guest
+USER root
+RUN rm -f /opt/leo-vm/root.ext4.zst \
+    && apt-get update && apt-get install -y --no-install-recommends docker.io sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && cp /opt/leo-vm/init /sbin/leo-init && cp /opt/leo-vm/docker /usr/local/bin/docker \
+    && printf 'node ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/leo && chmod 440 /etc/sudoers.d/leo
+FROM debian:bookworm-slim AS guest-disk
+RUN apt-get update && apt-get install -y --no-install-recommends e2fsprogs zstd && rm -rf /var/lib/apt/lists/*
+COPY --from=guest / /rootfs/
+RUN truncate -s 8G /root.ext4 && mkfs.ext4 -q -F -d /rootfs /root.ext4 \
+    && zstd -T2 -3 /root.ext4 -o /root.ext4.zst
+FROM updated
+COPY --from=guest-disk /root.ext4.zst /opt/leo-vm/root.ext4.zst

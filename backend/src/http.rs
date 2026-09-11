@@ -320,11 +320,31 @@ async fn health(State(app): State<App>, request: Request) -> Result<Response> {
     let env = |key: &str| std::env::var(key).ok();
     let commit = env("APP_COMMIT").unwrap_or_else(|| "development".into());
     let active = app.service.worker.active.lock().await.len();
-    Ok(Json(json!({
+    let execution = if app.service.config.runner_url.is_empty() {
+        json!({"backend":"local","ready":true})
+    } else {
+        let health = async {
+            let response = app
+                .service
+                .http
+                .get(format!("{}/health", app.service.config.runner_url))
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .await
+                .ok()?;
+            if !response.status().is_success() {
+                return None;
+            }
+            response.json::<Value>().await.ok()
+        }
+        .await;
+        json!({"backend":"firecracker","ready":health.as_ref().is_some_and(|h|h["backend"]=="firecracker" && h["status"]=="ok" && h["runtimeId"]==env("APP_RUNTIME_ID").unwrap_or_else(||"development".into()))})
+    };
+    Ok((if execution["ready"]==true {StatusCode::OK}else{StatusCode::SERVICE_UNAVAILABLE},Json(json!({
     "status":"ok","commit":commit,"runtimeId":env("APP_RUNTIME_ID").unwrap_or(commit),"baseImage":env("APP_BASE_IMAGE"),"tools":{
     "codex":env("APP_CODEX_VERSION"),"gh":env("APP_GH_VERSION")}
-    ,"toolkit":app.toolkit,"activeRuns":active,"maintenance":app.service.store.kv("deployment-lease").await?.is_some()}
-    ))
+    ,"toolkit":app.toolkit,"execution":execution,"activeRuns":active,"maintenance":app.service.store.kv("deployment-lease").await?.is_some()}
+    )))
     .into_response())
 }
 async fn lease(State(app): State<App>, request: Request) -> Result<Json<Value>> {

@@ -87,7 +87,6 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
   await page.getByLabel('Customize task scope').check()
   await page.getByLabel('Use the agent’s available skills').uncheck()
   await page.getByLabel('review', { exact: true }).check()
-  await page.getByLabel(/Use an isolated Git worktree/).uncheck()
   await page.getByRole('button', { name: 'Create task', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(

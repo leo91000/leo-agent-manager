@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { appendFileSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout } from 'node:timers/promises'
-import { nativeRunnerCompose } from './runner-compose.mjs'
+import { firecrackerRunnerCompose } from './runner-compose.mjs'
 
 export async function deploy(config, { timeoutMs = 600000, intervalMs = 2000 } = {}) {
   const { coolifyUrl, serviceUuid, token, image, commit, publicUrl } = config
@@ -27,11 +27,11 @@ export async function deploy(config, { timeoutMs = 600000, intervalMs = 2000 } =
 
   const started = Date.now()
   const service = await api(servicePath, 'GET', undefined, true)
-  const compose = nativeRunnerCompose(service.docker_compose_raw)
+  const compose = firecrackerRunnerCompose(service.docker_compose_raw)
   if (compose !== service.docker_compose_raw) {
     await api(servicePath, 'PATCH', { docker_compose_raw: Buffer.from(compose).toString('base64') })
     const updatedService = await api(servicePath, 'GET', undefined, true)
-    if (nativeRunnerCompose(updatedService.docker_compose_raw) !== updatedService.docker_compose_raw)
+    if (firecrackerRunnerCompose(updatedService.docker_compose_raw) !== updatedService.docker_compose_raw)
       throw new Error('Coolify did not persist the runner configuration.')
   }
   await api(`${servicePath}/envs`, 'PATCH', {

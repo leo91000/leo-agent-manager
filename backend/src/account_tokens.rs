@@ -104,7 +104,9 @@ pub struct Client {
 }
 impl Client {
     pub fn new(home: &Path) -> Option<Self> {
-        let path = home.join(SOCKET);
+        let path = std::env::var_os("LEO_AUTH_SOCKET")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(SOCKET));
         path.exists().then_some(Self {
             path,
             previous: String::new(),

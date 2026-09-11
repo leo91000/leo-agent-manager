@@ -28,17 +28,31 @@ services:
     user: '0:0'
     entrypoint: [/usr/local/bin/leo, runner-broker]
     restart: unless-stopped
+    stop_grace_period: 30s
     environment:
-      RUNNER_MANAGER_CONTAINER: leo-manager
-      RUNNER_APPARMOR_PROFILE: ${RUNNER_APPARMOR_PROFILE:-}
+      DATA_DIR: /data
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SYS_ADMIN, NET_ADMIN, SYS_CHROOT, SETUID, SETGID, MKNOD, CHOWN, FOWNER, KILL, DAC_OVERRIDE]
+    security_opt: [apparmor:unconfined, seccomp:unconfined]
+    devices:
+      - /dev/kvm:/dev/kvm
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: '1'
+      net.ipv6.conf.all.disable_ipv6: '1'
+    tmpfs:
+      - /run
+      - /tmp
     volumes:
-      - data:/data:ro
+      - data:/data
       - runner-state:/runner-state
-      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:4311/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-    mem_limit: 256m
-    cpus: 0.5
+      start_period: 120s
+    mem_limit: 20g
+    cpus: 8
+    pids_limit: 256
 volumes:
   runner-state:
   data:

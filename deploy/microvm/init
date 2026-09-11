@@ -1,0 +1,32 @@
+#!/bin/sh
+# Minimal guest PID 1. The host never mounts this guest-controlled data disk.
+set -eu
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev || true
+mount -t tmpfs tmpfs /run
+mkdir -p /run/data /run/root
+mount -t ext4 -o noatime /dev/vdb /run/data
+mkdir -p /run/data/upper /run/data/work
+mount -t overlay overlay -o lowerdir=/,upperdir=/run/data/upper,workdir=/run/data/work /run/root
+mkdir -p /run/root/oldroot
+cd /run/root
+pivot_root . oldroot
+mount --move /oldroot/dev /dev
+mount --move /oldroot/proc /proc
+mount --move /oldroot/sys /sys
+mkdir -p /run
+mount -t tmpfs tmpfs /run
+mkdir -p /sys/fs/cgroup
+mount -t cgroup2 none /sys/fs/cgroup
+mount -t tmpfs -o mode=1777 tmpfs /tmp
+mkdir -p /oldroot/run/data/docker /var/lib/docker
+mount --bind /oldroot/run/data/docker /var/lib/docker
+ip link set lo up
+printf '127.0.0.1 localhost leo\n' > /etc/hosts
+printf 'nameserver 1.1.1.1\noptions single-request-reopen\n' > /etc/resolv.conf
+export HOME=/home/node CODEX_HOME=/home/node/.codex
+export PATH=/usr/local/bin:/home/node/.local/share/mise/shims:/usr/local/share/mise/shims:/pnpm/bin:/pnpm:/usr/bin:/bin:/usr/sbin:/sbin
+/usr/local/bin/leo guest
+sync
+exec /sbin/reboot -f

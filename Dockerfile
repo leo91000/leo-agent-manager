@@ -60,7 +60,6 @@ COPY deploy/toolkit/profile.sh /etc/profile.d/leo-toolkit.sh
 ENV LEO_TOOLKIT_DIR=/opt/leo-toolkit
 ENV PATH=/usr/local/bin:/home/node/.local/share/mise/shims:/usr/local/share/mise/shims:$PATH
 COPY --from=backend /usr/local/bin/leo /usr/local/bin/leo
-COPY backend/schemas/runner-seccomp.LICENSE /usr/share/doc/leo/runner-seccomp.LICENSE
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/package.json ./package.json
 RUN mkdir -p /data /workspaces /home/node/.agents/skills /home/node/.codex \
@@ -72,3 +71,49 @@ VOLUME ["/data", "/home/node", "/workspaces"]
 EXPOSE 4310
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --start-interval=1s CMD /usr/local/bin/node -e "fetch('http://127.0.0.1:4310/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["/usr/local/bin/leo", "serve"]
+
+# Guest kernel is built from a pinned upstream LTS source, not demo VM assets.
+FROM debian:bookworm-slim AS guest-kernel
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential bc bison flex libssl-dev libelf-dev curl ca-certificates xz-utils && rm -rf /var/lib/apt/lists/*
+WORKDIR /kernel
+RUN curl -fsSL https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.109.tar.xz -o linux.tar.xz \
+    && echo '5484e552a334e15019f4aeba89e5b58f04651cf2f4e24e04de9f152f1c38e3fa  linux.tar.xz' | sha256sum -c - \
+    && tar -xf linux.tar.xz --strip-components=1 && rm linux.tar.xz
+COPY deploy/microvm/kernel.config /tmp/leo.config
+RUN make x86_64_defconfig && scripts/kconfig/merge_config.sh -m .config /tmp/leo.config \
+    && scripts/config --disable MODULES --disable DEBUG_INFO --disable DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
+    && make olddefconfig && make -j8 vmlinux && strip --strip-debug vmlinux
+
+FROM runtime AS guest
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends docker.io sudo iptables util-linux e2fsprogs \
+    && rm -rf /var/lib/apt/lists/* \
+    && usermod -aG docker node \
+    && printf 'node ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/leo \
+    && chmod 440 /etc/sudoers.d/leo
+COPY --chmod=755 deploy/microvm/init /sbin/leo-init
+COPY --chmod=755 deploy/microvm/docker /usr/local/bin/docker
+
+FROM debian:bookworm-slim AS guest-disk
+RUN apt-get update && apt-get install -y --no-install-recommends e2fsprogs zstd && rm -rf /var/lib/apt/lists/*
+COPY --from=guest / /rootfs/
+RUN truncate -s 8G /root.ext4 && mkfs.ext4 -q -F -d /rootfs /root.ext4 \
+    && zstd -T2 -3 /root.ext4 -o /root.ext4.zst
+
+FROM runtime AS final
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends iptables e2fsprogs util-linux \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://github.com/firecracker-microvm/firecracker/releases/download/v1.17.0/firecracker-v1.17.0-x86_64.tgz -o /tmp/firecracker.tgz \
+    && echo '06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558  /tmp/firecracker.tgz' | sha256sum -c - \
+    && tar -xzf /tmp/firecracker.tgz -C /tmp \
+    && cp /tmp/release-v1.17.0-x86_64/firecracker-v1.17.0-x86_64 /usr/local/bin/firecracker \
+    && cp /tmp/release-v1.17.0-x86_64/jailer-v1.17.0-x86_64 /usr/local/bin/jailer \
+    && rm -rf /tmp/firecracker.tgz /tmp/release-v1.17.0-x86_64
+COPY --from=guest-kernel /kernel/vmlinux /opt/leo-vm/vmlinux
+COPY --from=guest-kernel /kernel/.config /opt/leo-vm/kernel.config
+COPY --from=guest-kernel /kernel/COPYING /opt/leo-vm/KERNEL-COPYING
+COPY --from=guest-kernel /kernel/LICENSES /opt/leo-vm/kernel-licenses
+COPY --from=guest-disk /root.ext4.zst /opt/leo-vm/root.ext4.zst
+COPY --chmod=755 deploy/microvm/init deploy/microvm/docker /opt/leo-vm/
+USER node

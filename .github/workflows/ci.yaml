@@ -136,12 +136,16 @@ jobs:
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Prepare KVM build host
+        run: |
+          test -e /dev/kvm
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android
       - uses: docker/setup-buildx-action@v4.3.0
       - uses: docker/login-action@v4.6.0
         if: github.event_name != 'pull_request'
@@ -252,7 +256,7 @@ jobs:
         with:
           runtime: node@24
           require-lockfile: true
-          install: false
+          cache: true
       - run: docker buildx version
         if: needs.resolve.outputs.reuse == 'true'
       - uses: docker/login-action@v4.6.0

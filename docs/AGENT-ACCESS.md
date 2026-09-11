@@ -21,44 +21,34 @@ the old image if rolling back.
 
 ## Execution modes
 
-| Mode | Project writes | Codex approvals | Runtime |
-| --- | --- | --- | --- |
-| YOLO (default) | Allowed | Bypassed | Shared manager when unrestricted; disposable container when restricted |
-| Workspace write | Allowed in task workspaces | Never escalated | Disposable container plus Codex sandbox |
-| Read only | Denied by read-only project mounts | Never escalated | Disposable container plus Codex sandbox |
+Every production run, including Main, executes in a Firecracker microVM. Resource
+scope and Codex sandbox policy are independent of VM isolation.
 
-Restricted execution requires the runner. Missing or failing isolation is an error;
-it never falls back to shared execution. Each restricted container runs as UID 1000,
-with a read-only image filesystem, all capabilities dropped, no privileged mode,
-and no Docker socket. It mounts only its project workspaces, scratch/output folders,
-a fresh home, and its own execution plan. Network access remains available; this is
-not network egress filtering. The Docker host and manager are trusted administration
-components, not a multi-tenant service.
+| Mode | Project writes | Guest privileges |
+| --- | --- | --- |
+| YOLO (default) | Allowed in private copies | User 1000 with passwordless sudo; Docker available |
+| Workspace write | Codex writable roots | User 1000 without sudo; Codex sandbox |
+| Read only | Read-only workspace mounts | User 1000 without sudo; Codex sandbox |
 
-When worktrees are enabled, restricted runs get independent Git clones with no
-shared worktree metadata. Unrestricted runs retain Git worktrees. Multiple projects
-get separate directories, listed by name and path in the task instructions. The
-scheduler locks every effective project for the duration of the run. Isolated
-clones are retained for manual review and removal through the server terminal;
-the manager does not run cleanup Git commands against their untrusted Git config. Without
-worktrees, an allowed project's mounted files are shared with its checkout.
+The runner fails closed if KVM, the guest image, or isolation setup is unavailable.
+Local development without RUNNER_URL retains subprocess execution; production
+workers require RUNNER_URL.
 
-Only selected skill directories and supporting files are copied. Symbolic links
-in skill resources are rejected. Project Codex configuration and skill discovery
-directories are masked; shared home configuration, unmanaged MCP connections, SSH keys, and
-unselected global skills are not copied. Skill selection controls supplied
-instructions, not the ability to write equivalent code. Secrets already committed
-or stored inside an allowed project remain accessible with that project.
+Projects are independent Git clones inside the run's private disk. Agents publish
+changes through Git rather than editing the manager's checkout. Existing
+worktree=false tasks also use private copies in production. The same disk is
+retained for subsequent chat turns, account handoffs and restart recovery.
+Historical conversations import their saved files and session history once.
 
-MCP connections configured in the UI are supplied separately according to the
-agent's allowlist. Remote credentials stay in the manager; isolated runs receive
-a temporary gateway credential. See [MCP connections](MCP-CONNECTIONS.md) for
-tool permissions and revocation behavior.
+Only selected skill resources are copied; symbolic links in skills are rejected.
+Project Codex configuration and skill discovery directories are masked. Configured
+MCPs use the existing scoped gateway. Project contents may themselves contain
+secrets; project selection does not remove credentials already stored there.
 
-A temporary copy of the shared ChatGPT subscription login authenticates Codex.
-Per-run home and plan files are removed when execution finishes; results and project
-changes remain available. Other tools installed only in the shared home are not
-available to restricted agents; install required toolchains into a derived image.
+Account refresh tokens stay in the manager. A run-specific vsock relay exposes
+only the selected account's access-token exchange. Chat steering, answers and
+attachments are delivered to the guest while the agent runs. They do not require
+host filesystem mounts or expose the manager's Docker socket.
 
 ## GitHub connections
 
@@ -72,39 +62,16 @@ agent's run home. Removing the agent removes its stored token.
 
 ## Runner deployment
 
-Use the two services in `compose.yaml`. Both must use the same `LEO_IMAGE`. Set
-`RUNNER_URL=http://runner:4311` on the manager and set
-`RUNNER_MANAGER_CONTAINER` on the runner to the actual manager container name
-(`leo-manager` in local Compose; the generated manager name in Coolify).
-The runner needs the same data volume mounted read-only and the Docker socket.
-Do not publish runner port 4311 or give agent containers access to the socket.
-The manager creates a private shared authentication file in the data volume.
+Use both services in compose.yaml with the same immutable LEO_IMAGE. The runner
+needs Linux x86-64, hardware virtualization, /dev/kvm and /dev/net/tun. It owns
+persistent runner-state storage and launches Firecracker through its jailer.
+Its infrastructure capabilities stay outside the guest. The agent never receives
+the runner credential, host devices or a host Docker socket.
 
-On AppArmor hosts (including Ubuntu), install the included profile on the host:
+Do not publish runner port 4311. The manager authenticates requests with the
+private runner-secret file. Guest Internet access permits TCP 80/443 and DNS;
+private networks, metadata endpoints, neighboring VMs and runner services are
+blocked. Remote Git operations therefore use HTTPS.
 
-```sh
-sudo install -m 644 deploy/leo-runner.apparmor /etc/apparmor.d/leo-agent-sandbox
-sudo apparmor_parser -r /etc/apparmor.d/leo-agent-sandbox
-```
-
-Set `RUNNER_APPARMOR_PROFILE=leo-agent-sandbox` on the runner. The profile permits
-unprivileged user namespaces and the mount operations needed by Codex's inner
-sandbox while retaining Docker's sensitive `/proc` and `/sys` restrictions.
-Non-YOLO containers use `backend/schemas/runner-seccomp.json`, derived from the Moby default
-profile at commit `61eaf32614c7c71b60bd8927d3e6a4ffc8ff1f31`, with the namespace
-syscalls needed by that sandbox. Its Apache-2.0 license is included alongside it.
-No host-wide sandbox restrictions are disabled. YOLO containers use Docker's
-default security profiles.
-
-Containers are removed after success, failure, or cancellation. Broker lease expiry
-also removes orphaned containers after the configured task timeout. Run the real
-container checks after changing the image, host security policy, or runner:
-
-```sh
-node tests/container-smoke.mjs IMAGE
-node tests/runner-smoke.mjs IMAGE
-```
-
-These checks cover broker authentication, filesystem/credential isolation,
-read-only mounts, real Codex sandbox write denial, and cancellation. The runner
-smoke installs the AppArmor profile when the Docker host reports AppArmor support.
+See [MicroVM architecture and operations](MICROVMS.md) for storage, upgrades,
+recovery, host prerequisites and validation.

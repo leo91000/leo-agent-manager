@@ -55,6 +55,11 @@ fn path(path: &Path) -> Result<&str> {
         .ok_or_else(|| Error::bad("Workspace paths must use UTF-8."))
 }
 async fn copy_tree(source: &Path, target: &Path, reject_symlinks: bool) -> Result<()> {
+    if target.starts_with(source) {
+        return Err(Error::bad(
+            "Private workspace storage must be outside the source directory.",
+        ));
+    }
     let mut queue = vec![(source.to_owned(), target.to_owned())];
     while let Some((source, target)) = queue.pop() {
         let metadata = tokio::fs::symlink_metadata(&source).await?;
@@ -121,7 +126,8 @@ pub async fn prepare(
     generation: Option<&str>,
 ) -> Result<Value> {
     let directory = config.data_dir.join("runs").join(text(run, "id"));
-    let is_isolated = isolated(&run["snapshot"]["agent"]);
+    let microvm = !config.runner_url.is_empty();
+    let is_isolated = microvm || isolated(&run["snapshot"]["agent"]);
     let access = policy(&run["snapshot"]["agent"]);
     if is_isolated && config.runner_url.is_empty() {
         return Err(Error::new(
@@ -147,13 +153,16 @@ pub async fn prepare(
         }
         let mut target = source.clone();
         let mut kind = "direct";
-        if run["snapshot"]["task"]["worktree"] == true {
+        if microvm || run["snapshot"]["task"]["worktree"] == true {
             target = if !is_isolated && projects.len() == 1 {
                 root.clone()
             } else {
                 root.join(text(project, "id"))
             };
-            if is_isolated {
+            if !source.join(".git").exists() {
+                kind = "copy";
+                copy_tree(&source, &target, false).await?;
+            } else if is_isolated {
                 kind = "clone";
                 git(
                     args(&[
@@ -174,6 +183,12 @@ pub async fn prepare(
                 )
                 .await
                 {
+                    if let Some(repository) = remote
+                        .strip_prefix("git@github.com:")
+                        .or_else(|| remote.strip_prefix("ssh://git@github.com/"))
+                    {
+                        remote = format!("https://github.com/{repository}");
+                    }
                     if remote.starts_with("http:") || remote.starts_with("https:") {
                         let mut url = url::Url::parse(&remote)
                             .map_err(|_| Error::bad("Invalid repository remote"))?;
@@ -331,7 +346,7 @@ pub async fn prepare(
         }
     }
     Ok(json!({
-    "cwd":cwd,"output":output,"workspaces":workspaces,"isolated":true,"mounts":mounts,"skills":skills}
+    "cwd":cwd,"output":output,"workspaces":workspaces,"isolated":true,"mounts":mounts,"skills":skills,"backend":if microvm {"firecracker"} else {"local"}}
     ))
 }
 pub async fn codex_home(config: &Config, home: &Path) -> Result<()> {
@@ -362,7 +377,98 @@ pub async fn restore(
     config: &Config,
     github: Option<&str>,
 ) -> Result<Value> {
-    if prepared["isolated"] != isolated(&run["snapshot"]["agent"]) {
+    if !config.runner_url.is_empty() && prepared["backend"] != "firecracker" {
+        // One-time migration of saved container/shared conversations. Keep the old
+        // checkout intact and seed the new private disk with its uncommitted files.
+        let directory = config.data_dir.join("runs").join(text(run, "id"));
+        let old_home = directory.join(if prepared["isolated"] == true {
+            "home/.codex"
+        } else {
+            "codex"
+        });
+        let generation = format!("microvm-{}", &crate::config::id()[..8]);
+        let migrated = prepare(run, config, github, Some(&old_home), Some(&generation)).await?;
+        for old in prepared["workspaces"].as_array().into_iter().flatten() {
+            if let Some(new) = migrated["workspaces"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|new| new["projectId"] == old["projectId"])
+            {
+                let source = workspace(
+                    Path::new(text(old, "path")),
+                    &[directory.clone(), PathBuf::from(text(old, "path"))],
+                )
+                .await?;
+                // Replace the initial clone's working files so tracked deletions
+                // remain deleted. A prior independent clone also keeps its Git history.
+                let target_root = Path::new(text(new, "path"));
+                let copy_git = tokio::fs::symlink_metadata(source.join(".git"))
+                    .await
+                    .is_ok_and(|m| m.is_dir());
+                if !copy_git && source.join(".git").exists() {
+                    // A linked worktree's .git file points outside the guest. Its
+                    // branch and commits must become independent before import.
+                    let head = git(args(&["-C", path(&source)?, "rev-parse", "HEAD"]), 10).await?;
+                    let branch = git(
+                        args(&["-C", path(&source)?, "symbolic-ref", "--short", "HEAD"]),
+                        10,
+                    )
+                    .await
+                    .unwrap_or_else(|_| format!("feat/recovered-{}", &text(run, "id")[..8]));
+                    git(
+                        args(&["-C", path(target_root)?, "fetch", path(&source)?, &head]),
+                        120,
+                    )
+                    .await?;
+                    git(
+                        args(&["-C", path(target_root)?, "checkout", "-B", &branch, &head]),
+                        30,
+                    )
+                    .await?;
+                }
+                let mut targets = tokio::fs::read_dir(target_root).await?;
+                while let Some(entry) = targets.next_entry().await? {
+                    if entry.file_name() == ".git" && !copy_git {
+                        continue;
+                    }
+                    if entry.file_type().await?.is_dir() {
+                        tokio::fs::remove_dir_all(entry.path()).await?;
+                    } else {
+                        tokio::fs::remove_file(entry.path()).await?;
+                    }
+                }
+                let mut entries = tokio::fs::read_dir(source).await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    if entry.file_name() == ".git" && !copy_git {
+                        continue;
+                    }
+                    let target = Path::new(text(new, "path")).join(entry.file_name());
+                    if target.exists() {
+                        if target.is_dir() {
+                            tokio::fs::remove_dir_all(&target).await?;
+                        } else {
+                            tokio::fs::remove_file(&target).await?;
+                        }
+                    }
+                    copy_tree(&entry.path(), &target, false).await?;
+                }
+            }
+        }
+        let new_home = directory.join("home/.codex");
+        if old_home != new_home {
+            for relative in ["sessions", "archived_sessions", "session_index.jsonl"] {
+                let source = old_home.join(relative);
+                if source.exists() {
+                    copy_tree(&source, &new_home.join(relative), false).await?;
+                }
+            }
+        }
+        return Ok(migrated);
+    }
+    if prepared["isolated"]
+        != (!config.runner_url.is_empty() || isolated(&run["snapshot"]["agent"]))
+    {
         return Err(Error::new(
             409,
             "Execution isolation changed; this run cannot be resumed.",

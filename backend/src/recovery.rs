@@ -95,12 +95,9 @@ pub async fn fence(s: &Service, run: &Value) -> Result<()> {
             .timeout(Duration::from_secs(10))
             .send()
             .await
-            .map_err(|_| Error::new(503, "Waiting for the previous isolated container to stop."))?;
+            .map_err(|_| Error::new(503, "Waiting for the previous VM to stop."))?;
         if !response.status().is_success() && response.status() != 404 {
-            return Err(Error::new(
-                503,
-                "Waiting for the previous isolated container to stop.",
-            ));
+            return Err(Error::new(503, "Waiting for the previous VM to stop."));
         }
     }
     if let Some(mut checkpoint) = checkpoint {
@@ -110,6 +107,13 @@ pub async fn fence(s: &Service, run: &Value) -> Result<()> {
     Ok(())
 }
 pub async fn session(s: &Service, run: &Value, home: &Path, cwd: &Path) -> Result<String> {
+    if !s.config.runner_url.is_empty() {
+        // The authoritative session is on the retained guest disk. The guest's
+        // thread/resume verifies it; asking a host Codex process cannot do so.
+        if let Some(id) = run["sessionId"].as_str().filter(|id| !id.is_empty()) {
+            return Ok(id.to_owned());
+        }
+    }
     let result = async {
         let mut rpc = Session::codex(&s.config, home, &[], None).await?;
         let result = async {

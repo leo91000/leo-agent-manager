@@ -19,6 +19,8 @@ async function main() {
     await docker(
       'run',
       '-d',
+      '-e',
+      'WORKER_ENABLED=false',
       ...(process.env.GITHUB_TOKEN ? ['-e', 'GITHUB_TOKEN'] : []),
       '--name',
       name,

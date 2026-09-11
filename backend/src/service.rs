@@ -31,6 +31,14 @@ pub struct Service {
 }
 impl Service {
     pub async fn new(config: Config) -> Result<Arc<Self>> {
+        if config.worker_enabled
+            && config.runner_url.is_empty()
+            && std::env::var("NODE_ENV").is_ok_and(|v| v == "production")
+        {
+            return Err(Error::bad(
+                "Production execution requires the Firecracker runner. Set RUNNER_URL; shared host execution is available only in development.",
+            ));
+        }
         let store = Store::open(&config.data_dir)?;
         let vault = Vault::new(store.clone(), &config.data_dir)?;
         let service = Arc::new(Self {

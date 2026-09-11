@@ -89,7 +89,7 @@ export interface Run {
   summary: string
   sessionId: string | null
   workspace: string | null
-  workspaces?: { projectId: string, path: string, kind: 'worktree' | 'clone' | 'direct' }[]
+  workspaces?: { projectId: string, path: string, kind: 'worktree' | 'clone' | 'copy' | 'direct' }[]
   isolated?: boolean
   workspaceCleanedAt?: number
   snapshot: {

@@ -206,7 +206,7 @@ export function mountMcp(
         )
         tool(
           'run_task',
-          'Queue a task using its agent’s resource access and execution mode. YOLO is the default; restricted agents use isolated containers. Unattended runs never prompt for approval. May modify allowed code and external services as instructed.',
+          'Queue a task using its agent’s resource access and execution mode. YOLO is the default inside a private agent VM. Unattended runs never prompt for approval. May modify allowed code and external services as instructed.',
           z.object({ taskId: z.string().uuid() }),
           'run',
           args => service.enqueue(args.taskId, 'mcp'),
