@@ -148,7 +148,12 @@ describe('codex account pool', () => {
     const response = await ctx.app.inject({ url: '/api/codex/accounts', headers })
     expect(response.json()).toMatchObject([{ name: 'Personal', remainingPercent: 60, state: 'ready' }])
     expect(response.body).not.toMatch(/synthetic|access_token|identity/)
-    expect((await ctx.app.inject({ method: 'PUT', url: `/api/codex/accounts/${id}`, headers, payload: { name: 'Renamed', enabled: false } })).json()).toMatchObject({ name: 'Renamed', enabled: false })
+    // The legacy adapter reports verified sign-in before its asynchronous
+    // credential-directory cleanup releases the account for editing.
+    await expect.poll(async () => {
+      const updated = await ctx.app.inject({ method: 'PUT', url: `/api/codex/accounts/${id}`, headers, payload: { name: 'Renamed', enabled: false } })
+      return { status: updated.statusCode, ...updated.json() }
+    }).toMatchObject({ status: 200, name: 'Renamed', enabled: false })
     expect((await ctx.app.inject({ method: 'DELETE', url: `/api/codex/accounts/${id}`, headers })).statusCode).toBe(200)
     expect(ctx.service.accounts.list()).toEqual([])
   })
