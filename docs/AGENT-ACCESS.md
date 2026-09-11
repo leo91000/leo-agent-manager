@@ -90,7 +90,7 @@ sudo apparmor_parser -r /etc/apparmor.d/leo-agent-sandbox
 Set `RUNNER_APPARMOR_PROFILE=leo-agent-sandbox` on the runner. The profile permits
 unprivileged user namespaces and the mount operations needed by Codex's inner
 sandbox while retaining Docker's sensitive `/proc` and `/sys` restrictions.
-Non-YOLO containers use `server/runner-seccomp.json`, derived from the Moby default
+Non-YOLO containers use `backend/schemas/runner-seccomp.json`, derived from the Moby default
 profile at commit `61eaf32614c7c71b60bd8927d3e6a4ffc8ff1f31`, with the namespace
 syscalls needed by that sandbox. Its Apache-2.0 license is included alongside it.
 No host-wide sandbox restrictions are disabled. YOLO containers use Docker's

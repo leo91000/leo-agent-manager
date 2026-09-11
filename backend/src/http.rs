@@ -319,17 +319,7 @@ async fn health(State(app): State<App>, request: Request) -> Result<Response> {
     }
     let env = |key: &str| std::env::var(key).ok();
     let commit = env("APP_COMMIT").unwrap_or_else(|| "development".into());
-    let active = app
-        .service
-        .store
-        .read(|db| {
-            Ok(db
-                .active()?
-                .iter()
-                .filter(|r| r["status"] == "running")
-                .count())
-        })
-        .await?;
+    let active = app.service.worker.active.lock().await.len();
     Ok(Json(json!({
     "status":"ok","commit":commit,"runtimeId":env("APP_RUNTIME_ID").unwrap_or(commit),"baseImage":env("APP_BASE_IMAGE"),"tools":{
     "codex":env("APP_CODEX_VERSION"),"gh":env("APP_GH_VERSION")}
@@ -351,22 +341,12 @@ async fn lease(State(app): State<App>, request: Request) -> Result<Json<Value>> 
     let owner = input.string("owner", 100)?.to_owned();
     uuid(&owner)?;
     let release = input.method == "DELETE";
-    app.service
-        .store
-        .transaction(move |db| {
-            if db.kv("deployment-lease")?.is_some_and(|v| v != owner) {
-                return Err(Error::new(409, "Another deployment holds the worker lease."));
-            }
-            if release {
-                db.delete("deployment-lease")?;
-            } else {
-                db.set("deployment-lease", &owner.into(), Some(now() + 20 * 60000))?;
-            }
-            Ok(Json(json!({
-            "paused":!release,"activeRuns":db.active()?.iter().filter(|r|r["status"]=="running").count()}
-            )))
-        })
-        .await
+    Ok(Json(
+        app.service
+            .worker
+            .deployment_lease(&app.service, owner, release)
+            .await?,
+    ))
 }
 async fn api(State(app): State<App>, request: Request) -> Result<Response> {
     let input = Input::read(request).await?;

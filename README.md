@@ -74,7 +74,7 @@ By default, the worker uses your home directory and existing CLI accounts. Set
 runs (`.env` is used by Compose, not loaded automatically by the development server).
 
 ```sh
-pnpm check                       # Antfu ESLint, types, unit/integration tests, build
+pnpm check                       # ESLint, rustfmt, types, JS tests and frontend build
 cargo test --workspace           # Native backend integration and migration tests
 cargo clippy --all-targets -- -D warnings
 cargo build --bin leo            # Native binary used by every browser fixture
@@ -82,7 +82,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e                    # Full browser journeys against the Rust backend
 pnpm build:backend               # Optimized native production binary
 node --import tsx scripts/benchmark-backend.mjs # Node/Rust comparison
-pnpm lint:fix                    # @antfu/eslint-config formatting and fixes
+pnpm lint:fix                    # ESLint fixes and Rust formatting
 ```
 
 Browser tests start a separate application, isolated home, and fixture project;

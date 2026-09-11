@@ -6,7 +6,7 @@ use leo_agent_manager::{config::Config, http::router, service::Service};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
-async fn app() -> (TempDir, axum::Router) {
+async fn app() -> (TempDir, axum::Router, std::sync::Arc<Service>) {
     let root = TempDir::new().unwrap();
     let config = Config {
         data_dir: root.path().join("data"),
@@ -23,8 +23,9 @@ async fn app() -> (TempDir, axum::Router) {
         worker_enabled: false,
         runner_url: String::new(),
     };
-    let app = router(Service::new(config).await.unwrap()).await.unwrap();
-    (root, app)
+    let service = Service::new(config).await.unwrap();
+    let app = router(service.clone()).await.unwrap();
+    (root, app, service)
 }
 fn request(method: &str, path: &str, body: Value) -> axum::http::request::Builder {
     let _ = body;
@@ -36,7 +37,7 @@ fn request(method: &str, path: &str, body: Value) -> axum::http::request::Builde
 }
 #[tokio::test]
 async fn http_authentication_csrf_host_origin_and_cookie_contracts() {
-    let (_root, app) = app().await;
+    let (_root, app, _service) = app().await;
     let response = app
         .clone()
         .oneshot(
@@ -160,7 +161,7 @@ async fn http_authentication_csrf_host_origin_and_cookie_contracts() {
 }
 #[tokio::test]
 async fn login_limits_ignore_forged_forwarded_ips() {
-    let (_root, app) = app().await;
+    let (_root, app, _service) = app().await;
     for n in 0..11 {
         let response = app
             .clone()
@@ -174,4 +175,83 @@ async fn login_limits_ignore_forged_forwarded_ips() {
             .unwrap();
         assert_eq!(response.status(), if n < 10 { 401 } else { 429 });
     }
+}
+
+#[tokio::test]
+async fn health_and_deployment_lease_report_live_worker_ownership() {
+    let (_root, app, service) = app().await;
+    service
+        .store
+        .write(|db| {
+            db.add_run(&json!({
+        "id":"saved-run", "taskId":"task", "projectId":"project", "status":"running", "createdAt":1
+    }), None)
+        })
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            request("GET", "/health", Value::Null)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let health: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    assert_eq!(
+        health["activeRuns"], 0,
+        "Persisted runs are not live processes when the worker is disabled"
+    );
+    service.worker.active.lock().await.insert(
+        "preparing-run".into(),
+        tokio_util::sync::CancellationToken::new(),
+    );
+    let response = app
+        .oneshot(
+            request("GET", "/health", Value::Null)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let health: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    assert_eq!(
+        health["activeRuns"], 1,
+        "Preparing attempts already belong to the live worker"
+    );
+    let result = service
+        .worker
+        .deployment_lease(&service, "owner".into(), false)
+        .await
+        .unwrap();
+    assert_eq!(result, json!({"paused":true,"activeRuns":1}));
+    assert_eq!(
+        service.store.kv("deployment-lease").await.unwrap(),
+        Some(json!("owner"))
+    );
+    assert_eq!(
+        service
+            .worker
+            .deployment_lease(&service, "another-owner".into(), true)
+            .await
+            .unwrap_err()
+            .status,
+        409
+    );
+    service
+        .worker
+        .deployment_lease(&service, "owner".into(), true)
+        .await
+        .unwrap();
+    assert!(
+        service
+            .store
+            .kv("deployment-lease")
+            .await
+            .unwrap()
+            .is_none()
+    );
 }

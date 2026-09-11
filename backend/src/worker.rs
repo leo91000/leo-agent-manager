@@ -117,6 +117,36 @@ impl Worker {
         });
         Ok(())
     }
+    pub async fn deployment_lease(
+        &self,
+        s: &Service,
+        owner: String,
+        release: bool,
+    ) -> Result<Value> {
+        // Finish an in-flight scheduling pass before reporting the worker idle.
+        // Otherwise account selection could launch a run after the lease returns.
+        let _tick = self.tick_lock.lock().await;
+        s.store
+            .transaction(move |db| {
+                if db
+                    .kv("deployment-lease")?
+                    .is_some_and(|value| value != owner)
+                {
+                    return Err(Error::new(
+                        409,
+                        "Another deployment holds the worker lease.",
+                    ));
+                }
+                if release {
+                    db.delete("deployment-lease")?;
+                } else {
+                    db.set("deployment-lease", &owner.into(), Some(now() + 20 * 60000))?;
+                }
+                Ok(())
+            })
+            .await?;
+        Ok(json!({"paused": !release, "activeRuns": self.active.lock().await.len()}))
+    }
     pub async fn tick(self: &Arc<Self>, s: &Arc<Service>) -> Result<()> {
         let Ok(_tick) = self.tick_lock.try_lock() else {
             return Ok(());
