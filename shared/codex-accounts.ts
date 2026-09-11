@@ -1,3 +1,13 @@
+export interface CodexLoginFlow {
+  accountId: string
+  state: 'pending' | 'complete' | 'failed'
+  phase?: 'starting' | 'authorizing' | 'verifying'
+  code?: string
+  url?: string
+  expiresAt?: number | null
+  error?: string
+}
+
 export interface UsageWindow {
   usedPercent: number
   windowDurationMins: number | null

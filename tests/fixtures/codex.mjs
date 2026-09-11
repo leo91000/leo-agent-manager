@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,6 +15,7 @@ async function main() {
   }
   if (args.includes('app-server')) {
     const chat = chatFixture()
+    let loginTimer
     const lines = createInterface({ input: process.stdin })
     for await (const line of lines) {
       const request = JSON.parse(line)
@@ -25,6 +27,53 @@ async function main() {
       const authPath = path.join(process.env.CODEX_HOME, 'auth.json')
       const auth = existsSync(authPath) ? JSON.parse(readFileSync(authPath, 'utf8')) : null
       const id = auth?.tokens.account_id ?? 'fixture'
+      if (request.method === 'account/login/cancel') {
+        clearTimeout(loginTimer)
+        clearInterval(loginTimer)
+        writeFileSync(path.join(process.env.CODEX_HOME, 'fixture-login-cancelled'), request.params.loginId)
+        result = { status: 'canceled' }
+      }
+      if (request.method === 'account/login/start') {
+        const controlPath = path.join(process.env.CODEX_HOME, 'fixture-login.json')
+        const control = existsSync(controlPath) ? JSON.parse(readFileSync(controlPath, 'utf8')) : {}
+        if (request.params.type !== 'chatgptDeviceCode')
+          throw new Error('Expected structured device sign-in')
+        if (control.mode === 'unsupported') {
+          process.stdout.write(`${JSON.stringify({ id: request.id, error: { code: -32601, message: 'synthetic secret must not leak' } })}\n`)
+          continue
+        }
+        const loginId = 'fixture-device-login'
+        const complete = () => {
+          mkdirSync(process.env.CODEX_HOME, { recursive: true })
+          if (control.mode !== 'failure') {
+            const id = control.identity ?? path.basename(path.dirname(process.env.CODEX_HOME))
+            const idToken = `header.${Buffer.from(JSON.stringify({ sub: id })).toString('base64url')}.signature`
+            writeFileSync(authPath, JSON.stringify({ tokens: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', account_id: id, id_token: idToken } }), { mode: 0o600 })
+          }
+          process.stdout.write(`${JSON.stringify({ method: 'account/login/completed', params: { loginId, success: control.mode !== 'failure', error: 'synthetic secret must not leak' } })}\n`)
+        }
+        result = { type: 'chatgptDeviceCode', loginId, verificationUrl: control.url ?? 'https://auth.openai.com/codex/device', userCode: 'ABCD-12345' }
+        // An unrelated login notification must never finish this attempt.
+        process.stdout.write(`${JSON.stringify({ method: 'account/login/completed', params: { loginId: 'unrelated-login', success: true } })}\n`)
+        process.stderr.write('\x1B[94mIGNORED-CODE\x1B[0m\n')
+        if (control.mode === 'immediate') {
+          complete()
+        }
+        else if (control.mode === 'hold') {
+          loginTimer = setInterval(() => {
+            if (existsSync(path.join(process.env.CODEX_HOME, 'fixture-login-approve'))) {
+              clearInterval(loginTimer)
+              complete()
+            }
+          }, 30)
+        }
+        else if (control.mode === 'disconnect') {
+          loginTimer = setTimeout(() => process.exit(1), 120)
+        }
+        else {
+          loginTimer = setTimeout(complete, 120)
+        }
+      }
       if (request.method === 'model/list') {
         const fast = { id: 'fast-id', model: 'fixture-fast', displayName: 'Quick coder', description: 'Fast everyday coding', hidden: false, isDefault: true, defaultReasoningEffort: 'low', supportedReasoningEfforts: [{ reasoningEffort: 'low', description: 'Quick responses' }, { reasoningEffort: 'high', description: 'Think through complex changes' }] }
         const deep = { id: 'deep-id', model: 'fixture-deep', displayName: 'Deep thinker', description: 'Complex investigations', hidden: false, isDefault: false, defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Balanced depth' }, { reasoningEffort: 'ultra', description: 'Take time for the hardest problems' }] }

@@ -1,6 +1,7 @@
 use leo_agent_manager::{
     accounts::{blocked, recovered, remaining},
     config::Config,
+    connections::DeviceLogin,
     rpc::Session,
     service::Service,
 };
@@ -25,6 +26,108 @@ fn config(root: &TempDir) -> Config {
         worker_enabled: false,
         runner_url: String::new(),
     }
+}
+
+async fn device_fixture(mode: &str) -> (TempDir, DeviceLogin) {
+    let root = TempDir::new().unwrap();
+    let config = config(&root);
+    let home = config.home.join(".codex");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("fixture-login.json"),
+        json!({"mode":mode}).to_string(),
+    )
+    .unwrap();
+    let login = DeviceLogin::start(&config, "codex", &config.home).unwrap();
+    (root, login)
+}
+
+async fn wait_login(login: &DeviceLogin) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), login.wait())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn structured_login_displays_the_code_and_cancels_the_matching_attempt() {
+    let (root, login) = device_fixture("hold").await;
+    let mut updates = login.flow.subscribe();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while updates.borrow()["phase"] != "authorizing" {
+            updates.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(login.view()["code"], "ABCD-12345");
+    assert_eq!(login.view()["url"], "https://auth.openai.com/codex/device");
+    assert_eq!(login.view()["state"], "pending");
+    assert!(login.view()["expiresAt"].as_i64().unwrap() > leo_agent_manager::config::now());
+    login.cancel().await;
+    assert_eq!(login.view()["state"], "failed");
+    assert_eq!(login.view()["code"], "");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("home/.codex/fixture-login-cancelled")).unwrap(),
+        "fixture-device-login"
+    );
+    assert!(!root.path().join("home/.codex/auth.json").exists());
+}
+
+#[tokio::test]
+async fn structured_login_handles_completion_before_the_start_reply() {
+    let (root, login) = device_fixture("immediate").await;
+    wait_login(&login).await;
+    assert_eq!(login.view()["state"], "complete");
+    assert_eq!(login.view()["code"], "");
+    assert!(root.path().join("home/.codex/auth.json").exists());
+}
+
+#[tokio::test]
+async fn structured_login_reports_errors_without_exposing_provider_details() {
+    for mode in ["failure", "unsupported", "disconnect"] {
+        let (_root, login) = device_fixture(mode).await;
+        wait_login(&login).await;
+        let flow = login.view();
+        assert_eq!(flow["state"], "failed", "{mode}");
+        assert_eq!(flow["code"], "");
+        assert!(!flow["error"].as_str().unwrap().is_empty());
+        assert!(!flow.to_string().contains("synthetic secret"));
+        if mode == "unsupported" {
+            assert!(flow["error"].as_str().unwrap().contains("Update Codex"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn account_sign_in_verifies_identity_captures_credentials_and_cleans_up() {
+    let root = TempDir::new().unwrap();
+    let service = Service::new(config(&root)).await.unwrap();
+    let flow = service.account_login("Personal", None).await.unwrap();
+    let id = flow["accountId"].as_str().unwrap();
+    let login = service.account_login.lock().await.clone().unwrap();
+    let mut complete = login.complete.clone();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !*complete.borrow() {
+            complete.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(login.view()["state"], "complete");
+    assert_eq!(
+        service.accounts.get(&service, id).await.unwrap()["state"],
+        "ready"
+    );
+    assert!(
+        service
+            .vault
+            .get(&format!("codex-account:{id}"))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(!login.home.exists());
+    assert!(service.accounts.connecting.lock().await.is_none());
 }
 #[tokio::test]
 async fn models_are_paginated_cached_and_keep_last_known_options_when_codex_is_down() {

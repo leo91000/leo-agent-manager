@@ -4,6 +4,7 @@ pub mod attachments;
 pub mod auth;
 pub mod chat_process;
 pub mod chats;
+mod codex_login;
 pub mod config;
 pub mod connections;
 pub mod error;

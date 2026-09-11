@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import type { CodexAccountView, UsageWindow } from '../../shared/codex-accounts'
+import type { CodexAccountView, CodexLoginFlow, UsageWindow } from '../../shared/codex-accounts'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { usageBlocked } from '../../shared/codex-accounts'
 import { api, date, notify } from '../api'
 import { ArrowUpRight, BrandOpenAI, Plus, RefreshCw } from '../icons'
-import { buttonBase, buttonSizes, buttonVariants } from '../ui'
+import CodexSignIn from './CodexSignIn.vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 import UiAlert from './UiAlert.vue'
 import UiButton from './UiButton.vue'
 
 const accounts = ref<CodexAccountView[]>([])
-const flow = ref<{ accountId: string, state?: string, code?: string, url?: string, error?: string } | null>(null)
+const flow = ref<CodexLoginFlow | null>(null)
 const busy = ref(false)
 const loading = ref(true)
 const error = ref('')
@@ -110,6 +110,11 @@ async function reconnect(account: CodexAccountView) {
     flow.value = await api('/codex/accounts/login', { method: 'POST', body: JSON.stringify({ name: account.name, id: account.id }) })
   })
 }
+async function retry() {
+  const account = accounts.value.find(account => account.id === flow.value?.accountId)
+  if (account)
+    await reconnect(account)
+}
 async function toggle(account: CodexAccountView) {
   await action(async () => {
     await api(`/codex/accounts/${account.id}`, { method: 'PUT', body: JSON.stringify({ name: account.name, enabled: !account.enabled }) })
@@ -157,12 +162,16 @@ async function poll() {
 }
 onMounted(() => {
   void poll()
+  window.addEventListener('focus', poll)
   timer = setInterval(() => {
     now.value = Date.now()
     void poll()
-  }, 5000)
+  }, 2000)
 })
-onBeforeUnmount(() => clearInterval(timer))
+onBeforeUnmount(() => {
+  clearInterval(timer)
+  window.removeEventListener('focus', poll)
+})
 </script>
 
 <template>
@@ -190,6 +199,7 @@ onBeforeUnmount(() => clearInterval(timer))
     <UiAlert v-if="error || pollError">
       {{ error || pollError }}
     </UiAlert>
+    <CodexSignIn v-if="flow?.state === 'pending' || flow?.state === 'failed'" :flow="flow" :busy="busy" @cancel="cancel" @retry="retry" />
     <p v-if="loading" class="text-muted py-6" role="status">
       Loading accounts…
     </p>
@@ -260,23 +270,6 @@ onBeforeUnmount(() => clearInterval(timer))
     <p class="mt-4 text-xs text-muted">
       New runs use the available account with the most capacity. Enabled accounts use banked resets automatically at 2% remaining, even while idle. Exhausted runs resume when capacity returns or another account is available. One run per account.
     </p>
-    <section v-if="flow?.state === 'pending' || flow?.state === 'failed'" class="mt-5 rounded-card border border-accent bg-surface p-5" aria-live="polite">
-      <h3>{{ flow.state === 'failed' ? 'Sign-in needs another try' : 'Finish signing in to Codex' }}</h3>
-      <p v-if="flow.code && flow.state === 'pending'" class="my-4 font-mono text-2xl tracking-widest">
-        {{ flow.code }}
-      </p>
-      <p v-if="!flow.code && flow.state === 'pending'" class="my-4 text-sm text-muted">
-        Waiting for the verification code…
-      </p>
-      <p v-if="flow.error" class="my-3 text-sm text-danger">
-        {{ flow.error }}
-      </p>
-      <div class="mt-4 flex flex-wrap gap-3">
-        <a v-if="flow.url && flow.state === 'pending'" :href="flow.url" target="_blank" rel="noopener noreferrer" :class="[buttonBase, buttonVariants.primary, buttonSizes.small]">Open verification page<Icon :name="ArrowUpRight" :size="15" /></a><UiButton size="small" :disabled="busy" @click="cancel">
-          {{ flow.state === 'failed' ? 'Dismiss' : 'Cancel sign-in' }}
-        </UiButton>
-      </div>
-    </section>
   </section>
   <Modal v-if="open" :title="editing ? 'Edit account' : 'Add Codex account'" @close="open = false">
     <form @submit.prevent="save">

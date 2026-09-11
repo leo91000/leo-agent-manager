@@ -1,5 +1,76 @@
+import { mkdir, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { accountFixture, limits } from '../codex-account-fixture'
 import { expect, expectSingleScroll, test } from './fixtures'
+
+test('structured sign-in supports copying, mobile layouts, cancellation, retry and automatic completion', async ({ page, workspace, context }, testInfo) => {
+  test.setTimeout(90000)
+  const data = await accountFixture({ service: workspace.service })
+  const account = data.seed('Second account', limits(20, 30))
+  const home = path.join(workspace.service.config.dataDir, 'codex-login', account.id, '.codex')
+  async function prepare(mode: string) {
+    await mkdir(home, { recursive: true })
+    await writeFile(path.join(home, 'fixture-login.json'), JSON.stringify({ mode }))
+  }
+  await prepare('hold')
+  await workspace.api('/api/codex/accounts/login', 'POST', { name: account.name, id: account.id })
+  await page.goto('/connections')
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Connect your ChatGPT account' })
+  await expect(panel.getByLabel('Verification code', { exact: true })).toHaveText('ABCD-12345')
+  await page.reload()
+  await expect(panel).toBeVisible()
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expectSingleScroll(page)
+      await panel.screenshot({ path: testInfo.outputPath(`sign-in-${theme}-${width}.png`), animations: 'disabled' })
+      await page.screenshot({ path: testInfo.outputPath(`connections-${theme}-${width}.png`), animations: 'disabled' })
+    }
+  }
+  // Keep the external provider fully synthetic, including clipboard permissions.
+  await context.route('https://auth.openai.com/**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fixture verification page</h1>' }))
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => {
+      document.documentElement.dataset.copiedCode = text
+    } } })
+  })
+  const popupPromise = page.waitForEvent('popup')
+  await panel.getByRole('link', { name: 'Copy code & open sign-in' }).click()
+  const popup = await popupPromise
+  await expect(popup.getByRole('heading')).toHaveText('Fixture verification page')
+  await popup.close()
+  await expect(page.locator('html')).toHaveAttribute('data-copied-code', 'ABCD-12345')
+  await expect(panel.getByRole('button', { name: 'Code copied' })).toBeVisible()
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {
+      throw new Error('Permission denied')
+    } } })
+  })
+  await panel.getByRole('button', { name: 'Code copied' }).click()
+  await expect(panel.getByRole('alert')).toContainText('copy it manually')
+  await panel.getByRole('button', { name: 'Cancel sign-in' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect.poll(() => workspace.api('/api/codex/accounts/login')).toBeNull()
+
+  await prepare('failure')
+  await page.getByRole('article', { name: account.name, exact: true }).getByRole('button', { name: 'Reconnect' }).click()
+  const failed = page.getByRole('region', { name: 'Let’s try that again' })
+  await expect(failed).toBeVisible()
+  await expect(failed.getByRole('alert')).not.toContainText('synthetic secret')
+  const count = (await workspace.api('/api/codex/accounts')).length
+  await prepare('hold')
+  await failed.getByRole('button', { name: 'Try again' }).click()
+  await expect(panel).toBeVisible()
+  expect((await workspace.api('/api/codex/accounts')).length).toBe(count)
+  await writeFile(path.join(home, 'fixture-login-approve'), '')
+  await expect(panel).toHaveCount(0)
+  await expect.poll(async () => (await workspace.api('/api/codex/accounts/login')).state).toBe('complete')
+  await expect(page.getByRole('article', { name: account.name, exact: true }).getByText('Finish sign-in', { exact: true })).toHaveCount(0)
+  await workspace.api(`/api/codex/accounts/${account.id}`, 'DELETE')
+})
 
 test('accounts show live usage, reset windows and accessible controls across themes and mobile sizes', async ({ page, workspace }, testInfo) => {
   // This journey covers multiple viewports and screenshots; individual assertions retain their deadlines.

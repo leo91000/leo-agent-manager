@@ -31,26 +31,45 @@ impl DeviceLogin {
     pub fn start(config: &Config, provider: &str, home: &Path) -> Result<Self> {
         let mut config = config.clone();
         config.home = home.to_owned();
-        let args = if provider == "codex" {
-            vec!["login", "--device-auth"]
-        } else {
-            vec![
-                "auth",
-                "login",
-                "--hostname",
-                "github.com",
-                "--git-protocol",
-                "https",
-                "--web",
-            ]
-        };
-        let binary = if provider == "codex" {
-            &config.codex_bin
-        } else {
-            &config.gh_bin
-        };
+        if provider == "codex" {
+            let (flow, _) = watch::channel(
+                json!({"provider":"codex","state":"pending","phase":"starting","url":"","code":""}),
+            );
+            let (done, finished) = watch::channel(false);
+            let stop = CancellationToken::new();
+            let login = Self {
+                flow: flow.clone(),
+                stop: stop.clone(),
+                finished,
+            };
+            let home = home.to_owned();
+            tokio::spawn(async move {
+                let result = crate::codex_login::run(&config, &home, &flow, &stop).await;
+                flow.send_modify(|value| {
+                    value["code"] = "".into();
+                    value["url"] = "".into();
+                    value["expiresAt"] = Value::Null;
+                    value["phase"] = "verifying".into();
+                    value["state"] = if result.is_ok() { "complete" } else { "failed" }.into();
+                    if let Err(error) = result {
+                        value["error"] = error.message.into();
+                    }
+                });
+                let _ = done.send(true);
+            });
+            return Ok(login);
+        }
+        let args = [
+            "auth",
+            "login",
+            "--hostname",
+            "github.com",
+            "--git-protocol",
+            "https",
+            "--web",
+        ];
         let mut command = command(
-            binary,
+            &config.gh_bin,
             &args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
             &codex_environment(&config, &home.join(".codex")),
             None,
@@ -279,6 +298,12 @@ impl AccountLogin {
     }
     pub fn view(&self) -> Value {
         let mut value = self.device.view();
+        // Authentication is only complete after credentials are captured, the
+        // account identity is verified, and the temporary home is removed.
+        if self.busy() && value["state"] == "complete" {
+            value["state"] = "pending".into();
+            value["phase"] = "verifying".into();
+        }
         value["accountId"] = self.account_id.clone().into();
         value
     }
