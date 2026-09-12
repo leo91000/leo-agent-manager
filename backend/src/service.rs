@@ -346,7 +346,8 @@ impl Service {
         let run = self
             .snapshot(self.get("tasks", task_id).await?, trigger)
             .await?;
-        self.store
+        let result = self
+            .store
             .transaction(move |db| {
                 db.add_run(&run, dedupe.as_deref())?;
                 db.event(text(&run, "id"), "status", "Queued", None)?;
@@ -358,7 +359,9 @@ impl Service {
                 )?;
                 Ok(run)
             })
-            .await
+            .await?;
+        self.worker.notify();
+        Ok(result)
     }
     pub async fn schedule(&self) -> Result<()> {
         for task in self.store.list("tasks").await? {

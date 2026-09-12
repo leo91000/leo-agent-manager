@@ -52,6 +52,7 @@ import net from 'node:net';
 import { execFileSync } from 'node:child_process';
 const root=${JSON.stringify(runRoot)};
 const mode=process.argv[2];
+assert.ok(Math.abs(Date.now()-Number(process.argv[3])) < 30000,'clock repaired before execution');
 const project=root+'/workspace/'+${JSON.stringify(projectId)};
 assert.match(execFileSync('uname',['-r'],{encoding:'utf8'}),/^6\\.12\\.109/);
 for(const path of ['/data/private-manager-canary','/data/runner-secret','/var/run/docker.sock'])assert.equal(fs.existsSync(path),false,path);
@@ -104,6 +105,9 @@ console.log('probe.done');
       }
     }, 10000)}`
     await until(() => fetch(`${url}/health`).then(r => r.ok).catch(() => false))
+    await until(async () => (await (await api('/health')).json()).pool.ready === 1)
+    // The prepared VM is really suspended long enough to expose guest clock drift.
+    await setTimeout(31000)
     for (const mode of ['first', 'resume', 'cancel', 'crash', 'recover']) {
       const id = randomUUID()
       const plan = {
@@ -112,7 +116,7 @@ console.log('probe.done');
         expires: Date.now() + 300000,
         sandbox: 'yolo',
         cwd: `${runRoot}/workspace`,
-        command: ['/usr/local/bin/node', `${runRoot}/workspace/probe.mjs`, mode],
+        command: ['/usr/local/bin/node', `${runRoot}/workspace/probe.mjs`, mode, Date.now().toString()],
         chat: { output: `${runRoot}/output/result.md` },
         imports: [
           { source: `${runRoot}/workspace`, target: `${runRoot}/workspace`, readOnly: false },
@@ -276,6 +280,50 @@ console.log('probe.done');
     const status = await (await api(`/runs/${resumedId}/wait`, 'POST')).json()
     assert.equal(status.StatusCode, 0, 'lazy read-only policy survives VM restart')
     process.stdout.write(`${JSON.stringify({ mode: 'read-only-resume', status: 'passed' })}\n`)
+    // Prepared VMs share the same four slots as active work. A fifth run cannot enter.
+    await until(async () => {
+      const health = await (await api('/health')).json()
+      return health.activeRuns === 0 && health.pool.ready === 1
+    })
+    // Kill only this disposable controller's anonymous spare. Admission must fall
+    // back before executing the user command, without leaking the occupied slot.
+    docker('exec', name, 'pkill', '-KILL', '-x', 'firecracker')
+    const held = []
+    for (let index = 0; index < 5; index++) {
+      const id = randomUUID()
+      const runId = randomUUID()
+      const cwd = `/data/runs/${runId}/workspace`
+      const directory = path.join(root, 'data/runs', runId, 'workspace')
+      await mkdir(directory, { recursive: true })
+      const plan = { id, runId, expires: Date.now() + 60000, sandbox: 'yolo', cwd, command: ['/usr/local/bin/node', '-e', 'console.log("slot.ready");setInterval(()=>{},1000)'], imports: [{ source: cwd, target: cwd }] }
+      await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
+      const response = await fetch(`${url}/runs/${id}`, { method: 'POST', headers })
+      assert.equal(response.status, index < 4 ? 200 : 503)
+      if (index < 4)
+        held.push(id)
+      if (index === 0) {
+        const duplicate = randomUUID()
+        await writeFile(path.join(root, 'data/runner-plans', `${duplicate}.json`), JSON.stringify({ ...plan, id: duplicate }))
+        const denied = await fetch(`${url}/runs/${duplicate}`, { method: 'POST', headers })
+        assert.equal(denied.status, 409, 'same disk cannot enter twice')
+      }
+    }
+    assert.equal((await (await api('/health')).json()).pool.occupied, 4)
+    await until(async () => {
+      try {
+        const logs = docker('exec', name, 'cat', `/runner-state/${held[0]}.log`)
+        return logs.split('\n').filter(Boolean).some(line => Buffer.from(JSON.parse(line).data || '', 'base64').toString().includes('slot.ready'))
+      }
+      catch {
+        return false
+      }
+    })
+    await Promise.all(held.map(id => api(`/runs/${id}`, 'DELETE')))
+    await until(async () => {
+      const health = await (await api('/health')).json()
+      return health.activeRuns === 0 && health.pool.ready === 1 && health.pool.occupied === 1
+    })
+    process.stdout.write(`${JSON.stringify({ mode: 'pool-capacity-cancel-refill', status: 'passed' })}\n`)
   }
   catch (error) {
     console.error(error)
@@ -290,7 +338,7 @@ console.log('probe.done');
   finally {
     if (process.env.KEEP_VM_TEST !== '1') {
       try {
-        docker('rm', '-f', name)
+        docker('rm', '-fv', name)
       }
       catch {
       }

@@ -9,7 +9,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::{path::Path, process::Stdio, time::Duration};
 use tokio::{
-    io::{AsyncReadExt, BufReader},
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
     net::UnixListener,
     process::Command,
     sync::mpsc,
@@ -67,10 +67,33 @@ async fn handle(
         .await?
         .ok_or_else(|| Error::bad("Missing guest request."))?;
     match text(&request, "op") {
+        "prepare" => {
+            let _guard = running.try_lock().map_err(|_| Error::new(409,"Guest already running."))?;
+            if Path::new(INITIALIZED).exists() || Path::new("/home/node/.codex/auth.json").exists() {
+                return Err(Error::bad("Only a virgin VM may be prepared."));
+            }
+            let mut command = Command::new("/usr/local/bin/leo");
+            command.arg("guest-warm").env("HOME","/home/node").env("CODEX_HOME","/home/node/.codex")
+                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
+            unsafe { command.pre_exec(|| {
+                if libc::setgroups(0,std::ptr::null()) != 0 || libc::setgid(1000) != 0 || libc::setuid(1000) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            }); }
+            let status = command.status().await?;
+            wire::write(&mut write,&json!({"ok":status.success()})).await
+        }
+        "clock" => {
+            let epoch = request["epochMs"].as_i64().filter(|v| *v > 0).ok_or_else(|| Error::bad("Invalid guest clock."))?;
+            let time = libc::timespec { tv_sec: epoch / 1000, tv_nsec: (epoch % 1000) * 1_000_000 };
+            if unsafe { libc::clock_settime(libc::CLOCK_REALTIME,&time) } != 0 { return Err(std::io::Error::last_os_error().into()); }
+            wire::write(&mut write,&json!({"ok":true})).await
+        }
         "status" => {
             wire::write(
                 &mut write,
-                &json!({"version":1,"initialized":Path::new(INITIALIZED).exists()}),
+                &json!({"version":1,"binaryImports":true,"initialized":Path::new(INITIALIZED).exists()}),
             )
             .await
         }
@@ -113,7 +136,17 @@ async fn handle(
                 .kill_on_drop(true)
                 .spawn()?;
             let mut input = child.stdin.take().unwrap();
+            let binary = request["encoding"] == "binary";
+            let mut buffer = vec![0; wire::MAX_CHUNK];
             loop {
+                if binary {
+                    let count = wire::read_chunk(&mut read, &mut buffer).await?;
+                    if count == 0 {
+                        break;
+                    }
+                    input.write_all(&buffer[..count]).await?;
+                    continue;
+                }
                 let chunk = wire::read(&mut read)
                     .await?
                     .ok_or_else(|| Error::bad("Guest import was interrupted."))?;
@@ -126,7 +159,6 @@ async fn handle(
                 let bytes = STANDARD
                     .decode(text(&chunk, "data"))
                     .map_err(|_| Error::bad("Invalid import bytes."))?;
-                use tokio::io::AsyncWriteExt;
                 input.write_all(&bytes).await?;
             }
             drop(input);

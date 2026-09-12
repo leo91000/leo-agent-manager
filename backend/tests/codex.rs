@@ -192,6 +192,23 @@ async fn model_catalog_respects_enabled_accounts_and_routes_to_an_account_with_t
     }
     let catalog = service.models.list(&service).await.unwrap();
     assert_eq!(catalog["models"].as_array().unwrap().len(), 3);
+    use leo_agent_manager::models::cached_defaults;
+    assert_eq!(
+        cached_defaults(&service, &ids[0], "fixture-deep")
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        cached_defaults(&service, &ids[1], "fixture-deep")
+            .await
+            .unwrap(),
+        Some(("fixture-deep".into(), "medium".into()))
+    );
+    assert_eq!(
+        cached_defaults(&service, &ids[0], "").await.unwrap(),
+        Some(("fixture-fast".into(), "low".into()))
+    );
     for id in &ids {
         assert!(
             !service
@@ -427,6 +444,31 @@ async fn parallel_runs_share_one_refresh_and_cannot_overwrite_or_reuse_released_
     let mut b = Client::new(&second.home).unwrap();
     assert_eq!(a.tokens(false).await.unwrap()["accessToken"], "synthetic");
     assert_eq!(b.tokens(false).await.unwrap()["accessToken"], "synthetic");
+    // Simulate a slow quota monitor owning the rotation lock. Valid token reads
+    // still finish, while refresh requests remain serialized behind that owner.
+    let monitoring = service.accounts.lock(id).await;
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_millis(500), a.tokens(false))
+            .await
+            .unwrap()
+            .unwrap()["accessToken"],
+        "synthetic"
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(30), b.tokens(true))
+            .await
+            .is_err()
+    );
+    let mut forged = first.clone();
+    forged.home = second.home.clone();
+    assert!(
+        service
+            .accounts
+            .access_tokens(&service, &forged, &json!({"refresh":false}))
+            .await
+            .is_err()
+    );
+    drop(monitoring);
     let (a_refreshed, b_refreshed) = tokio::join!(a.tokens(true), b.tokens(true));
     assert_eq!(
         a_refreshed.as_ref().unwrap()["accessToken"],

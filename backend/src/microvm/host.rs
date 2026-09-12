@@ -21,14 +21,27 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 pub async fn command(binary: &str, args: &[&str]) -> Result<()> {
-    let result = Command::new(binary)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .output()
-        .await?;
+    let result = tokio::time::timeout(
+        Duration::from_secs(if ["ip", "iptables"].contains(&binary) {
+            10
+        } else {
+            180
+        }),
+        Command::new(binary)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .map_err(|_| {
+        Error::new(
+            503,
+            format!("VM infrastructure operation timed out: {binary}"),
+        )
+    })??;
     if !result.status.success() {
         tracing::warn!(binary, detail=%String::from_utf8_lossy(&result.stderr), "VM infrastructure operation failed");
         return Err(Error::new(
@@ -122,6 +135,7 @@ fn console(
 }
 
 async fn import(socket: &Path, source: &Path, target: &str) -> Result<()> {
+    let binary = request(socket, &json!({"op":"status"})).await?["binaryImports"] == true;
     let mut stream = connect(socket).await?;
     let empty = tokio::fs::read_dir(source)
         .await?
@@ -130,10 +144,10 @@ async fn import(socket: &Path, source: &Path, target: &str) -> Result<()> {
         .is_none();
     wire::write(
         stream.get_mut(),
-        &json!({"op":"import","target":target,"replace":empty}),
+        &json!({"op":"import","target":target,"replace":empty,"encoding":if binary {"binary"} else {"json"}}),
     )
     .await?;
-    transfer(stream, source, target).await
+    transfer(stream, source, target, binary).await
 }
 
 /// The manager chooses all paths; guest replies never select a host import.
@@ -143,10 +157,11 @@ pub async fn import_project(
     target: &str,
     read_only: bool,
 ) -> Result<Value> {
+    let binary = request(socket, &json!({"op":"status"})).await?["binaryImports"] == true;
     let mut stream = connect(socket).await?;
     wire::write(
         stream.get_mut(),
-        &json!({"op":"project-import","target":target,"readOnly":read_only}),
+        &json!({"op":"project-import","target":target,"readOnly":read_only,"encoding":if binary {"binary"} else {"json"}}),
     )
     .await?;
     let response = wire::read(&mut stream)
@@ -158,11 +173,16 @@ pub async fn import_project(
     if response["ready"] != true {
         return Err(Error::bad("Guest refused project import."));
     }
-    transfer(stream, source, target).await?;
+    transfer(stream, source, target, binary).await?;
     Ok(json!({"ok":true,"reused":false}))
 }
 
-async fn transfer(mut stream: BufReader<UnixStream>, source: &Path, target: &str) -> Result<()> {
+async fn transfer(
+    mut stream: BufReader<UnixStream>,
+    source: &Path,
+    target: &str,
+    binary: bool,
+) -> Result<()> {
     let mut tar = Command::new("tar");
     tar.args(["--exclude=leo-auth.sock", "--exclude=*.sock"]);
     if target == "/home/node" {
@@ -177,19 +197,27 @@ async fn transfer(mut stream: BufReader<UnixStream>, source: &Path, target: &str
         .spawn()?;
     use tokio::io::AsyncReadExt;
     let mut archive = child.stdout.take().unwrap();
-    let mut buffer = vec![0; 65536];
+    let mut buffer = vec![0; wire::MAX_CHUNK];
     loop {
         let count = archive.read(&mut buffer).await?;
         if count == 0 {
             break;
         }
-        wire::write(
-            stream.get_mut(),
-            &json!({"type":"chunk","data":STANDARD.encode(&buffer[..count])}),
-        )
-        .await?;
+        if binary {
+            wire::write_chunk(stream.get_mut(), &buffer[..count]).await?;
+        } else {
+            wire::write(
+                stream.get_mut(),
+                &json!({"type":"chunk","data":STANDARD.encode(&buffer[..count])}),
+            )
+            .await?;
+        }
     }
-    wire::write(stream.get_mut(), &json!({"type":"end"})).await?;
+    if binary {
+        wire::write_chunk(stream.get_mut(), &[]).await?;
+    } else {
+        wire::write(stream.get_mut(), &json!({"type":"end"})).await?;
+    }
     let code = child.wait().await?.code();
     if !matches!(code, Some(0 | 1)) {
         return Err(Error::bad("Workspace import failed."));
@@ -245,22 +273,32 @@ impl Network {
         )
         .await?;
         command("ip", &["link", "set", &self.tap, "up"]).await?;
-        command("iptables", &["-w", "-N", &self.chain]).await?;
+        command("iptables", &["-w", "5", "-N", &self.chain]).await?;
         // No VM can contact the runner, a peer VM, LAN, or cloud metadata.
         command(
             "iptables",
-            &["-w", "-I", "INPUT", "-i", &self.tap, "-j", "DROP"],
-        )
-        .await?;
-        command(
-            "iptables",
-            &["-w", "-I", "FORWARD", "-i", &self.tap, "-j", &self.chain],
+            &["-w", "5", "-I", "INPUT", "-i", &self.tap, "-j", "DROP"],
         )
         .await?;
         command(
             "iptables",
             &[
                 "-w",
+                "5",
+                "-I",
+                "FORWARD",
+                "-i",
+                &self.tap,
+                "-j",
+                &self.chain,
+            ],
+        )
+        .await?;
+        command(
+            "iptables",
+            &[
+                "-w",
+                "5",
                 "-A",
                 &self.chain,
                 "!",
@@ -283,7 +321,7 @@ impl Network {
         ] {
             command(
                 "iptables",
-                &["-w", "-A", &self.chain, "-d", subnet, "-j", "DROP"],
+                &["-w", "5", "-A", &self.chain, "-d", subnet, "-j", "DROP"],
             )
             .await?;
         }
@@ -293,6 +331,7 @@ impl Network {
                 "iptables",
                 &[
                     "-w",
+                    "5",
                     "-A",
                     &self.chain,
                     "-p",
@@ -307,11 +346,12 @@ impl Network {
             )
             .await?;
         }
-        command("iptables", &["-w", "-A", &self.chain, "-j", "DROP"]).await?;
+        command("iptables", &["-w", "5", "-A", &self.chain, "-j", "DROP"]).await?;
         command(
             "iptables",
             &[
                 "-w",
+                "5",
                 "-I",
                 "FORWARD",
                 "-o",
@@ -329,6 +369,7 @@ impl Network {
             "iptables",
             &[
                 "-w",
+                "5",
                 "-t",
                 "nat",
                 "-A",
@@ -343,10 +384,20 @@ impl Network {
     }
     async fn remove(&self) {
         for args in [
-            vec!["-w", "-D", "INPUT", "-i", &self.tap, "-j", "DROP"],
-            vec!["-w", "-D", "FORWARD", "-i", &self.tap, "-j", &self.chain],
+            vec!["-w", "5", "-D", "INPUT", "-i", &self.tap, "-j", "DROP"],
             vec![
                 "-w",
+                "5",
+                "-D",
+                "FORWARD",
+                "-i",
+                &self.tap,
+                "-j",
+                &self.chain,
+            ],
+            vec![
+                "-w",
+                "5",
                 "-D",
                 "FORWARD",
                 "-o",
@@ -360,6 +411,7 @@ impl Network {
             ],
             vec![
                 "-w",
+                "5",
                 "-t",
                 "nat",
                 "-D",
@@ -369,289 +421,489 @@ impl Network {
                 "-j",
                 "MASQUERADE",
             ],
-            vec!["-w", "-F", &self.chain],
-            vec!["-w", "-X", &self.chain],
+            vec!["-w", "5", "-F", &self.chain],
+            vec!["-w", "5", "-X", &self.chain],
         ] {
-            let _ = Command::new("iptables")
-                .args(args)
+            let _ = tokio::time::timeout(
+                Duration::from_secs(10),
+                Command::new("iptables")
+                    .args(args)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .kill_on_drop(true)
+                    .status(),
+            )
+            .await;
+        }
+        let _ = tokio::time::timeout(
+            Duration::from_secs(10),
+            Command::new("ip")
+                .args(["link", "del", &self.tap])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
-                .status()
-                .await;
-        }
-        let _ = Command::new("ip")
-            .args(["link", "del", &self.tap])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await;
+                .kill_on_drop(true)
+                .status(),
+        )
+        .await;
     }
 }
 
-pub async fn execute(
-    plan: Value,
-    state: PathBuf,
-    image: PathBuf,
-    slot: u8,
-    stop: CancellationToken,
-) -> Result<i32> {
-    let id = text(&plan, "id");
-    let disk_dir = state.join("disks").join(text(&plan, "runId"));
-    private_dir(&disk_dir).await?;
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(disk_dir.join("lock"))?;
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Err(Error::new(
-            409,
-            "The previous VM still owns this workspace.",
-        ));
+/// Owns every resource of a booted VM. A prepared disk can be adopted once only.
+pub struct Vm {
+    pub socket: PathBuf,
+    jail: PathBuf,
+    disk_dir: PathBuf,
+    lock: Option<std::fs::File>,
+    child: Option<tokio::process::Child>,
+    consoles: Vec<tokio::task::JoinHandle<()>>,
+    network: Network,
+    paused: bool,
+    uid: u32,
+}
+impl Vm {
+    pub async fn boot(
+        state: &Path,
+        image: &Path,
+        disk_dir: PathBuf,
+        slot: u8,
+        stop: &CancellationToken,
+    ) -> Result<Self> {
+        private_dir(&disk_dir).await?;
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(disk_dir.join("lock"))?;
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(Error::new(
+                409,
+                "The previous VM still owns this workspace.",
+            ));
+        }
+        let id = crate::config::id();
+        let disk = disk_dir.join("data.ext4");
+        if !disk.exists() {
+            let file = tokio::fs::File::create(disk_dir.join("data.partial")).await?;
+            file.set_len(32 * 1024 * 1024 * 1024).await?;
+            drop(file);
+            command(
+                "mkfs.ext4",
+                &["-q", "-F", disk_dir.join("data.partial").to_str().unwrap()],
+            )
+            .await?;
+            tokio::fs::rename(disk_dir.join("data.partial"), &disk).await?;
+        }
+        let uid = 40000 + u32::from(slot);
+        let jail = state.join("jails/firecracker").join(&id).join("root");
+        let network = Network::new(slot);
+        let socket = jail.join("v.sock");
+
+        let mut vm = Self {
+            socket,
+            jail,
+            disk_dir,
+            lock: Some(lock),
+            child: None,
+            consoles: Vec::new(),
+            network,
+            paused: false,
+            uid,
+        };
+        let jail = &vm.jail;
+        let socket = &vm.socket;
+        let network = &vm.network;
+        let child = &mut vm.child;
+        let consoles = &mut vm.consoles;
+        let operation = async {
+            private_dir(jail).await?;
+            std::os::unix::fs::chown(&disk, Some(uid), Some(uid))?;
+            tokio::fs::hard_link(&disk, jail.join("data.ext4")).await?;
+            tokio::fs::hard_link(image.join("root.ext4"), jail.join("root.ext4")).await?;
+            tokio::fs::copy("/opt/leo-vm/vmlinux", jail.join("vmlinux")).await?;
+            network.create(uid).await?;
+            let config = json!({
+                "boot-source":{"kernel_image_path":"vmlinux","boot_args":format!("console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro init=/sbin/leo-init ip={}::{}:255.255.255.252:leo:eth0:off",network.guest,network.gateway)},
+                "drives":[{"drive_id":"root","path_on_host":"root.ext4","is_root_device":true,"is_read_only":true},{"drive_id":"data","path_on_host":"data.ext4","is_root_device":false,"is_read_only":false}],
+                "machine-config":{"vcpu_count":2,"mem_size_mib":4096,"smt":false},
+                "network-interfaces":[{"iface_id":"net","host_dev_name":network.tap,"guest_mac":format!("06:00:ac:10:{slot:02x}:02")}],
+                "vsock":{"guest_cid":u32::from(slot)+3,"uds_path":"v.sock"}
+            });
+            atomic_write(&jail.join("config.json"), &serde_json::to_vec(&config)?).await?;
+            std::os::unix::fs::chown(jail.join("config.json"), Some(uid), Some(uid))?;
+            *child = Some(
+                Command::new("/usr/local/bin/jailer")
+                    .args([
+                        "--id",
+                        &id,
+                        "--exec-file",
+                        "/usr/local/bin/firecracker",
+                        "--uid",
+                        &uid.to_string(),
+                        "--gid",
+                        &uid.to_string(),
+                        "--cgroup-version",
+                        "2",
+                        "--chroot-base-dir",
+                        state.join("jails").to_str().unwrap(),
+                        "--resource-limit",
+                        "fsize=34359738368",
+                        "--resource-limit",
+                        "no-file=256",
+                        "--",
+                        "--api-sock",
+                        "api.sock",
+                        "--config-file",
+                        "config.json",
+                    ])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .kill_on_drop(true)
+                    .spawn()?,
+            );
+            consoles.push(console(
+                child.as_mut().unwrap().stdout.take().unwrap(),
+                state.join(format!("{id}.boot.log")),
+            ));
+            consoles.push(console(
+                child.as_mut().unwrap().stderr.take().unwrap(),
+                state.join(format!("{id}.vmm.log")),
+            ));
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+            let status = loop {
+                if child.as_mut().unwrap().try_wait()?.is_some() {
+                    return Err(Error::new(
+                        503,
+                        "Firecracker exited before the guest was ready. Check the VM boot log.",
+                    ));
+                }
+                if let Ok(Ok(status)) = tokio::time::timeout(
+                    Duration::from_secs(1),
+                    request(socket, &json!({"op":"status"})),
+                )
+                .await
+                {
+                    break status;
+                }
+                if tokio::time::Instant::now() > deadline {
+                    return Err(Error::new(503, "Guest startup timed out."));
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            };
+            if status["version"] != 1 {
+                return Err(Error::new(503, "Unsupported guest protocol."));
+            }
+
+            Ok(())
+        };
+        let result = tokio::select! { r = operation => r, _ = stop.cancelled() => Err(Error::new(503,"VM preparation stopped.")) };
+        if let Err(error) = result {
+            vm.shutdown().await;
+            return Err(Error::new(
+                error.status,
+                format!("{} (VM {id})", error.message),
+            ));
+        }
+        Ok(vm)
     }
-    let disk = disk_dir.join("data.ext4");
-    if !disk.exists() {
-        let file = tokio::fs::File::create(disk_dir.join("data.partial")).await?;
-        file.set_len(32 * 1024 * 1024 * 1024).await?;
-        drop(file);
-        command(
-            "mkfs.ext4",
-            &["-q", "-F", disk_dir.join("data.partial").to_str().unwrap()],
+    pub async fn discard_prepared(&self) {
+        if self
+            .disk_dir
+            .parent()
+            .is_some_and(|p| p.file_name().is_some_and(|n| n == "prepared"))
+        {
+            let _ = tokio::fs::remove_dir_all(&self.disk_dir).await;
+        }
+    }
+    pub async fn pause(&mut self) -> Result<()> {
+        self.vm_state("Paused").await?;
+        self.paused = true;
+        Ok(())
+    }
+    async fn vm_state(&self, state: &str) -> Result<()> {
+        let body = json!({"state":state}).to_string();
+        let operation = async {
+            let mut stream = UnixStream::connect(self.jail.join("api.sock")).await?;
+            stream.write_all(format!("PATCH /vm HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await?;
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).await?;
+            if !line.starts_with("HTTP/1.1 204 ") {
+                return Err(Error::new(503, "Firecracker refused VM state change."));
+            }
+            // Closing this local connection after the response status is sufficient.
+            Ok(())
+        };
+        tokio::time::timeout(Duration::from_secs(3), operation)
+            .await
+            .map_err(|_| Error::new(503, "VM state change timed out."))?
+    }
+    pub async fn warm(&mut self) -> Result<()> {
+        let response = tokio::time::timeout(
+            Duration::from_secs(60),
+            request(&self.socket, &json!({"op":"prepare"})),
+        )
+        .await
+        .map_err(|_| Error::new(503, "VM warmup timed out."))??;
+        if response["ok"] != true {
+            return Err(Error::new(503, "VM warmup failed."));
+        }
+        self.pause().await
+    }
+    pub async fn adopt(&mut self, state: &Path, run_id: &str) -> Result<()> {
+        let target = state.join("disks").join(run_id);
+        // No replace, including an existing empty directory: it may hold another owner's lock.
+        rename_new(&self.disk_dir, &target)?;
+        self.disk_dir = target;
+        std::fs::File::open(state.join("disks"))?.sync_all()?;
+        Ok(())
+    }
+    async fn resume(&mut self) -> Result<()> {
+        if !self.paused {
+            return Ok(());
+        }
+        self.vm_state("Resumed").await?;
+        self.paused = false;
+        let status = request(
+            &self.socket,
+            &json!({"op":"clock","epochMs":crate::config::now()}),
         )
         .await?;
-        tokio::fs::rename(disk_dir.join("data.partial"), &disk).await?;
+        if status["ok"] != true {
+            return Err(Error::new(503, "Guest clock synchronization failed."));
+        }
+        Ok(())
     }
-    let uid = 40000 + u32::from(slot);
-    let jail = state.join("jails/firecracker").join(id).join("root");
-    private_dir(&jail).await?;
-    std::os::unix::fs::chown(&disk, Some(uid), Some(uid))?;
-    tokio::fs::hard_link(&disk, jail.join("data.ext4")).await?;
-    tokio::fs::hard_link(image.join("root.ext4"), jail.join("root.ext4")).await?;
-    tokio::fs::copy("/opt/leo-vm/vmlinux", jail.join("vmlinux")).await?;
-    let network = Network::new(slot);
-    let socket = jail.join("v.sock");
-    let auth_listener = UnixListener::bind(jail.join("v.sock_5201"))?;
-    std::os::unix::fs::chown(jail.join("v.sock_5201"), Some(uid), Some(uid))?;
-    let auth_path = plan["imports"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|m| m["target"] == "/home/node")
-        .map(|m| Path::new(text(m, "source")).join(".codex/leo-auth.sock"));
-    let relay_stop = CancellationToken::new();
-    let relay_cancel = relay_stop.clone();
-    let relay = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = relay_cancel.cancelled() => break,
-                accepted = auth_listener.accept() => {
-                    let Ok((mut guest,_))=accepted else {break};
-                    if let Some(path)=&auth_path {
-                        // Bound concurrency and lifetime; only this run's manager socket is reachable.
-                        if let Ok(mut manager)=UnixStream::connect(path).await {
-                            let _=tokio::time::timeout(Duration::from_secs(15),tokio::io::copy_bidirectional(&mut guest,&mut manager)).await;
-                        }
-                    }
-                }
-            }
-        }
-    });
-    let mut child = None;
-    let mut consoles = Vec::new();
-    let result = async {
-        network.create(uid).await?;
-        let config = json!({
-            "boot-source":{"kernel_image_path":"vmlinux","boot_args":format!("console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro init=/sbin/leo-init ip={}::{}:255.255.255.252:leo:eth0:off",network.guest,network.gateway)},
-            "drives":[{"drive_id":"root","path_on_host":"root.ext4","is_root_device":true,"is_read_only":true},{"drive_id":"data","path_on_host":"data.ext4","is_root_device":false,"is_read_only":false}],
-            "machine-config":{"vcpu_count":2,"mem_size_mib":4096,"smt":false},
-            "network-interfaces":[{"iface_id":"net","host_dev_name":network.tap,"guest_mac":format!("06:00:ac:10:{slot:02x}:02")}],
-            "vsock":{"guest_cid":u32::from(slot)+3,"uds_path":"v.sock"}
-        });
-        atomic_write(&jail.join("config.json"), &serde_json::to_vec(&config)?).await?;
-        std::os::unix::fs::chown(jail.join("config.json"), Some(uid), Some(uid))?;
-        child = Some(
-            Command::new("/usr/local/bin/jailer")
-                .args([
-                    "--id",
-                    id,
-                    "--exec-file",
-                    "/usr/local/bin/firecracker",
-                    "--uid",
-                    &uid.to_string(),
-                    "--gid",
-                    &uid.to_string(),
-                    "--cgroup-version",
-                    "2",
-                    "--chroot-base-dir",
-                    state.join("jails").to_str().unwrap(),
-                    "--resource-limit",
-                    "fsize=34359738368",
-                    "--resource-limit",
-                    "no-file=256",
-                    "--",
-                    "--no-api",
-                    "--config-file",
-                    "config.json",
-                ])
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true)
-                .spawn()?,
-        );
-        consoles.push(console(
-            child.as_mut().unwrap().stdout.take().unwrap(),
-            state.join(format!("{id}.boot.log")),
-        ));
-        consoles.push(console(
-            child.as_mut().unwrap().stderr.take().unwrap(),
-            state.join(format!("{id}.vmm.log")),
-        ));
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-        let status = loop {
-            if child.as_mut().unwrap().try_wait()?.is_some() {
-                return Err(Error::new(
-                    503,
-                    "Firecracker exited before the guest was ready. Check the VM boot log.",
-                ));
-            }
-            if let Ok(Ok(status)) = tokio::time::timeout(
-                Duration::from_secs(1),
-                request(&socket, &json!({"op":"status"})),
-            )
+    pub async fn activate(&mut self) -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(5), self.resume())
             .await
-            {
-                break status;
-            }
-            if tokio::time::Instant::now() > deadline {
-                return Err(Error::new(503, "Guest startup timed out."));
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        };
-        if status["version"] != 1 {
-            return Err(Error::new(503, "Unsupported guest protocol."));
+            .map_err(|_| Error::new(503, "Guest resume timed out."))?
+    }
+    pub async fn shutdown(&mut self) {
+        if self.paused {
+            let _ = self.vm_state("Resumed").await;
+            self.paused = false;
         }
-        if status["initialized"] != true {
-            let mut imported = Vec::<(&Path, &str)>::new();
-            for mount in plan["imports"].as_array().into_iter().flatten() {
-                let source = Path::new(text(mount, "source"));
-                let target = text(mount, "target");
-                // The workspace root already includes its projects. Separate
-                // entries still carry their read-only policy, but need no second archive.
-                if !imported.iter().any(|(parent, destination)| {
-                    source.strip_prefix(parent).is_ok_and(|relative| {
-                        Path::new(destination).join(relative) == Path::new(target)
-                    })
-                }) {
-                    import(&socket, source, target).await?;
-                    imported.push((source, target));
-                }
-            }
-        } else {
-            // Credentials and the volatile inbox are refreshed, never the saved workspaces.
-            for mount in plan["imports"].as_array().into_iter().flatten() {
-                if mount["target"] == "/run/leo-chat" {
-                    import(&socket, Path::new(text(mount, "source")), "/run/leo-chat").await?;
-                }
-                if mount["target"] == "/home/node" {
-                    let source = Path::new(text(mount, "source")).join(".config/gh");
-                    if source.exists() {
-                        import(&socket, &source, "/home/node/.config/gh").await?;
-                    }
-                }
-            }
+        let _ = tokio::time::timeout(
+            Duration::from_secs(2),
+            request(&self.socket, &json!({"op":"shutdown"})),
+        )
+        .await;
+        if let Some(mut child) = self.child.take()
+            && tokio::time::timeout(Duration::from_secs(8), child.wait())
+                .await
+                .is_err()
+        {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
         }
-        let mut stream = connect(&socket).await?;
-        wire::write(stream.get_mut(), &json!({"op":"run","plan":plan})).await?;
-        let mut timer = tokio::time::interval(Duration::from_millis(500));
-        let inbox = plan["imports"]
+        for console in self.consoles.drain(..) {
+            let _ = console.await;
+        }
+        self.network.remove().await;
+        let _ = tokio::fs::remove_dir_all(self.jail.parent().unwrap()).await;
+        self.lock.take();
+    }
+    pub async fn execute(
+        &mut self,
+        plan: &Value,
+        state: &Path,
+        stop: CancellationToken,
+    ) -> Result<i32> {
+        self.activate().await?;
+        let id = text(plan, "id");
+        let vm_id = self
+            .jail
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+        atomic_write(
+            &state.join(format!("{id}.vm.json")),
+            &serde_json::to_vec(&json!({"vmId":vm_id,"runId":plan["runId"]}))?,
+        )
+        .await?;
+        let socket = &self.socket;
+        let relay_path = self.jail.join("v.sock_5201");
+        let auth_listener = UnixListener::bind(&relay_path)?;
+        let uid = self.uid;
+        std::os::unix::fs::chown(&relay_path, Some(uid), Some(uid))?;
+        let auth_path = plan["imports"]
             .as_array()
             .into_iter()
             .flatten()
-            .find(|m| m["target"] == "/run/leo-chat")
-            .map(|m| PathBuf::from(text(m, "source")));
-        let mut last_inbox = Vec::new();
-        let mut logs = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(state.join(format!("{id}.log")))
-            .await?;
-        let mut total = 0usize;
-        loop {
-            // Keep the read future alive across inbox ticks: dropping it halfway
-            // through a fragmented frame would discard already-consumed bytes.
-            let next = wire::read(&mut stream);
-            tokio::pin!(next);
-            let event = loop {
+            .find(|m| m["target"] == "/home/node")
+            .map(|m| Path::new(text(m, "source")).join(".codex/leo-auth.sock"));
+        let relay_stop = CancellationToken::new();
+        let relay_cancel = relay_stop.clone();
+        let relay = tokio::spawn(async move {
+            loop {
                 tokio::select! {
-                    event=&mut next=>break event,
-                    _=timer.tick()=>{
-                        if let Some(inbox)=&inbox {
-                            let content=tokio::fs::read(inbox.join("messages.json")).await.unwrap_or_default();
-                            if content!=last_inbox {
-                                import(&socket,inbox,"/run/leo-chat").await?;
-                                last_inbox=content;
+                    _ = relay_cancel.cancelled() => break,
+                    accepted = auth_listener.accept() => {
+                        let Ok((mut guest,_))=accepted else {break};
+                        if let Some(path)=&auth_path {
+                            // Bound concurrency and lifetime; only this run's manager socket is reachable.
+                            if let Ok(mut manager)=UnixStream::connect(path).await {
+                                let _=tokio::time::timeout(Duration::from_secs(15),tokio::io::copy_bidirectional(&mut guest,&mut manager)).await;
                             }
                         }
                     }
                 }
-            };
-            let event = event?.ok_or_else(|| {
-                Error::new(
-                    503,
-                    "Guest disconnected. Its workspace disk has been preserved.",
-                )
-            })?;
-            match text(&event, "type") {
-                "output" => {
-                    let bytes = STANDARD
-                        .decode(text(&event, "data"))
-                        .map_err(|_| Error::bad("Invalid guest output."))?;
-                    total += bytes.len();
-                    if total > 100_000_000 {
-                        return Err(Error::bad("Guest output exceeded the run limit."));
-                    }
-                    wire::write(&mut logs, &event).await?;
-                }
-                "exit" => {
-                    let code = event["code"]
-                        .as_i64()
-                        .filter(|n| (0..=255).contains(n))
-                        .ok_or_else(|| Error::bad("Invalid guest exit status."))?;
-                    let output = text(&plan["chat"], "output");
-                    if !output.is_empty() {
-                        atomic_write(Path::new(output), text(&event, "result").as_bytes()).await?;
-                        std::os::unix::fs::chown(output, Some(1000), Some(1000))?;
-                    }
-                    return Ok(code as i32);
-                }
-                _ => return Err(Error::bad("Unknown guest event.")),
             }
-        }
-    };
-    let result = tokio::select! {result=result=>result,_=stop.cancelled()=>Ok(143)};
-    let _ = tokio::time::timeout(
-        Duration::from_secs(2),
-        request(&socket, &json!({"op":"shutdown"})),
-    )
-    .await;
-    if let Some(mut child) = child
-        && tokio::time::timeout(Duration::from_secs(8), child.wait())
-            .await
-            .is_err()
+        });
+
+        let operation = async {
+            let status = request(socket, &json!({"op":"status"})).await?;
+            if status["initialized"] != true {
+                let mut imported = Vec::<(&Path, &str)>::new();
+                for mount in plan["imports"].as_array().into_iter().flatten() {
+                    let source = Path::new(text(mount, "source"));
+                    let target = text(mount, "target");
+                    // The workspace root already includes its projects. Separate
+                    // entries still carry their read-only policy, but need no second archive.
+                    if !imported.iter().any(|(parent, destination)| {
+                        source.strip_prefix(parent).is_ok_and(|relative| {
+                            Path::new(destination).join(relative) == Path::new(target)
+                        })
+                    }) {
+                        import(socket, source, target).await?;
+                        imported.push((source, target));
+                    }
+                }
+            } else {
+                // Credentials and the volatile inbox are refreshed, never the saved workspaces.
+                for mount in plan["imports"].as_array().into_iter().flatten() {
+                    if mount["target"] == "/run/leo-chat" {
+                        import(socket, Path::new(text(mount, "source")), "/run/leo-chat").await?;
+                    }
+                    if mount["target"] == "/home/node" {
+                        let source = Path::new(text(mount, "source")).join(".config/gh");
+                        if source.exists() {
+                            import(socket, &source, "/home/node/.config/gh").await?;
+                        }
+                    }
+                }
+            }
+            let mut stream = connect(socket).await?;
+            wire::write(stream.get_mut(), &json!({"op":"run","plan":plan})).await?;
+            let mut timer = tokio::time::interval(Duration::from_millis(500));
+            let inbox = plan["imports"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|m| m["target"] == "/run/leo-chat")
+                .map(|m| PathBuf::from(text(m, "source")));
+            let mut last_inbox = Vec::new();
+            let mut logs = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(state.join(format!("{id}.log")))
+                .await?;
+            let mut total = 0usize;
+            loop {
+                // Keep the read future alive across inbox ticks: dropping it halfway
+                // through a fragmented frame would discard already-consumed bytes.
+                let next = wire::read(&mut stream);
+                tokio::pin!(next);
+                let event = loop {
+                    tokio::select! {
+                        event=&mut next=>break event,
+                        _=timer.tick()=>{
+                            if let Some(inbox)=&inbox {
+                                let content=tokio::fs::read(inbox.join("messages.json")).await.unwrap_or_default();
+                                if content!=last_inbox {
+                                    import(socket,inbox,"/run/leo-chat").await?;
+                                    last_inbox=content;
+                                }
+                            }
+                        }
+                    }
+                };
+                let event = event?.ok_or_else(|| {
+                    Error::new(
+                        503,
+                        "Guest disconnected. Its workspace disk has been preserved.",
+                    )
+                })?;
+                match text(&event, "type") {
+                    "output" => {
+                        let bytes = STANDARD
+                            .decode(text(&event, "data"))
+                            .map_err(|_| Error::bad("Invalid guest output."))?;
+                        total += bytes.len();
+                        if total > 100_000_000 {
+                            return Err(Error::bad("Guest output exceeded the run limit."));
+                        }
+                        wire::write(&mut logs, &event).await?;
+                    }
+                    "exit" => {
+                        let code = event["code"]
+                            .as_i64()
+                            .filter(|n| (0..=255).contains(n))
+                            .ok_or_else(|| Error::bad("Invalid guest exit status."))?;
+                        let output = text(&plan["chat"], "output");
+                        if !output.is_empty() {
+                            atomic_write(Path::new(output), text(&event, "result").as_bytes())
+                                .await?;
+                            std::os::unix::fs::chown(output, Some(1000), Some(1000))?;
+                        }
+                        return Ok(code as i32);
+                    }
+                    _ => return Err(Error::bad("Unknown guest event.")),
+                }
+            }
+        };
+        let result =
+            tokio::select! { result = operation => result, _ = stop.cancelled() => Ok(143) };
+        relay_stop.cancel();
+        relay.abort();
+        let _ = relay.await;
+        let _ = tokio::fs::remove_file(relay_path).await;
+        result
+    }
+}
+
+/// Atomic publication cannot overwrite another run disk, even if its directory is empty.
+fn rename_new(source: &Path, target: &Path) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let source = std::ffi::CString::new(source.as_os_str().as_bytes()).map_err(Error::internal)?;
+    let target = std::ffi::CString::new(target.as_os_str().as_bytes()).map_err(Error::internal)?;
+    if unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            target.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    } != 0
     {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+        return Err(std::io::Error::last_os_error().into());
     }
-    relay_stop.cancel();
-    for console in consoles {
-        let _ = console.await;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn adoption_never_replaces_a_workspace_or_its_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("prepared");
+        let target = root.path().join("assigned");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("data.ext4"), b"virgin").unwrap();
+        std::fs::create_dir(&target).unwrap();
+        assert!(rename_new(&source, &target).is_err());
+        std::fs::write(target.join("lock"), b"owner").unwrap();
+        assert!(rename_new(&source, &target).is_err());
+        assert_eq!(std::fs::read(target.join("lock")).unwrap(), b"owner");
+        std::fs::remove_file(target.join("lock")).unwrap();
+        std::fs::remove_dir(&target).unwrap();
+        rename_new(&source, &target).unwrap();
+        assert_eq!(std::fs::read(target.join("data.ext4")).unwrap(), b"virgin");
+        assert!(!source.exists());
     }
-    relay.abort();
-    let _ = relay.await;
-    network.remove().await;
-    let _ = tokio::fs::remove_dir_all(jail.parent().unwrap()).await;
-    drop(lock);
-    result
 }

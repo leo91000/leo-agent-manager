@@ -35,7 +35,7 @@ pub const CONTROLLER_INTERRUPTED: i32 = 75;
 struct Attempt {
     stop: CancellationToken,
     done: watch::Receiver<bool>,
-    slot: u8,
+    socket: Arc<tokio::sync::OnceCell<PathBuf>>,
     plan: Value,
     imports: Arc<Mutex<()>>,
 }
@@ -43,7 +43,7 @@ struct Attempt {
 struct Broker {
     data: PathBuf,
     state: PathBuf,
-    image: PathBuf,
+    pool: Arc<crate::microvm::pool::Pool>,
     active: Arc<Mutex<HashMap<String, Attempt>>>,
     stop: CancellationToken,
 }
@@ -98,8 +98,7 @@ fn validate(plan: &Value, id: &str, data: &Path) -> Result<()> {
 }
 impl Broker {
     async fn start(&self, id: &str) -> Result<()> {
-        let mut active = self.active.lock().await;
-        if active.contains_key(id) {
+        if self.active.lock().await.contains_key(id) {
             return Ok(());
         }
         if self.state.join(format!("{id}.stopped")).exists()
@@ -126,9 +125,38 @@ impl Broker {
                 return Err(Error::bad("Execution import changed location."));
             }
         }
-        let slot = (1..=4)
-            .find(|slot| active.values().all(|a| a.slot != *slot))
-            .ok_or_else(|| Error::new(503, "All VM slots are occupied."))?;
+        if self
+            .active
+            .lock()
+            .await
+            .values()
+            .any(|a| a.plan["runId"] == plan["runId"])
+        {
+            return Err(Error::new(
+                409,
+                "This workspace already has an active attempt.",
+            ));
+        }
+        let reservation = self.pool.reserve(text(&plan, "runId")).await?;
+        // Reservation can wait for preparation teardown. Keep health, stop and imports responsive.
+        let mut active = self.active.lock().await;
+        if active.contains_key(id) {
+            return Ok(());
+        }
+        if self.stop.is_cancelled()
+            || self.state.join(format!("{id}.stopped")).exists()
+            || self.state.join(format!("{id}.exit")).exists()
+        {
+            return Err(Error::new(409, "This execution attempt has stopped."));
+        }
+        validate(&plan, id, &self.data)?;
+        if active.values().any(|a| a.plan["runId"] == plan["runId"]) {
+            return Err(Error::new(
+                409,
+                "This workspace already has an active attempt.",
+            ));
+        }
+        let socket = Arc::new(tokio::sync::OnceCell::new());
         let stop = self.stop.child_token();
         let (done, receiver) = watch::channel(false);
         atomic_write(&self.state.join(format!("{id}.active")), b"1").await?;
@@ -137,7 +165,7 @@ impl Broker {
             Attempt {
                 stop: stop.clone(),
                 done: receiver,
-                slot,
+                socket: socket.clone(),
                 plan: plan.clone(),
                 imports: Default::default(),
             },
@@ -152,8 +180,7 @@ impl Broker {
                 tokio::time::sleep(deadline).await;
                 expiry.cancel();
             });
-            let result =
-                host::execute(plan, broker.state.clone(), broker.image.clone(), slot, stop).await;
+            let result = reservation.execute(plan, socket, stop).await;
             timer.abort();
             let code = match result {
                 Ok(code) => code,
@@ -183,7 +210,7 @@ impl Broker {
     }
     async fn open_project(&self, id: &str, project_id: &str, value: Value) -> Result<Value> {
         uuid(project_id)?;
-        let (plan, stop, lock) = {
+        let (plan, stop, lock, socket) = {
             let active = self.active.lock().await;
             let attempt = active
                 .get(id)
@@ -192,6 +219,7 @@ impl Broker {
                 attempt.plan.clone(),
                 attempt.stop.clone(),
                 attempt.imports.clone(),
+                attempt.socket.clone(),
             )
         };
         let _guard = lock.lock().await;
@@ -211,14 +239,12 @@ impl Broker {
                 "Project import is outside its private workspace.",
             ));
         }
-        let socket = self
-            .state
-            .join("jails/firecracker")
-            .join(id)
-            .join("root/v.sock");
+        let socket = socket
+            .get()
+            .ok_or_else(|| Error::new(409, "VM is still starting."))?;
         tokio::select! {
             _ = stop.cancelled() => Err(Error::new(409,"VM stopped during project import.")),
-            result = tokio::time::timeout(Duration::from_secs(290),host::import_project(&socket,source,text(&value,"target"),plan["sandbox"] == "read-only")) => result.map_err(|_| Error::new(503,"Project import timed out."))?,
+            result = tokio::time::timeout(Duration::from_secs(290),host::import_project(socket,source,text(&value,"target"),plan["sandbox"] == "read-only")) => result.map_err(|_| Error::new(503,"Project import timed out."))?,
         }
     }
     async fn stop(&self, id: &str) -> Result<()> {
@@ -240,7 +266,7 @@ impl Broker {
 }
 async fn handler(State(broker): State<Broker>, request: Request) -> Result<Response> {
     if request.uri().path() == "/health" {
-        return Ok(Json(json!({"status":"ok","backend":"firecracker","runtimeId":std::env::var("APP_RUNTIME_ID").unwrap_or_else(|_|"development".into()),"activeRuns":broker.active.lock().await.len()})).into_response());
+        return Ok(Json(json!({"status":"ok","backend":"firecracker","runtimeId":std::env::var("APP_RUNTIME_ID").unwrap_or_else(|_|"development".into()),"activeRuns":broker.active.lock().await.len(),"pool":broker.pool.health().await})).into_response());
     }
     let credential = tokio::fs::read_to_string(broker.data.join("runner-secret")).await?;
     let authorization = request
@@ -381,10 +407,13 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
             tokio::fs::remove_file(file.path()).await?;
         }
     }
+    let pool = crate::microvm::pool::Pool::new(state.clone(), image, stop.clone()).await?;
+    let preparing = pool.clone();
+    let preparation = tokio::spawn(async move { preparing.maintain().await });
     let broker = Broker {
         data,
         state,
-        image,
+        pool,
         active: Default::default(),
         stop: stop.clone(),
     };
@@ -406,6 +435,8 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
     for id in attempts {
         draining.stop(&id).await?;
     }
+    let _ = preparation.await;
+    draining.pool.drain().await;
     drop(controller);
     Ok(())
 }

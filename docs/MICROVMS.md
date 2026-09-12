@@ -17,6 +17,35 @@ bridges the existing Rust chat/task process inside the VM. `microvm/wire.rs` bou
 protocol messages and rejects truncated frames. Output reads retain partial frames
 while live inbox updates are delivered.
 
+`microvm/pool.rs` owns reservations within the same four-slot budget. It prepares
+one anonymous VM in the background, warms the toolkit and Codex initialization,
+closes Codex, then pauses the VM through Firecracker's local jailed API socket.
+No account, project, inference or run-scoped MCP is used during preparation.
+On assignment the controller resumes the VM, corrects its realtime clock, and
+atomically publishes its private disk under the new run UUID without replacing
+any existing directory. Only then are imports and the account relay attached.
+
+Reservations release their slot after teardown, including abandoned HTTP requests.
+If all other slots are occupied, demand cancels background preparation and waits
+for its resources to drain. Failed preparation backs off for 30 seconds; a dead
+spare falls back to a cold boot before any user command is sent. `/health` on the
+runner exposes pool capacity, occupied slots, readiness and preparation state.
+
+Used VMs are always destroyed. Existing conversations boot from their retained
+disk, preserving work while ending prior background processes. They preferentially
+use a free slot; an anonymous spare is evicted only when capacity requires it.
+Retaining used VM memory needs a separate policy for daemons, account changes and
+sticky guest permissions. Prepared disks left by a controller restart are removed;
+assigned disks remain the recovery authority.
+
+Archive imports negotiate `binaryImports` through guest status. Supporting guests
+receive length-prefixed binary chunks of at most 64 KiB and an explicit zero-length
+end marker, avoiding Base64 expansion and JSON encoding of repository contents.
+Control messages remain bounded JSON. Both sides retain the legacy JSON/Base64
+path for compatibility with older images. Imports still stream directly to guest
+extraction and preserve the existing authorization, atomic publication and
+read-only policy. See [startup measurements](STARTUP-PERFORMANCE.md).
+
 Each VM boots a pinned kernel and a read-only root image. A sparse 32 GiB ext4
 private disk supplies the writable overlay, repositories, home, sessions, installed
 tools and Docker cache. Docker and containerd data are mounted directly from that disk. The daemon
@@ -67,6 +96,12 @@ local development executions retain those locks.
 The guest has a local Unix authentication socket backed by a per-VM vsock relay.
 That relay connects only to the manager socket for the current run/account lease.
 The manager serializes refresh rotation across concurrent uses of an account.
+Valid token reads use an atomic vault snapshot under the live lease lock, without
+waiting for network-bound quota monitoring. Refresh requests still use the shared
+rotation lock and previous-token check. New account selection continues to honor
+due quota polling. Committed chat/task work wakes the scheduler immediately, and
+fresh account-specific model capabilities avoid redundant guest discovery where
+available. Connected apps and MCP startup remain enabled for actual runs.
 Account IDs, refresh tokens, the runner credential and the host Docker socket are
 not supplied through this relay. Managed authentication files are excluded from
 home imports. GitHub credentials remain scoped according to the agent policy.

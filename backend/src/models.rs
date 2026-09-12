@@ -212,3 +212,63 @@ pub async fn account_supports(s: &Service, account: &str, model: &str) -> Result
     }
     Ok(true)
 }
+
+/// Use only this account's fresh capabilities; cache misses retain guest discovery.
+/// Bind model and effort together so a provider default change cannot mix capabilities.
+pub async fn cached_defaults(
+    s: &Service,
+    account: &str,
+    model: &str,
+) -> Result<Option<(String, String)>> {
+    let cached = s.store.kv(&format!("codex-models:{account}")).await?;
+    Ok(cached
+        .as_ref()
+        .and_then(|cached| defaults(cached, model))
+        .map(|(model, effort)| (model.to_owned(), effort.to_owned())))
+}
+fn defaults<'a>(cached: &'a Value, model: &str) -> Option<(&'a str, &'a str)> {
+    let age = now().checked_sub(cached["checkedAt"].as_i64()?)?;
+    if !(0..=TTL).contains(&age) {
+        return None;
+    }
+    let selected = cached["models"].as_array()?.iter().find(|row| {
+        if model.is_empty() {
+            row["isDefault"] == true
+        } else {
+            row["model"] == model
+        }
+    })?;
+    let effort = text(selected, "defaultReasoningEffort");
+    if text(selected, "model").is_empty()
+        || effort.is_empty()
+        || !selected["supportedReasoningEfforts"]
+            .as_array()?
+            .iter()
+            .any(|e| e["reasoningEffort"] == effort)
+    {
+        return None;
+    }
+    Some((text(selected, "model"), effort))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn cached_efforts_require_fresh_matching_capabilities() {
+        let mut cached = json!({"checkedAt":now(),"models":[
+            {"model":"default-model","isDefault":true,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high"}]},
+            {"model":"fast-model","defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low"}]}
+        ]});
+        assert_eq!(defaults(&cached, ""), Some(("default-model", "high")));
+        assert_eq!(defaults(&cached, "fast-model"), Some(("fast-model", "low")));
+        assert_eq!(defaults(&cached, "custom-alias"), None);
+        cached["models"][0]["defaultReasoningEffort"] = "unsupported".into();
+        assert_eq!(defaults(&cached, ""), None);
+        cached["checkedAt"] = (now() - TTL - 1).into();
+        assert_eq!(defaults(&cached, "fast-model"), None);
+        cached["checkedAt"] = (now() + 60_000).into();
+        assert_eq!(defaults(&cached, "fast-model"), None);
+        assert_eq!(defaults(&Value::Null, ""), None);
+    }
+}

@@ -208,9 +208,12 @@ impl Service {
     pub async fn chat_send(&self, id: &str, input: Value) -> Result<Value> {
         let values = parse("message", input)?;
         let id = id.to_owned();
-        self.store
+        let result = self
+            .store
             .transaction(move |db| send(db, &id, values, None))
-            .await
+            .await?;
+        self.worker.notify();
+        Ok(result)
     }
     pub async fn chat_edit(&self, id: &str, message: &str, input: Option<Value>) -> Result<Value> {
         let (id, message) = (id.to_owned(), message.to_owned());
@@ -220,7 +223,8 @@ impl Service {
                 parse("message", input)
             })
             .transpose()?;
-        self.store
+        let result = self
+            .store
             .transaction(move |db| {
                 let chat = chat(db, &id)?;
                 let mut current = required(
@@ -255,11 +259,14 @@ impl Service {
                 merge(&mut current, &values);
                 db.put_message(&current)
             })
-            .await
+            .await?;
+        self.worker.notify();
+        Ok(result)
     }
     pub async fn chat_pause(&self, id: &str, paused: bool) -> Result<Value> {
         let id = id.to_owned();
-        self.store
+        let result = self
+            .store
             .write(move |db| {
                 let mut chat = chat(db, &id)?;
                 merge(
@@ -270,7 +277,9 @@ impl Service {
                 );
                 db.put("chats", &chat)
             })
-            .await
+            .await?;
+        self.worker.notify();
+        Ok(result)
     }
     pub async fn chat_acknowledge(&self, run_id: &str, message_id: &str) -> Result<()> {
         let (run_id, message_id) = (run_id.to_owned(), message_id.to_owned());
@@ -390,7 +399,7 @@ impl Service {
     pub async fn question_answer(&self, chat_id: &str, id: &str, input: Value) -> Result<Value> {
         let values = parse("answer", input)?;
         let (chat_id, id) = (chat_id.to_owned(), id.to_owned());
-        self.store
+        let result = self.store
             .transaction(move |db| {
                 chat(db, &chat_id)?;
                 let question = required(questions(db, &chat_id)?.into_iter().find(|q| q["id"] == id), "Question not found")?;
@@ -416,7 +425,9 @@ impl Service {
                 send(db, &chat_id, message, Some((question, values["answers"].clone())))?;
                 required(questions(db, &chat_id)?.into_iter().find(|q| q["id"] == id), "Question not found")
             })
-            .await
+            .await?;
+        self.worker.notify();
+        Ok(result)
     }
     pub async fn chat_tick(&self, active: &HashSet<String>) -> Result<()> {
         for chat in self.store.list("chats").await? {

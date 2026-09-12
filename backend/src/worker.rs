@@ -23,13 +23,14 @@ use std::{
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
-    sync::{Mutex, OnceCell, mpsc},
+    sync::{Mutex, Notify, OnceCell, mpsc},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 #[derive(Default)]
 pub struct Worker {
     pub active: Mutex<HashMap<String, CancellationToken>>,
     tick_lock: Mutex<()>,
+    wake: Notify,
     initialized: OnceCell<()>,
     maintenance: AtomicI64,
     tasks: TaskTracker,
@@ -105,17 +106,23 @@ impl Worker {
             timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
-                _=s.shutdown.cancelled()=>break,_=timer.tick()=>{
-                if let Err(error)=worker.tick(&s).await{
-                let _=s.store.audit("worker.error",json!({
-                "message":error.message}
-                )).await;
+                    _ = s.shutdown.cancelled() => break,
+                    _ = timer.tick() => {},
+                    _ = worker.wake.notified() => {},
                 }
-                }
+                if let Err(error) = worker.tick(&s).await {
+                    let _ = s
+                        .store
+                        .audit("worker.error", json!({"message": error.message}))
+                        .await;
                 }
             }
         });
         Ok(())
+    }
+    /// Coalesce wakeups without losing work queued during an active scheduling pass.
+    pub fn notify(&self) {
+        self.wake.notify_one();
     }
     pub async fn deployment_lease(
         &self,
@@ -145,7 +152,12 @@ impl Worker {
                 Ok(())
             })
             .await?;
-        Ok(json!({"paused": !release, "activeRuns": self.active.lock().await.len()}))
+        let active_runs = self.active.lock().await.len();
+        drop(_tick);
+        if release {
+            self.notify();
+        }
+        Ok(json!({"paused": !release, "activeRuns": active_runs}))
     }
     pub async fn tick(self: &Arc<Self>, s: &Arc<Service>) -> Result<()> {
         let Ok(_tick) = self.tick_lock.try_lock() else {
@@ -360,6 +372,7 @@ impl Worker {
                         .await;
                 }
                 worker.active.lock().await.remove(&run_id);
+                worker.notify();
             });
         }
         Ok(())
@@ -772,6 +785,18 @@ impl Worker {
                     // chats, while retaining its own task brief and session.
                     chat["execution"] = json!({"messageId":id,"text":prompt,"recovery":resume.is_some(),"attachments":[]});
                 }
+                if text(&chat, "reasoning").is_empty() {
+                    let source = account
+                        .as_ref()
+                        .map(|a| a.account_id.as_str())
+                        .unwrap_or("");
+                    if let Some((model, effort)) =
+                        crate::models::cached_defaults(s, source, text(&chat, "model")).await?
+                    {
+                        chat["model"] = model.into();
+                        chat["reasoning"] = effort.into();
+                    }
+                }
                 binary = std::env::current_exe()?.to_string_lossy().into_owned();
                 args = vec!["chat".into(), s.config.codex_bin.clone()];
                 prompt = chat.to_string();
@@ -1075,6 +1100,7 @@ impl Worker {
         if let Some(cancel) = active.get(id) {
             cancel.cancel();
         }
+        self.notify();
         Ok(())
     }
     pub async fn resume(&self, s: &Service, id: &str) -> Result<Value> {
@@ -1086,7 +1112,7 @@ impl Worker {
             ));
         }
         let id = id.to_owned();
-        s.store
+        let result = s.store
             .transaction(move |db| {
                 let run = required(db.run(&id)?, "Run not found")?;
                 let key = format!("run-checkpoint:{id}");
@@ -1119,7 +1145,9 @@ impl Worker {
                 db.event(&id, "status", "Resume requested", None)?;
                 Ok(result)
             })
-            .await
+            .await?;
+        self.notify();
+        Ok(result)
     }
     pub async fn close(&self) {
         let _guard = self.tick_lock.lock().await;
@@ -1470,4 +1498,103 @@ pub async fn routes(s: &Arc<Service>, input: &crate::http::Input) -> Option<Resu
         _ => return None,
     };
     Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn committed_work_and_deployment_release_wake_the_scheduler() {
+        let root = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(root.path().join("home")).unwrap();
+        let config = crate::config::Config {
+            data_dir: root.path().join("data"),
+            home: root.path().join("home"),
+            workspace_roots: vec![root.path().to_owned()],
+            public_url: "http://localhost:4310".into(),
+            host: "127.0.0.1".into(),
+            port: 0,
+            setup_token: String::new(),
+            codex_bin: "unused".into(),
+            gh_bin: "unused".into(),
+            concurrency: 1,
+            logger: false,
+            worker_enabled: false,
+            runner_url: String::new(),
+        };
+        let s = Service::new(config).await.unwrap();
+        let chat = s
+            .chat_create(json!({"agentId":crate::config::MAIN_AGENT_ID}))
+            .await
+            .unwrap();
+        let chat_id = text(&chat, "id");
+        s.chat_send(chat_id, json!({"id":crate::config::id(),"text":"Hello"}))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_millis(100), s.worker.wake.notified())
+            .await
+            .unwrap();
+        assert_eq!(
+            s.chat_detail(chat_id).await.unwrap()["messages"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(s.chat_send(chat_id, json!({"text":""})).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), s.worker.wake.notified())
+                .await
+                .is_err()
+        );
+        let task = s
+            .task(
+                json!({"name":"Wake test","prompt":"Hello","agentId":crate::config::MAIN_AGENT_ID}),
+                None,
+            )
+            .await
+            .unwrap();
+        let run = s.enqueue(text(&task, "id"), "manual", None).await.unwrap();
+        tokio::time::timeout(Duration::from_millis(100), s.worker.wake.notified())
+            .await
+            .unwrap();
+        s.worker
+            .deployment_lease(&s, "test".into(), false)
+            .await
+            .unwrap();
+        s.worker.tick(&s).await.unwrap();
+        assert!(s.worker.active.lock().await.is_empty());
+        assert_eq!(
+            s.store.run(text(&run, "id")).await.unwrap()["status"],
+            "queued"
+        );
+        s.worker
+            .deployment_lease(&s, "test".into(), true)
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_millis(100), s.worker.wake.notified())
+            .await
+            .unwrap();
+        assert!(s.store.kv("deployment-lease").await.unwrap().is_none());
+    }
+    #[tokio::test]
+    async fn scheduling_wakeups_survive_a_busy_worker_and_coalesce() {
+        let worker = Worker::default();
+        let busy = worker.tick_lock.lock().await;
+        worker.notify();
+        worker.notify();
+        drop(busy);
+        tokio::time::timeout(Duration::from_millis(100), worker.wake.notified())
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), worker.wake.notified())
+                .await
+                .is_err()
+        );
+        worker.notify();
+        tokio::time::timeout(Duration::from_millis(100), worker.wake.notified())
+            .await
+            .unwrap();
+    }
 }

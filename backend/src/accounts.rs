@@ -154,16 +154,28 @@ impl Accounts {
         lease: &Lease,
         request: &Value,
     ) -> Result<Value> {
-        let _guard = self.lock(&lease.account_id).await;
-        if self
-            .leases
-            .lock()
-            .await
+        // Token rotation remains serialized with quota monitoring. Ordinary reads
+        // only need a vault snapshot and a live lease, so network-bound monitoring
+        // cannot stall every running conversation. A stale access token can be
+        // retried through the existing serialized refresh protocol.
+        let _rotation = if request["refresh"] == true {
+            Some(self.lock(&lease.account_id).await)
+        } else {
+            None
+        };
+        let leases = self.leases.lock().await;
+        if leases
             .get(&lease.run_id)
             .is_none_or(|l| l.account_id != lease.account_id || l.home != lease.home)
         {
             return Err(Error::new(409, "This account lease has ended."));
         }
+        let _lease_guard = if request["refresh"] == true {
+            drop(leases);
+            None
+        } else {
+            Some(leases)
+        };
         let key = format!("codex-account:{}", lease.account_id);
         let mut auth = required(s.vault.get(&key).await?, "Reconnect this account.")?;
         // Different runs reporting the same expired token share one refresh.
