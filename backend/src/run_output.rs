@@ -137,6 +137,11 @@ pub fn args(run: &Value, output: &str, session: Option<&str>) -> Vec<String> {
     args
 }
 pub fn prompt(run: &Value, chat: bool) -> String {
+    let deliverables = if run["isolated"] == true {
+        "When the user requests files, screenshots, videos or documents, publish each finished deliverable with leo_workspace.publish_artifact. Use a stable key for revisions and a shared group for related screenshots. Store export files in the current run workspace or /tmp. Wait for successful publication and include the returned durable URL in your reply. Do not present VM-local paths as downloadable links."
+    } else {
+        ""
+    };
     let interaction = if chat {
         "This is an interactive chat. Use native user-input questions when clarification is useful. Nonblocking questions let you continue independent work while the user considers the options; a suggested answer is never user approval. Follow the latest user instructions and do not treat a question as authorization to publish changes."
     } else {
@@ -170,7 +175,7 @@ pub fn prompt(run: &Value, chat: bool) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "{}\n\n{}\n\nAuthorized projects (open only those needed for the task; unopened repositories are not on disk):\n{}\n\nTooling: mise manages project runtimes and global tools. Prefer rg and fd for search. Respect mise.toml, .tool-versions, .nvmrc, .node-version, .python-version, rust-toolchain.toml, and package.json packageManager pins. Use mise exec -- <command> when project environment variables are needed; use uv for Python environments. Do not upgrade project pins unless the task requests it.\n\nSelected skills (use their supporting resources from the supplied paths):\n{skills}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. {interaction} All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.",
+        "{}\n\n{}\n\nAuthorized projects (open only those needed for the task; unopened repositories are not on disk):\n{}\n\nTooling: mise manages project runtimes and global tools. Prefer rg and fd for search. Respect mise.toml, .tool-versions, .nvmrc, .node-version, .python-version, rust-toolchain.toml, and package.json packageManager pins. Use mise exec -- <command> when project environment variables are needed; use uv for Python environments. Do not upgrade project pins unless the task requests it.\n\nSelected skills (use their supporting resources from the supplied paths):\n{skills}\n\nRun this task to completion within its stated scope. Preserve unrelated files. Do not expose credentials. {interaction}\n{deliverables} All task-authorized effects such as creating PRs or releasing must follow their checks. Use .agents/skills for skills. Summarize actual changes, validation, external links and remaining blockers at the end.",
         text(&run["snapshot"]["agent"], "instructions"),
         text(&run["snapshot"]["task"], "prompt"),
         if projects.is_empty() {
@@ -190,6 +195,7 @@ pub fn chat_plan(
     let mut context = run.clone();
     context["snapshot"]["task"]["prompt"] = "".into();
     if prepared["isolated"] == true {
+        context["isolated"] = true.into();
         context["snapshot"]["skills"] = prepared["skills"].clone();
     }
     let mut roots = vec![

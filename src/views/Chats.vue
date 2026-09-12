@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { Deliverable } from '../../shared/artifacts'
 import type { Chat, ChatAttachment, ChatDetail, ChatMessage, ChatView } from '../../shared/chats'
 import type { RunEvent } from '../../shared/contracts'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -23,6 +24,7 @@ const route = useRoute()
 const chats = ref<ChatView[]>([])
 const detail = ref<(ChatDetail & { error?: string }) | null>(null)
 const events = ref<RunEvent[]>([])
+const deliverables = ref<Deliverable[]>([])
 const draft = ref('')
 const model = ref('')
 const reasoning = ref('')
@@ -125,6 +127,7 @@ async function load() {
       if (disposed)
         return
       detail.value = result
+      deliverables.value = result.run ? await api<Deliverable[]>(`/runs/${result.run.id}/artifacts`) : []
       if (result.run) {
         // Incremental batches keep polling inexpensive even for long chats.
         const batch = await api<RunEvent[]>(`/runs/${result.run.id}/events?after=${events.value.at(-1)?.id ?? 0}&limit=500`)
@@ -302,7 +305,7 @@ function key(event: KeyboardEvent) {
             </button>
           </div>
         </div>
-        <ActivityFeed v-else :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="false" :loading="false" :trimmed="0" chat />
+        <ActivityFeed v-else :deliverables="deliverables" :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="false" :loading="false" :trimmed="0" chat />
         <div class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
           <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" @answered="load" />
           <UiAlert v-if="error || detail?.error || detail?.run?.status === 'failed'" class="mb-3">

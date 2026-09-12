@@ -247,7 +247,7 @@ async fn delivered_message_retains_its_original_submission_timestamp() {
 }
 
 #[tokio::test]
-async fn builtin_mcp_endpoint_exposes_only_project_opening_and_checks_the_run_grant() {
+async fn builtin_mcp_endpoint_exposes_scoped_workspace_tools_and_checks_the_run_grant() {
     let (_root, mut s, _) = fixture().await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -286,7 +286,8 @@ async fn builtin_mcp_endpoint_exposes_only_project_opening_and_checks_the_run_gr
         let value: Value = response.json().await.unwrap();
         assert!(value["error"].is_null(), "{value}");
         if method == "tools/list" {
-            assert_eq!(value["result"]["tools"].as_array().unwrap().len(), 1);
+            assert_eq!(value["result"]["tools"].as_array().unwrap().len(), 2);
+            assert_eq!(value["result"]["tools"][1]["name"], "publish_artifact");
             assert_eq!(value["result"]["tools"][0]["name"], "open_project");
         }
     }

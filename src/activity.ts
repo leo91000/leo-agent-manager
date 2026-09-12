@@ -70,6 +70,8 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
   let turn = 0
   let legacyTool: ActivityArtifact | undefined
   for (const event of events) {
+    if (event.type === 'artifact')
+      continue
     if (event.type === 'chat.user') {
       entries.push({ kind: 'message', role: 'user', id: `user:${event.id}`, time: typeof event.payload?.createdAt === 'number' && Number.isFinite(event.payload.createdAt) && event.payload.createdAt > 0 && event.payload.createdAt <= event.createdAt ? event.payload.createdAt : event.createdAt, text: typeof event.payload?.text === 'string' ? event.payload.text : event.text, attachments: Array.isArray(event.payload?.attachments) ? event.payload.attachments : [] })
       continue

@@ -289,6 +289,43 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
         .ok_or_else(|| Error::new(404, "Not found"))?;
     uuid(id)?;
     match (request.method().as_str(), segments.as_slice()) {
+        ("POST", ["runs", id, "artifact"]) => {
+            let id = (*id).to_owned();
+            let bytes = axum::body::to_bytes(request.into_body(), 16384)
+                .await
+                .map_err(|_| Error::bad("Invalid artifact request."))?;
+            let value: Value = serde_json::from_slice(&bytes)?;
+            let (socket, run, stop) = {
+                let active = broker.active.lock().await;
+                let attempt = active
+                    .get(&id)
+                    .ok_or_else(|| Error::new(409, "VM is not active."))?;
+                if attempt.plan["runId"] != value["runId"] {
+                    return Err(Error::new(403, "Wrong artifact scope."));
+                }
+                (
+                    attempt
+                        .socket
+                        .get()
+                        .cloned()
+                        .ok_or_else(|| Error::new(409, "VM is not ready."))?,
+                    text(&attempt.plan, "runId").to_owned(),
+                    attempt.stop.clone(),
+                )
+            };
+            let root = broker.data.join("runs").join(run);
+            let (stream, size) = tokio::select! {
+                _=stop.cancelled()=>return Err(Error::new(409,"VM stopped.")),
+                result=tokio::time::timeout(Duration::from_secs(10),host::export_artifact(&socket,text(&value,"path"),&root))=>result.map_err(|_|Error::new(408,"Artifact export timed out."))??,
+            };
+            let stream = tokio_util::io::ReaderStream::new(stream.take(size))
+                .take_until(async move { stop.cancelled().await });
+            Ok((
+                [(axum::http::header::CONTENT_LENGTH, size.to_string())],
+                Body::from_stream(stream),
+            )
+                .into_response())
+        }
         ("POST", ["runs", id]) => {
             broker.start(id).await?;
             Ok(Json(json!({})).into_response())

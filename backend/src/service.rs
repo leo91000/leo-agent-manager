@@ -12,6 +12,7 @@ use std::{path::Path, sync::Arc};
 use tokio_util::sync::CancellationToken;
 #[derive(Clone)]
 pub struct Service {
+    pub artifacts: Arc<crate::artifacts::Artifacts>,
     pub worker: Arc<crate::worker::Worker>,
     pub mcps: Arc<crate::mcps::Mcps>,
     pub projects: Arc<crate::project_workspaces::Projects>,
@@ -43,6 +44,7 @@ impl Service {
         let store = Store::open(&config.data_dir)?;
         let vault = Vault::new(store.clone(), &config.data_dir)?;
         let service = Arc::new(Self {
+            artifacts: Default::default(),
             worker: Default::default(),
             mcps: Default::default(),
             projects: Default::default(),
@@ -84,6 +86,7 @@ impl Service {
             agent["createdAt"] = now().into();
             service.store.put("agents", agent).await?;
         }
+        tokio::spawn(crate::artifacts::preview::recover(service.clone()));
         Ok(service)
     }
     pub async fn get(&self, kind: &str, id: &str) -> Result<Value> {

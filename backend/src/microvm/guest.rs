@@ -67,6 +67,18 @@ async fn handle(
         .await?
         .ok_or_else(|| Error::bad("Missing guest request."))?;
     match text(&request, "op") {
+        "artifact-export" => {
+            let export=async {
+                let (snapshot,size)=crate::artifacts::file::snapshot(Path::new(text(&request,"path")),Path::new(text(&request,"root"))).await?;
+                wire::write(&mut write,&json!({"ok":true,"size":size})).await?;
+                tokio::io::copy(&mut tokio::fs::File::from_std(snapshot.reopen()?).take(size),&mut write).await?;
+                Ok::<(),Error>(())
+            };
+            match tokio::time::timeout(Duration::from_secs(300),export).await {
+                Ok(Ok(()))=>Ok(()),
+                _=>wire::write(&mut write,&json!({"ok":false})).await,
+            }
+        }
         "prepare" => {
             let _guard = running.try_lock().map_err(|_| Error::new(409,"Guest already running."))?;
             if Path::new(INITIALIZED).exists() || Path::new("/home/node/.codex/auth.json").exists() {

@@ -26,28 +26,28 @@ pub fn catalog(run: &Value) -> Vec<Value> {
         .unwrap_or_else(|| run_projects(run))
 }
 
-pub async fn authorize(s: &Service, bearer: &str) -> Result<Value> {
+pub fn authorize_in(db: &crate::store::Db<'_>, bearer: &str) -> Result<Value> {
     let key = format!("mcp-grant:{}", hex_digest(bearer));
-    s.store
-        .read(move |db| {
-            let denied = || Error::new(401, "Workspace access expired or was revoked.");
-            let grant = db.kv(&key)?.ok_or_else(denied)?;
-            let run = db.run(text(&grant, "runId"))?.ok_or_else(denied)?;
-            if grant["workspace"] != true
-                || run["status"] != "running"
-                || !run["cancelRequestedAt"].is_null()
-            {
-                return Err(denied());
-            }
-            let current = db
-                .get("agents", text(&run["snapshot"]["agent"], "id"))?
-                .ok_or_else(denied)?;
-            if policy(&current) != policy(&run["snapshot"]["agent"]) {
-                return Err(Error::new(403, "Agent permissions changed."));
-            }
-            Ok(run)
-        })
-        .await
+    let denied = || Error::new(401, "Workspace access expired or was revoked.");
+    let grant = db.kv(&key)?.ok_or_else(denied)?;
+    let run = db.run(text(&grant, "runId"))?.ok_or_else(denied)?;
+    if grant["workspace"] != true
+        || run["status"] != "running"
+        || !run["cancelRequestedAt"].is_null()
+    {
+        return Err(denied());
+    }
+    let current = db
+        .get("agents", text(&run["snapshot"]["agent"], "id"))?
+        .ok_or_else(denied)?;
+    if policy(&current) != policy(&run["snapshot"]["agent"]) {
+        return Err(Error::new(403, "Agent permissions changed."));
+    }
+    Ok(run)
+}
+pub async fn authorize(s: &Service, bearer: &str) -> Result<Value> {
+    let bearer = bearer.to_owned();
+    s.store.read(move |db| authorize_in(db, &bearer)).await
 }
 
 impl Projects {
@@ -147,10 +147,27 @@ impl Projects {
 }
 
 pub async fn rpc(s: &Service, bearer: &str, method: &str, params: &Value) -> Result<Value> {
+    if method == "tools/call" && params["name"] == "publish_artifact" {
+        return Ok(
+            match s.artifacts.publish(s, bearer, &params["arguments"]).await {
+                Ok(result) => {
+                    json!({"content":[{"type":"text","text":format!("Published {}: {}",text(&result,"title"),text(&result,"url"))}],"structuredContent":result})
+                }
+                Err(error) => {
+                    json!({"isError":true,"content":[{"type":"text","text":error.message}]})
+                }
+            },
+        );
+    }
     match method {
-        "tools/list" => Ok(
-            json!({"tools":[{"name":"open_project","description":"Open an authorized project in this conversation's private workspace. Call only when you need its files. Repeated calls reuse existing files and changes. Use the returned path for commands and read its AGENTS.md before editing.","inputSchema":{"type":"object","properties":{"projectId":{"type":"string","format":"uuid"}},"required":["projectId"],"additionalProperties":false}}]}),
-        ),
+        "tools/list" => {
+            let mut catalog = json!({"tools":[{"name":"open_project","description":"Open an authorized project in this conversation's private workspace. Call only when you need its files. Repeated calls reuse existing files and changes. Use the returned path for commands and read its AGENTS.md before editing.","inputSchema":{"type":"object","properties":{"projectId":{"type":"string","format":"uuid"}},"required":["projectId"],"additionalProperties":false}}]});
+            catalog["tools"]
+                .as_array_mut()
+                .unwrap()
+                .push(crate::artifacts::tool());
+            Ok(catalog)
+        }
         "tools/call" if params["name"] == "open_project" => {
             let result = s
                 .projects

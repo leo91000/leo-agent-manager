@@ -64,6 +64,8 @@ if(mode==='first') {
   const auth=await new Promise((resolve,reject)=>{const socket=net.connect('/run/leo-auth.sock',()=>socket.write('{"refresh":false}\\n'));let data='';socket.on('data',chunk=>{data+=chunk;if(data.includes('\\n')){socket.end();resolve(JSON.parse(data))}});socket.on('error',reject);});
   assert.equal(auth.accessToken,'fixture-access-token');
   assert.equal(fs.existsSync(project),false,'unopened project is absent');
+  fs.writeFileSync('/tmp/artifact-probe.bin',Buffer.alloc(150000,90));
+  fs.symlinkSync('/etc/passwd','/tmp/artifact-link');
   console.log('probe.ready');
   const deadline=Date.now()+20000;
   while(!fs.readFileSync('/run/leo-chat/messages.json','utf8').includes('steered')){assert.ok(Date.now()<deadline,'live inbox');await new Promise(r=>setTimeout(r,100));}
@@ -145,6 +147,15 @@ console.log('probe.done');
               text += data
               process.stdout.write(data)
               if (data.includes('probe.ready')) {
+                const exported = await api(`/runs/${id}/artifact`, 'POST', { runId, path: '/tmp/artifact-probe.bin' })
+                assert.deepEqual(Buffer.from(await exported.arrayBuffer()), Buffer.alloc(150000, 90))
+                for (const file of ['/etc/passwd', '/tmp/artifact-link', '/tmp/../etc/passwd', '/dev/zero']) {
+                  const denied = await fetch(`${url}/runs/${id}/artifact`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ runId, path: file }) })
+                  assert.equal(denied.status, 400, file)
+                }
+                const wrongRun = await fetch(`${url}/runs/${id}/artifact`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ runId: randomUUID(), path: '/tmp/artifact-probe.bin' }) })
+                assert.equal(wrongRun.status, 403)
+
                 const directory = path.join(source, 'workspace', projectId)
                 await mkdir(directory, { recursive: true })
                 await writeFile(path.join(directory, 'hello'), 'imported on demand')

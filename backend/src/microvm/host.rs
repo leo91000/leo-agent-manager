@@ -120,6 +120,30 @@ async fn request(socket: &Path, request: &Value) -> Result<Value> {
         .ok_or_else(|| Error::new(503, "Guest disconnected."))
 }
 
+pub async fn export_artifact(
+    socket: &Path,
+    path: &str,
+    root: &Path,
+) -> Result<(BufReader<UnixStream>, u64)> {
+    let mut stream = connect(socket).await?;
+    wire::write(
+        stream.get_mut(),
+        &json!({"op":"artifact-export","path":path,"root":root}),
+    )
+    .await?;
+    let reply = wire::read(&mut stream)
+        .await?
+        .ok_or_else(|| Error::bad("Guest disconnected."))?;
+    let size = reply["size"]
+        .as_u64()
+        .filter(|s| *s <= crate::artifacts::file::MAX_FILE)
+        .ok_or_else(|| Error::bad("Guest refused artifact export."))?;
+    if reply["ok"] != true {
+        return Err(Error::bad("Guest refused artifact export."));
+    }
+    Ok((stream, size))
+}
+
 fn console(
     mut stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
     path: PathBuf,

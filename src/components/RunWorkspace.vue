@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import type { Deliverable } from '../../shared/artifacts'
 import type { Run, RunEvent } from '../../shared/contracts'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, date, duration, notify } from '../api'
 import { ArrowLeft, Copy, FileText, RotateCw, Square, Terminal } from '../icons'
 import ActivityFeed from './ActivityFeed.vue'
+import ArtifactGallery from './ArtifactGallery.vue'
+import ArtifactViewer from './ArtifactViewer.vue'
 import Icon from './Icon.vue'
 import Markdown from './Markdown.vue'
 import Modal from './Modal.vue'
@@ -18,6 +21,8 @@ const emit = defineEmits<{ run: [id: string] }>()
 let disposed = false
 const router = useRouter()
 const run = ref<Run>()
+const deliverables = ref<Deliverable[]>([])
+const artifactViewer = ref<string | null>(null)
 const events = ref<RunEvent[]>([])
 const moreEvents = ref(false)
 const loading = ref(false)
@@ -44,6 +49,7 @@ async function load() {
     if (disposed)
       return
     run.value = current
+    deliverables.value = await api<Deliverable[]>(`/runs/${props.runId}/artifacts`)
     const items = await api<RunEvent[]>(
       `/runs/${props.runId}/events?after=${events.value.at(-1)?.id ?? 0}`,
     )
@@ -190,6 +196,7 @@ async function copy() {
           </UiButton>
         </div>
         <div v-if="tab === 'result'" class="result-content flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] text-sm leading-[1.8] p-7.5 phone:p-5.5">
+          <ArtifactGallery v-if="deliverables.length" class="mb-6" :items="deliverables.filter(item => !deliverables.some(other => other.key === item.key && other.version > item.version))" @open="artifactViewer = $event.id" />
           <Markdown v-if="run.summary" :content="run.summary" />
           <div v-else class="mini-empty flex flex-col items-center text-center pt-7 pb-8.5 text-subtle px-6">
             <span class="pulse-ring w-8 h-8 rounded-full border-2 border-line [border-top-color:light-dark(#6660a5,_var(--dark-border))] animate-spin mb-[17px]" />
@@ -199,7 +206,7 @@ async function copy() {
             </p>
           </div>
         </div>
-        <ActivityFeed v-else-if="tab === 'events'" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="moreEvents" :loading="loading" :trimmed="trimmedEvents" :preview="embedded" @load="load" />
+        <ActivityFeed v-else-if="tab === 'events'" :deliverables="deliverables" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="moreEvents" :loading="loading" :trimmed="trimmedEvents" :preview="embedded" @load="load" />
         <div v-else class="result-content flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] text-sm leading-[1.8] p-7.5 phone:p-5.5">
           <div class="run-facts grid grid-cols-[repeat(4,_1fr)] border border-line bg-raised rounded-[10px] text-xs text-subtle phone:grid-cols-2 phone:gap-5 px-6 py-5 mx-0 my-6.5">
             <span>Project<strong>{{ run.snapshot.projects?.map(project => project.name).join(', ') || run.snapshot.project?.name || 'Agent workspace' }}</strong></span><span>Duration<strong>{{ duration(run.startedAt, run.finishedAt) }}</strong></span><span>Triggered by<strong>{{ run.trigger }}</strong></span><span>Model<strong>{{ run.snapshot.agent.model || 'Codex default' }}</strong></span>
@@ -279,4 +286,5 @@ async function copy() {
       </footer>
     </Modal>
   </div>
+  <ArtifactViewer v-if="artifactViewer !== null" :items="deliverables" :initial="artifactViewer" @close="artifactViewer = null" />
 </template>

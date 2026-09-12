@@ -1,20 +1,26 @@
 <script setup lang="ts">
+import type { Deliverable } from '../../shared/artifacts'
 import type { RunEvent } from '../../shared/contracts'
 import type { ActivityArtifact } from '../activity'
 import { twMerge } from 'tailwind-merge'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { latestArtifacts } from '../../shared/artifacts'
 import { activityEntries } from '../activity'
+import { deliveryEntries } from '../deliverables'
 import { ArrowDown, ChevronDown, Layers, LoaderCircle, Maximize2, Minimize2, Zap } from '../icons'
 import { iconButton } from '../ui'
 import ActivityArtifactCard from './ActivityArtifactCard.vue'
 import ActivityContent from './ActivityContent.vue'
+import ArtifactGallery from './ArtifactGallery.vue'
+import ArtifactViewer from './ArtifactViewer.vue'
 import ChatAttachments from './ChatAttachments.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, deliverables?: Deliverable[] }>()
 defineEmits<{ load: [] }>()
-const entries = computed(() => activityEntries(props.events))
+const entries = computed(() => deliveryEntries(activityEntries(props.events), props.deliverables ?? []))
+const artifactViewer = ref<string | null>(null)
 const follow = ref(true)
 const fullscreen = ref(false)
 const viewer = ref<HTMLDialogElement>()
@@ -109,6 +115,9 @@ onBeforeUnmount(() => viewer.value?.close())
             <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0" :class="{ live: active }" /><span>{{ fullscreen ? task : chat ? (active ? 'Working' : 'Conversation') : 'Agent activity' }}</span>
           </div>
           <div class="activity-toolbar-controls ml-auto flex items-center gap-5 shrink-0 phone:flex-1 phone:justify-end phone:gap-4">
+            <button v-if="deliverables?.length" class="rounded-md px-2 py-2 text-xs text-muted hover:bg-hover hover:text-ink" @click="artifactViewer = ''">
+              Files · {{ latestArtifacts(deliverables).length }}
+            </button>
             <button v-if="chat" :class="iconButton" aria-label="Follow output" :aria-pressed="follow" :title="follow ? 'Pause auto-scroll' : 'Follow latest output'" @click="follow = !follow; followChanged()">
               <Icon :name="ArrowDown" :size="17" />
             </button>
@@ -127,7 +136,10 @@ onBeforeUnmount(() => viewer.value?.close())
               Showing the latest {{ events.length.toLocaleString() }} events. {{ trimmed.toLocaleString() }} earlier events are outside this view.
             </p>
             <template v-for="entry in entries" :key="entry.id">
-              <article v-if="entry.kind === 'message'" class="activity-message mt-6.5 mb-7.5 mx-0" :class="entry.role === 'user' ? 'ml-auto! max-w-[85%] rounded-2xl rounded-br-md bg-hover px-5 py-3' : ''">
+              <div v-if="entry.kind === 'deliverables'" class="my-5">
+                <ArtifactGallery :items="entry.files" @open="artifactViewer = $event.id" />
+              </div>
+              <article v-else-if="entry.kind === 'message'" class="activity-message mt-6.5 mb-7.5 mx-0" :class="entry.role === 'user' ? 'ml-auto! max-w-[85%] rounded-2xl rounded-br-md bg-hover px-5 py-3' : ''">
                 <header><span class="message-dot w-[5px] h-[5px] bg-[light-dark(#4f4c73,_var(--dark-accent-surface))] rounded-full" /><strong>{{ entry.role === 'user' ? 'You' : agent }}</strong><time :datetime="new Date(entry.time).toISOString()" :title="new Date(entry.time).toLocaleString()">{{ new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time></header>
                 <p v-if="entry.role === 'user'" class="whitespace-pre-wrap text-sm leading-relaxed">
                   {{ entry.text }}
@@ -160,4 +172,5 @@ onBeforeUnmount(() => viewer.value?.close())
       </section>
     </Teleport>
   </div>
+  <ArtifactViewer v-if="artifactViewer !== null" :items="deliverables ?? []" :initial="artifactViewer" @close="artifactViewer = null" />
 </template>

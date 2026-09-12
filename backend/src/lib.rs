@@ -1,6 +1,7 @@
 pub mod account_tokens;
 pub mod accounts;
 pub mod api;
+pub mod artifacts;
 pub mod attachments;
 pub mod auth;
 pub mod chat_process;

@@ -1,6 +1,6 @@
 [package]
 name = "leo-agent-manager"
-version = "0.17.0"
+version = "0.18.0"
 edition = "2024"
 rust-version = "1.97"
 publish = false
@@ -42,6 +42,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 futures-util = "0.3"
 http-body-util = "0.1"
 bytes = "1"
+tempfile = "3"
 uuid = { version = "1", features = [
   "v4",
   "serde"
