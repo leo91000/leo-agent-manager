@@ -5,6 +5,7 @@ import { reactive } from 'vue'
 export const state = reactive({
   ready: false,
   authenticated: false,
+  signingOut: false,
   setupRequired: false,
   csrf: '',
   agents: [] as Agent[],

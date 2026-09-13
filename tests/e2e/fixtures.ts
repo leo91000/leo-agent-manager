@@ -11,7 +11,7 @@ import { config as loadConfig } from '../legacy/server/config'
 import { Service as SeedService } from '../legacy/server/service'
 import { Store } from '../legacy/server/store'
 
-interface Workspace {
+export interface Workspace {
   service: Service
   restart: () => Promise<void>
   url: string

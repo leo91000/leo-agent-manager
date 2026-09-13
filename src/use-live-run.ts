@@ -2,7 +2,7 @@ import type { RunEvent } from '../shared/contracts'
 import type { LiveState } from '../shared/live'
 import type { LiveStatus } from './live-connection'
 import { computed, onScopeDispose, ref, watch } from 'vue'
-import { api, ApiError } from './api'
+import { api, ApiError, state } from './api'
 import { liveConnection } from './live-connection'
 import { LiveEvents } from './live-events'
 
@@ -16,10 +16,13 @@ export function useLiveRun(path: () => string) {
   let accumulator = new LiveEvents()
   let disposed = false
   let generation = 0
-  watch(path, (value) => {
+  // Close synchronously before logout revokes the session on the server.
+  watch([path, () => state.authenticated && !state.signingOut], ([value, enabled]) => {
     const current = ++generation
     let checking = false
     connection?.close()
+    if (!enabled)
+      return
     snapshot.value = undefined
     events.value = []
     accumulator = new LiveEvents()
@@ -49,7 +52,7 @@ export function useLiveRun(path: () => string) {
         }
       }).finally(() => { checking = false })
     })
-  }, { immediate: true })
+  }, { immediate: true, flush: 'sync' })
   onScopeDispose(() => {
     disposed = true
     connection?.close()

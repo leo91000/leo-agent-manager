@@ -1,7 +1,9 @@
 import type { Page, TestInfo } from '@playwright/test'
+import type { RunEvent } from '../../shared/contracts'
+import type { Workspace } from './fixtures'
 import { expect, expectSingleScroll, test } from './fixtures'
 
-async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: 'light' | 'dark' = 'light') {
+async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: TestInfo, colorScheme: 'light' | 'dark' = 'light') {
   await page.emulateMedia({ colorScheme })
   test.setTimeout(180000)
   const errors: string[] = []
@@ -260,15 +262,19 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
   await expect(page.getByRole('textbox', { name: /^Tags/ })).toBeFocused()
   await page.keyboard.press('Escape')
   await page.unroute('**/api/agents')
-  const legacyRoute = `**/api/runs/${run.id}/events?*`
-  await page.route(legacyRoute, route => route.fulfill({ json: [
+  function history(events: RunEvent[]) {
+    workspace.service.store.db.prepare('DELETE FROM events WHERE run_id=?').run(run.id)
+    for (const event of events)
+      workspace.service.store.event(run.id, event.type, event.text, event.payload)
+  }
+  history([
     { id: 1, runId: run.id, createdAt: 1000, type: 'item.started', text: '' },
     { id: 2, runId: run.id, createdAt: 1800, type: 'item.completed', text: 'Already up to date.\ncompatibility/css-feature-target.json' },
     { id: 3, runId: run.id, createdAt: 2000, type: 'item.started', text: '' },
     { id: 4, runId: run.id, createdAt: 2500, type: 'item.completed', text: '[{"id":123,"jobs":[{"name":"quality","conclusion":"success"}]}]' },
     { id: 5, runId: run.id, createdAt: 3000, type: 'item.started', text: '' },
     { id: 6, runId: run.id, createdAt: 3500, type: 'item.completed', text: 'implementation-pr {"files":["src/activity.ts"' },
-  ] }))
+  ])
   await page.goto(`/runs/${run.id}`)
   await page.getByRole('button', { name: /^Activity/ }).click()
   await page.locator('.activity-group-toggle').click()
@@ -296,14 +302,13 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
   await incomplete.locator('summary').click()
   await expect(incomplete.getByRole('button', { name: 'Copy Saved source' })).toBeVisible()
   await expect(incomplete.locator('pre')).toContainText('{"files":["src/activity.ts"')
-  await page.unroute(legacyRoute)
-  await page.route(legacyRoute, route => route.fulfill({ json: [
+  history([
     { id: 1, runId: run.id, createdAt: 1000, type: 'error', text: '', payload: { message: 'WebSocket connection failed: 503 Service Unavailable' } },
     { id: 2, runId: run.id, createdAt: 2000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'rg needle src', exit_code: 1, status: 'failed' } } },
     { id: 3, runId: run.id, createdAt: 3000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'diff before after', exit_code: 1, status: 'failed' } } },
     { id: 4, runId: run.id, createdAt: 4000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'pnpm test', exit_code: 1, status: 'failed' } } },
     { id: 5, runId: run.id, createdAt: 5000, type: 'turn.completed', text: '', payload: {} },
-  ] }))
+  ])
   await page.goto(`/runs/${run.id}`)
   await page.getByRole('button', { name: /^Activity/ }).click()
   await page.locator('.activity-group-toggle').click()
@@ -314,10 +319,9 @@ async function checkMobileLayouts(page: Page, testInfo: TestInfo, colorScheme: '
   }
   await expect(page.locator('.operation-card[data-status="error"]')).toHaveCount(1)
   await screenshot('command-outcomes')
-  await page.unroute(legacyRoute)
   expect(errors).toEqual([])
 }
 
-test('pages, dialogs, navigation and activity', async ({ page }, testInfo) => {
-  await checkMobileLayouts(page, testInfo, testInfo.project.use.colorScheme === 'dark' ? 'dark' : 'light')
+test('pages, dialogs, navigation and activity', async ({ page, workspace }, testInfo) => {
+  await checkMobileLayouts(page, workspace, testInfo, testInfo.project.use.colorScheme === 'dark' ? 'dark' : 'light')
 })

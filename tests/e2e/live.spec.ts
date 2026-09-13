@@ -2,6 +2,29 @@ import type { BrowserContext, Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { expect, expectSingleScroll, initializeRepository, test } from './fixtures'
 
+test('signing out closes live subscriptions before the session is revoked', async ({ page, workspace }) => {
+  await page.goto(workspace.url)
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('link', { name: 'Chats', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'What are we building?' })).toBeVisible()
+  const unauthorized: string[] = []
+  page.on('response', (response) => {
+    if (response.status() === 401)
+      unauthorized.push(response.url())
+  })
+  await page.route('**/api/logout', async (route) => {
+    const response = await route.fetch()
+    // Leave the UI mounted after revocation: an open stream would immediately
+    // close and trigger its access check before the logout response arrives.
+    await new Promise(resolve => setTimeout(resolve, 800))
+    await route.fulfill({ response })
+  })
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+  expect(unauthorized).toEqual([])
+})
+
 test('two independent clients follow deltas, recover offline, refresh mid-answer and survive a server restart', async ({ page, browser, workspace }) => {
   test.setTimeout(90000)
   initializeRepository(workspace.projectPath)

@@ -142,6 +142,9 @@ async function login() {
   }
 }
 async function logout() {
+  if (state.signingOut)
+    return
+  state.signingOut = true
   try {
     await api('/logout', { method: 'POST' })
     state.authenticated = false
@@ -150,6 +153,9 @@ async function logout() {
   }
   catch (e) {
     error.value = (e as Error).message
+  }
+  finally {
+    state.signingOut = false
   }
 }
 </script>
