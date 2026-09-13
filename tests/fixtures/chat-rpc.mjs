@@ -122,6 +122,30 @@ export function chatFixture() {
         emit({ id: 'auth-refresh', method: 'account/chatgptAuthTokens/refresh', params: { reason: 'unauthorized', previousAccountId: globalThis.fixtureAccountId } })
         return true
       }
+      if (text.includes('fixture:stream')) {
+        const streaming = active
+        const item = { id: `stream-${active.id}`, type: 'agentMessage', text: 'Streaming proof:' }
+        active.items.push(item)
+        notify('item/started', { threadId: thread.id, item: { ...item, text: '' } })
+        notify('item/agentMessage/delta', { threadId: thread.id, itemId: item.id, delta: item.text })
+        let part = 0
+        const timer = setInterval(() => {
+          if (active !== streaming) {
+            clearInterval(timer)
+            return
+          }
+          const delta = ` ${String(++part).padStart(3, '0')}`
+          item.text += delta
+          save()
+          notify('item/agentMessage/delta', { threadId: thread.id, itemId: item.id, delta })
+          if (part === 100) {
+            clearInterval(timer)
+            notify('item/completed', { threadId: thread.id, item })
+            finish()
+          }
+        }, 80)
+        return true
+      }
       if (text.includes('fixture:disconnect'))
         process.exit(1)
       if (text.includes('finish now'))

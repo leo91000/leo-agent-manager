@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import type { Deliverable } from '../../shared/artifacts'
-import type { Run, RunEvent } from '../../shared/contracts'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, date, duration, notify } from '../api'
 import { ArrowLeft, Copy, FileText, RotateCw, Square, Terminal } from '../icons'
+import { useLiveRun } from '../use-live-run'
 import ActivityFeed from './ActivityFeed.vue'
 import ArtifactGallery from './ArtifactGallery.vue'
 import ArtifactViewer from './ArtifactViewer.vue'
@@ -18,19 +17,16 @@ import UiSegments from './UiSegments.vue'
 
 const props = defineProps<{ runId: string, embedded?: boolean }>()
 const emit = defineEmits<{ run: [id: string] }>()
-let disposed = false
 const router = useRouter()
-const run = ref<Run>()
-const deliverables = ref<Deliverable[]>([])
+const live = useLiveRun(() => `/runs/${props.runId}/stream`)
+const { events, connectionNotice, catchingUp: loading } = live
+const run = computed(() => live.snapshot.value?.run ?? undefined)
+const deliverables = computed(() => live.snapshot.value?.artifacts ?? [])
 const artifactViewer = ref<string | null>(null)
-const events = ref<RunEvent[]>([])
-const moreEvents = ref(false)
-const loading = ref(false)
 const error = ref('')
 const tab = ref(props.embedded ? 'events' : 'result')
 const confirm = ref(false)
 const confirmCleanup = ref(false)
-const trimmedEvents = ref(0)
 const active = computed(
   () => run.value && ['running', 'queued'].includes(run.value.status),
 )
@@ -39,58 +35,19 @@ function requestStop() {
     confirm.value = true
 }
 defineExpose({ requestStop, canStop: active })
-async function load() {
-  if (loading.value)
-    return
-  loading.value = true
-  try {
-    error.value = ''
-    const current = await api<Run>(`/runs/${props.runId}`)
-    if (disposed)
-      return
-    run.value = current
-    deliverables.value = await api<Deliverable[]>(`/runs/${props.runId}/artifacts`)
-    const items = await api<RunEvent[]>(
-      `/runs/${props.runId}/events?after=${events.value.at(-1)?.id ?? 0}`,
-    )
-    if (disposed)
-      return
-    events.value.push(...items)
-    moreEvents.value = items.length === 100
-    if (events.value.length > 2000) {
-      trimmedEvents.value += events.value.length - 2000
-      events.value = events.value.slice(-2000)
-    }
-  }
-  catch (e) {
-    error.value = (e as Error).message
-  }
-  finally {
-    loading.value = false
-  }
-}
-let timer: ReturnType<typeof setInterval>
-onMounted(async () => {
-  await load()
-  if (disposed)
-    return
-  if (active.value)
-    tab.value = 'events'
-  timer = setInterval(() => {
-    if ((active.value || error.value) && !document.hidden)
-      load()
-  }, 1500)
+watch(live.error, (value) => {
+  if (value)
+    error.value = value
 })
-onBeforeUnmount(() => {
-  disposed = true
-  clearInterval(timer)
+watch(run, (value, previous) => {
+  if (value && !previous && active.value)
+    tab.value = 'events'
 })
 async function cancel() {
   try {
     await api(`/runs/${run.value!.id}/cancel`, { method: 'POST' })
     confirm.value = false
     notify('Cancellation requested')
-    await load()
   }
   catch (e) {
     error.value = (e as Error).message
@@ -101,7 +58,6 @@ async function resume() {
     await api(`/runs/${run.value!.id}/resume`, { method: 'POST' })
     tab.value = 'events'
     notify('Resuming saved conversation')
-    await load()
   }
   catch (e) { error.value = (e as Error).message }
 }
@@ -122,7 +78,6 @@ async function cleanup() {
     await api(`/runs/${run.value!.id}/cleanup`, { method: 'POST' })
     confirmCleanup.value = false
     notify('Worktree removed. Its Git branch is preserved.')
-    await load()
   }
   catch (e) {
     error.value = (e as Error).message
@@ -160,6 +115,9 @@ async function copy() {
         </UiButton>
       </div>
     </div>
+    <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
+      {{ connectionNotice }}
+    </p>
     <UiAlert v-if="error">
       {{ error }}
     </UiAlert>
@@ -206,7 +164,7 @@ async function copy() {
             </p>
           </div>
         </div>
-        <ActivityFeed v-else-if="tab === 'events'" :deliverables="deliverables" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="moreEvents" :loading="loading" :trimmed="trimmedEvents" :preview="embedded" @load="load" />
+        <ActivityFeed v-else-if="tab === 'events'" :deliverables="deliverables" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="false" :loading="loading" :trimmed="0" :preview="embedded" />
         <div v-else class="result-content flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] text-sm leading-[1.8] p-7.5 phone:p-5.5">
           <div class="run-facts grid grid-cols-[repeat(4,_1fr)] border border-line bg-raised rounded-[10px] text-xs text-subtle phone:grid-cols-2 phone:gap-5 px-6 py-5 mx-0 my-6.5">
             <span>Project<strong>{{ run.snapshot.projects?.map(project => project.name).join(', ') || run.snapshot.project?.name || 'Agent workspace' }}</strong></span><span>Duration<strong>{{ duration(run.startedAt, run.finishedAt) }}</strong></span><span>Triggered by<strong>{{ run.trigger }}</strong></span><span>Model<strong>{{ run.snapshot.agent.model || 'Codex default' }}</strong></span>

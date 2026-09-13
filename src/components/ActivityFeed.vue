@@ -76,7 +76,7 @@ function scrolled() {
   if (el && el.scrollHeight - el.scrollTop - el.clientHeight > 60)
     follow.value = false
 }
-watch(() => props.events.at(-1)?.id, async () => {
+watch(entries, async () => {
   if (!follow.value)
     return
   await nextTick()

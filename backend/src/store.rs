@@ -11,12 +11,12 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 type Job = Box<dyn FnOnce(&mut Connection) + Send>;
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
-    id: i64,
+    pub id: i64,
     run_id: String,
     created_at: i64,
     #[serde(rename = "type")]
@@ -31,6 +31,7 @@ struct Pool {
     writer: mpsc::Sender<Job>,
     readers: Vec<mpsc::Sender<Job>>,
     next: AtomicUsize,
+    changes: watch::Sender<u64>,
 }
 fn actor(connection: Connection) -> mpsc::Sender<Job> {
     let (tx, mut rx) = mpsc::channel::<Job>(256);
@@ -93,6 +94,7 @@ CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages(chat_id,created_a
             writer: actor(writer),
             readers,
             next: AtomicUsize::new(0),
+            changes: watch::channel(0).0,
         })))
     }
     async fn call<T: Send + 'static>(
@@ -123,7 +125,17 @@ CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages(chat_id,created_a
         &self,
         f: impl FnOnce(&mut Db<'_>) -> Result<T> + Send + 'static,
     ) -> Result<T> {
-        self.call(&self.0.writer, f).await
+        let changes = self.0.changes.clone();
+        self.call(&self.0.writer, move |db| {
+            let result = f(db);
+            // Notify on the database actor, after commit, even if the caller was cancelled.
+            changes.send_modify(|revision| *revision = revision.wrapping_add(1));
+            result
+        })
+        .await
+    }
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.0.changes.subscribe()
     }
     pub async fn transaction<T: Send + 'static>(
         &self,
@@ -403,6 +415,15 @@ impl Db<'_> {
     // Stored payloads are already JSON. Validate their bytes without allocating
     // thousands of intermediate object nodes just to serialize them again.
     pub fn event_page(&self, run: &str, after: i64, limit: i64) -> Result<Vec<Event>> {
+        self.event_batch(run, after, limit, usize::MAX)
+    }
+    pub fn event_batch(
+        &self,
+        run: &str,
+        after: i64,
+        limit: i64,
+        max_bytes: usize,
+    ) -> Result<Vec<Event>> {
         let mut stmt = self.0.prepare_cached("SELECT id,run_id,created_at,type,text,payload FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?")?;
         let rows = stmt.query_map(params![run, after, limit], |r| {
             Ok((
@@ -414,9 +435,12 @@ impl Db<'_> {
                 r.get::<_, Option<String>>(5)?,
             ))
         })?;
-        rows.map(|row| {
+        let mut events = Vec::new();
+        let mut bytes = 0;
+        for row in rows {
             let (id, run, created, kind, text, payload) = row?;
-            Ok(Event {
+            bytes += text.len() + payload.as_ref().map_or(0, String::len) + 256;
+            events.push(Event {
                 id,
                 run_id: run,
                 created_at: created,
@@ -425,9 +449,12 @@ impl Db<'_> {
                 payload: payload
                     .map(serde_json::value::RawValue::from_string)
                     .transpose()?,
-            })
-        })
-        .collect()
+            });
+            if bytes >= max_bytes {
+                break;
+            }
+        }
+        Ok(events)
     }
     pub fn require_run(&self, id: &str) -> Result<()> {
         let exists = self

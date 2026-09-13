@@ -11,16 +11,16 @@ test('reconnects after a temporary restart and resumes a cancelled conversation 
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.locator('.task-focus-detail')).toBeVisible()
   let available = false
-  await page.route(`**/api/runs/${run.id}`, async (route) => {
+  await page.route(`**/api/runs/${run.id}/stream?*`, async (route) => {
     if (available)
       await route.continue()
     else await route.fulfill({ status: 503, json: { error: 'Worker is restarting' } })
   })
   await page.goto(`/runs/${run.id}`)
-  await expect(page.getByText('Worker is restarting', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Reconnecting' })).toBeVisible()
   available = true
   await expect(page.getByRole('heading', { name: task.name })).toBeVisible()
-  await expect(page.getByText('Worker is restarting', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('status').filter({ hasText: 'Reconnecting' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Stop run', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Stop run', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeVisible()
@@ -53,13 +53,16 @@ test('keeps task selection across reloads and discards a previous run response',
   const task = await created.json()
   let release!: () => void
   const gate = new Promise<void>(resolve => release = resolve)
-  await page.route(`**/api/runs/${activity[0].id}/events?*`, async (route) => {
+  let requested = false
+  await page.route(`**/api/runs/${activity[0].id}/stream?*`, async (route) => {
+    requested = true
     await gate
-    await route.fulfill({ json: [{ id: 9999, runId: activity[0].id, type: 'item.completed', createdAt: Date.now(), text: 'STALE RUN MESSAGE', payload: { item: { type: 'agent_message', text: 'STALE RUN MESSAGE' } } }] })
+    const batch = { reset: false, more: false, events: [{ id: 9999, runId: activity[0].id, type: 'item.completed', createdAt: Date.now(), text: 'STALE RUN MESSAGE', payload: { item: { type: 'agent_message', text: 'STALE RUN MESSAGE' } } }] }
+    await route.fulfill({ contentType: 'text/event-stream', body: `event: batch\nid: 9999\ndata: ${JSON.stringify(batch)}\n\n` })
   })
   try {
     await page.goto(`/tasks?task=${existing[0].id}`)
-    await expect(page.locator('.run-title-meta')).toBeVisible()
+    await expect.poll(() => requested).toBe(true)
     await page.getByRole('button', { name: /Fresh task without a run/ }).click()
     await expect(page.locator('.task-focus-detail')).toContainText('This is the new task brief.')
     release()

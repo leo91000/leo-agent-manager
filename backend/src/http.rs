@@ -383,6 +383,14 @@ async fn api(State(app): State<App>, request: Request) -> Result<Response> {
     {
         return app.service.attachment_http(chat, id, request).await;
     }
+    if path == "/api/chats/stream" {
+        let input = Input::read(request).await?;
+        return crate::live::http(app.service.clone(), "chats", "", input).await;
+    }
+    if let ["", "api", scope @ ("chats" | "runs"), id, "stream"] = segments.as_slice() {
+        let input = Input::read(request).await?;
+        return crate::live::http(app.service.clone(), scope, id, input).await;
+    }
     let input = Input::read(request).await?;
     let s = &app.service;
     match (input.method.as_str(), input.path.as_str()) {

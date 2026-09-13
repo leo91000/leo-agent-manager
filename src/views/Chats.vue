@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import type { Deliverable } from '../../shared/artifacts'
 import type { Chat, ChatAttachment, ChatDetail, ChatMessage, ChatView } from '../../shared/chats'
-import type { RunEvent } from '../../shared/contracts'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, state } from '../api'
@@ -18,13 +16,15 @@ import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
 import { Bell, Bot, ChevronDown, Clock, FolderGit2, MessageCircle, Paperclip, Pause, Pencil, Play, Plus, Send, Settings, Square, Trash2, X, Zap } from '../icons'
 import { iconButton } from '../ui'
+import { useLiveRun } from '../use-live-run'
 
 const router = useRouter()
 const route = useRoute()
 const chats = ref<ChatView[]>([])
 const detail = ref<(ChatDetail & { error?: string }) | null>(null)
-const events = ref<RunEvent[]>([])
-const deliverables = ref<Deliverable[]>([])
+const live = useLiveRun(() => route.params.id ? `/chats/${route.params.id}/stream` : '/chats/stream')
+const { events, connectionNotice, catchingUp } = live
+const deliverables = computed(() => live.snapshot.value?.artifacts ?? [])
 const draft = ref('')
 const model = ref('')
 const reasoning = ref('')
@@ -45,7 +45,7 @@ const files = new Map<string, File>()
 const uploaded = new Set<string>()
 const dragging = ref(0)
 const uploadProgress = ref('')
-const canSend = computed(() => !!draft.value.trim() || attachments.value.length > 0)
+const canSend = computed(() => (!route.params.id || detail.value?.id === route.params.id) && !live.error.value && (!!draft.value.trim() || attachments.value.length > 0))
 function removeAttachment(id: string) {
   if (previews.value[id])
     URL.revokeObjectURL(previews.value[id])
@@ -110,47 +110,15 @@ watch(agentId, () => {
   if (!projects.value.some(project => project.value === projectId.value))
     projectId.value = ''
 })
-let disposed = false
-let loading = false
-let timer: ReturnType<typeof setInterval> | undefined
-async function load() {
-  if (loading || disposed || document.hidden)
-    return
-  loading = true
-  try {
-    const list = await api<ChatView[]>('/chats')
-    if (disposed)
-      return
-    chats.value = list
-    if (route.params.id) {
-      const result = await api<ChatDetail & { error?: string }>(`/chats/${route.params.id}`)
-      if (disposed)
-        return
-      detail.value = result
-      deliverables.value = result.run ? await api<Deliverable[]>(`/runs/${result.run.id}/artifacts`) : []
-      if (result.run) {
-        // Incremental batches keep polling inexpensive even for long chats.
-        const batch = await api<RunEvent[]>(`/runs/${result.run.id}/events?after=${events.value.at(-1)?.id ?? 0}&limit=500`)
-        if (!disposed)
-          events.value.push(...batch)
-      }
-    }
-  }
-  catch (e) {
-    if (!disposed)
-      error.value = (e as Error).message
-  }
-  finally { loading = false }
-}
-onMounted(() => {
-  void load()
-  timer = setInterval(load, 1200)
+watch(live.snapshot, (value) => {
+  detail.value = value?.chat ?? null
+  chats.value = value?.chats ?? []
 })
-onBeforeUnmount(() => {
-  disposed = true
-  clearInterval(timer)
-  clearAttachments()
+watch(live.error, (value) => {
+  if (value)
+    error.value = value
 })
+onBeforeUnmount(clearAttachments)
 let submission: { id: string, text: string, mode: 'queue' | 'steer', model: string, reasoning: string, attachmentIds: string[] } | undefined
 let createdChat: Chat | undefined
 async function send(mode: 'queue' | 'steer' = 'queue') {
@@ -187,9 +155,6 @@ async function send(mode: 'queue' | 'steer' = 'queue') {
       sessionStorage.setItem(`leo-chat-draft:${chat.id}`, draft.value)
       await router.push(`/chats/${chat.id}`)
     }
-    else {
-      await load()
-    }
     textarea.value?.focus()
   }
   catch (e) { error.value = (e as Error).message }
@@ -205,7 +170,6 @@ async function action(name: 'pause' | 'stop', body?: object) {
   error.value = ''
   try {
     await api(`/chats/${detail.value.id}/${name}`, { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) })
-    await load()
   }
   catch (e) { error.value = (e as Error).message }
   finally { busy.value = false }
@@ -214,7 +178,6 @@ async function update(message: ChatMessage, mode?: 'steer') {
   error.value = ''
   try {
     await api(`/chats/${detail.value!.id}/messages/${message.id}`, { method: mode ? 'PUT' : 'DELETE', ...(mode ? { body: JSON.stringify({ ...message, mode, attachmentIds: message.attachments?.map(attachment => attachment.id) ?? [] }) } : {}) })
-    await load()
   }
   catch (e) { error.value = (e as Error).message }
 }
@@ -295,7 +258,10 @@ function key(event: KeyboardEvent) {
         </div>
       </aside>
       <section class="flex min-h-0 min-w-0 flex-col overflow-hidden" :class="{ 'tablet:hidden': history }" aria-label="Chat workspace">
-        <div v-if="!detail?.run" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 pb-[8vh] pt-8 text-center phone:px-2 phone:py-5">
+        <div v-if="route.params.id && !detail" role="status" class="flex flex-1 items-center justify-center text-sm text-muted">
+          Loading conversation…
+        </div>
+        <div v-else-if="!detail?.run" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 pb-[8vh] pt-8 text-center phone:px-2 phone:py-5">
           <h2 class="mb-7 text-[30px] font-semibold tracking-tight phone:text-2xl">
             What are we building?
           </h2>
@@ -305,9 +271,12 @@ function key(event: KeyboardEvent) {
             </button>
           </div>
         </div>
-        <ActivityFeed v-else :deliverables="deliverables" :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="false" :loading="false" :trimmed="0" chat />
+        <ActivityFeed v-else :deliverables="deliverables" :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="false" :loading="catchingUp" :trimmed="0" chat />
         <div class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
-          <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" @answered="load" />
+          <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" />
+          <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
+            {{ connectionNotice }}
+          </p>
           <UiAlert v-if="error || detail?.error || detail?.run?.status === 'failed'" class="mb-3">
             {{ error || detail?.error || detail?.run?.summary }}<button :class="iconButton" aria-label="Dismiss error" @click="error = ''">
               <Icon :name="X" :size="14" />

@@ -55,6 +55,19 @@ fn view(db: &Db<'_>, mut chat: Value) -> Result<Value> {
         .unwrap_or_else(|| "idle".into());
     Ok(chat)
 }
+pub(crate) fn list(db: &Db<'_>) -> Result<Vec<Value>> {
+    db.list("chats")?
+        .into_iter()
+        .map(|chat| view(db, chat))
+        .collect()
+}
+pub(crate) fn detail(db: &Db<'_>, id: &str) -> Result<Value> {
+    let mut result = view(db, chat(db, id)?)?;
+    result["questions"] = questions(db, id)?.into();
+    result["messages"] = db.messages(id)?.into();
+    result["run"] = db.run(text(&result, "runId"))?.unwrap_or(Value::Null);
+    Ok(result)
+}
 fn validate_steer(db: &Db<'_>, chat: &Value, message: &Value) -> Result<()> {
     if message["mode"] != "steer" {
         return Ok(());
@@ -168,26 +181,11 @@ fn send(
 }
 impl Service {
     pub async fn chat_list(&self) -> Result<Vec<Value>> {
-        self.store
-            .read(|db| {
-                db.list("chats")?
-                    .into_iter()
-                    .map(|chat| view(db, chat))
-                    .collect()
-            })
-            .await
+        self.store.read(|db| list(db)).await
     }
     pub async fn chat_detail(&self, id: &str) -> Result<Value> {
         let id = id.to_owned();
-        self.store
-            .read(move |db| {
-                let mut result = view(db, chat(db, &id)?)?;
-                result["questions"] = questions(db, &id)?.into();
-                result["messages"] = db.messages(&id)?.into();
-                result["run"] = db.run(text(&result, "runId"))?.unwrap_or(Value::Null);
-                Ok(result)
-            })
-            .await
+        self.store.read(move |db| detail(db, &id)).await
     }
     pub async fn chat_create(&self, input: Value) -> Result<Value> {
         let mut value = parse("chat", input)?;

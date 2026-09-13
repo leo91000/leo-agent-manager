@@ -13,6 +13,7 @@ import { Store } from '../legacy/server/store'
 
 interface Workspace {
   service: Service
+  restart: () => Promise<void>
   url: string
   projectPath: string
   api: (route: string, method?: string, body?: unknown) => Promise<any>
@@ -56,11 +57,28 @@ export const test = base.extend<object, { workspace: Workspace }>({
     // supervisor's current executable stable for the entire browser journey.
     const binary = path.join(directory, 'leo')
     await copyFile(process.env.LEO_TEST_BINARY || path.resolve('target/debug/leo'), binary)
-    const child = spawn(binary, [], { env: { ...process.env, LEO_CONFIG: configuration, LEO_FIXTURE_USAGE: usageFile }, stdio: ['ignore', 'pipe', 'pipe'] })
     let log = ''
-    child.stdout.on('data', chunk => log += chunk)
-    child.stderr.on('data', chunk => log += chunk)
-    const closed = once(child, 'exit')
+    const start = () => {
+      const child = spawn(binary, [], { env: { ...process.env, LEO_CONFIG: configuration, LEO_FIXTURE_USAGE: usageFile }, stdio: ['ignore', 'pipe', 'pipe'] })
+      child.stdout.on('data', chunk => log += chunk)
+      child.stderr.on('data', chunk => log += chunk)
+      return child
+    }
+    let child = start()
+    let closed = once(child, 'exit')
+    const stop = async () => {
+      child.kill('SIGTERM')
+      const force = setTimeout(() => child.kill('SIGKILL'), 10000)
+      await closed
+      clearTimeout(force)
+    }
+    const ready = async () => {
+      await expect.poll(async () => {
+        if (child.exitCode !== null)
+          throw new Error(`Native backend exited: ${log}`)
+        return fetch(`${url}/health`).then(response => response.ok).catch(() => false)
+      }, { timeout: 15000 }).toBe(true)
+    }
     let headers: Record<string, string> = { 'content-type': 'application/json' }
     const api = async (route: string, method = 'GET', body?: unknown) => {
       const response = await fetch(`${url}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
@@ -71,11 +89,7 @@ export const test = base.extend<object, { workspace: Workspace }>({
       return result
     }
     try {
-      await expect.poll(async () => {
-        if (child.exitCode !== null)
-          throw new Error(`Native backend exited: ${log}`)
-        return fetch(`${url}/health`).then(response => response.ok).catch(() => false)
-      }, { timeout: 15000 }).toBe(true)
+      await ready()
       if (workerInfo.project.name !== 'journeys') {
         await api('/api/setup', 'POST', { setupToken: 'browser-test-setup', password: 'browser-password-long-enough' })
         const agent = service.agent({ name: 'Release engineer' })
@@ -88,16 +102,18 @@ export const test = base.extend<object, { workspace: Workspace }>({
         const cancelled = await service.enqueue(task.id)
         await api(`/api/runs/${cancelled.id}/cancel`, 'POST')
       }
-      await use({ url, projectPath, service, api, setAccountUsage: async (id, value) => {
+      await use({ url, projectPath, service, api, restart: async () => {
+        await stop()
+        child = start()
+        closed = once(child, 'exit')
+        await ready()
+      }, setAccountUsage: async (id, value) => {
         usage[id] = value
         await writeFile(usageFile, JSON.stringify(usage))
       } })
     }
     finally {
-      child.kill('SIGTERM')
-      const force = setTimeout(() => child.kill('SIGKILL'), 10000)
-      await closed
-      clearTimeout(force)
+      await stop()
       await service.accounts.close()
       service.store.close()
       await rm(directory, { recursive: true, force: true })

@@ -22,6 +22,9 @@ export function notify(message: string) {
     clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (state.toast = ''), 4500)
 }
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message) }
+}
 export async function api<T = any>(
   url: string,
   options: RequestInit = {},
@@ -40,7 +43,7 @@ export async function api<T = any>(
   if (!response.ok) {
     if (response.status === 401)
       state.authenticated = false
-    throw new Error(data.error || 'Request failed. Please try again.')
+    throw new ApiError(data.error || 'Request failed. Please try again.', response.status)
   }
   return data
 }

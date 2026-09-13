@@ -33,6 +33,6 @@ Local validation: 67 Rust tests, 182 application tests, six Chromium/WebKit jour
 
 - Rust integration tests publish through an authenticated run grant to a fixture runner, check concurrent retries and revisions, stop that runner, reopen the manager and retrieve original bytes/ranges. They also cover revocation during transfer, partial streams, guest path rules, and asynchronous thumbnail generation/fallback.
 - The Firecracker smoke suite exports real binary files from a running guest and rejects cross-run requests, symlinks and host paths. Existing restart, cancellation, isolation and pool scenarios remain enabled.
-- Chromium and WebKit journeys cover gallery placement, old/new comparison, persistence across polling and reload, mobile/dark/light layouts, document/PDF viewers, media and authenticated downloads. Browser fixtures are synthetic deliverables stored through the real database and served by the Rust backend; they do not call an inference provider.
+- Chromium and WebKit journeys cover gallery placement, old/new comparison, persistence across live state updates and reload, mobile/dark/light layouts, document/PDF viewers, media and authenticated downloads. Browser fixtures are synthetic deliverables stored through the real database and served by the Rust backend; they do not call an inference provider.
 
 PDF.js follows its [official display-layer examples](https://mozilla.github.io/pdf.js/examples/). Streaming delivery follows [HTTP range semantics](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Range_requests).

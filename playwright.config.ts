@@ -9,6 +9,8 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', ...devices['Desktop Chrome'] },
   projects: [
+    { name: 'journeys-live', testMatch: 'live.spec.ts' },
+    { name: 'layout-webkit-live', testMatch: 'live.spec.ts', use: { browserName: 'webkit' } },
     { name: 'journeys-deliverables', testMatch: 'deliverables.spec.ts' },
     { name: 'layout-webkit-deliverables', testMatch: 'deliverables.spec.ts', use: { browserName: 'webkit', hasTouch: true } },
     { name: 'layout-ui-review', testMatch: 'ui-review.spec.ts' },

@@ -1,10 +1,16 @@
 import { expect, expectSingleScroll, test } from './fixtures'
 
-test('keeps activity scrolling inside the workspace and gives tabs breathing room', async ({ page }, testInfo) => {
+test('keeps activity scrolling inside the workspace and gives tabs breathing room', async ({ page, workspace }, testInfo) => {
   // This journey covers multiple viewports and screenshots; individual assertions retain their deadlines.
   test.setTimeout(90000)
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.route('**/api/runs/*/events?*', route => route.fulfill({ json: Array.from({ length: 100 }, (_, index) => ({ id: index + 1, runId: 'fixture', type: 'item.completed', createdAt: Date.now(), text: `Review step ${index + 1}: the checks passed and the next change is ready to inspect.`, payload: { item: { type: 'agent_message', text: `Review step ${index + 1}: the checks passed and the next change is ready to inspect.` } } })) }))
+  // Seed durable history so the real SSE endpoint supplies the layout fixture.
+  for (const run of workspace.service.store.runs()) {
+    for (let index = 0; index < 100; index++) {
+      const text = `Review step ${index + 1}: the checks passed and the next change is ready to inspect.`
+      workspace.service.store.event(run.id, 'item.completed', text, { item: { id: `layout-${index}`, type: 'agent_message', text } })
+    }
+  }
   await page.goto('/tasks')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
