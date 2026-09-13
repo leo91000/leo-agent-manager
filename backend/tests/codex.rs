@@ -28,6 +28,55 @@ fn config(root: &TempDir) -> Config {
     }
 }
 
+#[tokio::test]
+async fn long_chat_history_preserves_steered_messages_without_repeating_completed_work() {
+    let root = TempDir::new().unwrap();
+    let config = config(&root);
+    let home = config.home.join(".codex");
+    std::fs::create_dir_all(&home).unwrap();
+    let file = home.join("fixture-conversation.json");
+    let mut history = json!({"id":"fixture-chat","historyMode":"paginated","turns":[
+        {"id":"old","status":"completed","items":[
+            {"id":"u","type":"userMessage","clientId":"original","content":[{"type":"text","text":"Old request"}]},
+            {"id":"c","type":"commandExecution","aggregatedOutput":"x".repeat(2_100_000)},
+            {"id":"s","type":"userMessage","clientId":"steered","content":[{"type":"text","text":"Steer request"}]},
+            {"id":"a","type":"agentMessage","text":"Completed once"}
+        ]}
+    ]});
+    // The whole turn exceeds even the larger per-frame transport limit; only
+    // item pagination can recover it without loading all tool output at once.
+    for index in 0..16 {
+        history["turns"][0]["items"].as_array_mut().unwrap().insert(1, json!({"id":format!("command-{index}"),"type":"commandExecution","aggregatedOutput":"x".repeat(2_100_000)}));
+    }
+    for index in 0..101 {
+        history["turns"].as_array_mut().unwrap().insert(
+            0,
+            json!({"id":format!("older-{index}"),"status":"completed","items":[]}),
+        );
+    }
+    std::fs::write(&file, history.to_string()).unwrap();
+    for (message_id, expected_turns) in [("steered", 102), ("new-message", 103)] {
+        let (events, mut receiver) = tokio::sync::mpsc::channel(64);
+        let plan = json!({"args":[],"cwd":root.path(),"model":"fixture","reasoning":"medium","sandbox":"yolo","sessionId":"fixture-chat","output":root.path().join("reply.md"),"inputDirectory":root.path(),"writableRoots":[],"execution":{"messageId":message_id,"text":"New request","attachments":[],"recovery":true}});
+        leo_agent_manager::chat_process::run(&config, &home, plan, events, Default::default())
+            .await
+            .unwrap();
+        let mut delivered = false;
+        while let Some(event) = receiver.recv().await {
+            delivered |= event["type"] == "chat.delivered" && event["messageId"] == message_id;
+        }
+        assert!(delivered);
+        let history: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(history["turns"].as_array().unwrap().len(), expected_turns);
+        if message_id == "steered" {
+            assert_eq!(
+                std::fs::read_to_string(root.path().join("reply.md")).unwrap(),
+                "Completed once"
+            );
+        }
+    }
+}
+
 async fn device_fixture(mode: &str) -> (TempDir, DeviceLogin) {
     let root = TempDir::new().unwrap();
     let config = config(&root);
@@ -40,6 +89,23 @@ async fn device_fixture(mode: &str) -> (TempDir, DeviceLogin) {
     .unwrap();
     let login = DeviceLogin::start(&config, "codex", &config.home).unwrap();
     (root, login)
+}
+
+#[tokio::test]
+async fn oversized_rpc_frames_report_the_transport_limit_not_an_auth_failure() {
+    for (jsonrpc, limit) in [(true, 2_000_000), (false, 32_000_000)] {
+        let mut command = tokio::process::Command::new("node");
+        command.args(["-e", &format!("process.stdin.once('data', () => process.stdout.write(JSON.stringify({{id:1,result:'x'.repeat({limit})}})+'\\n')); setInterval(()=>{{}},1000)")]);
+        let session = Session::spawn_with_protocol(command, jsonrpc)
+            .await
+            .unwrap();
+        let error = session.rpc.request("large", json!({})).await.unwrap_err();
+        assert!(
+            error.message.contains(&format!("{limit}-byte limit")),
+            "{error:?}"
+        );
+        session.close().await;
+    }
 }
 
 async fn wait_login(login: &DeviceLogin) {

@@ -44,7 +44,7 @@ export function chatFixture() {
       finish()
       return true
     }
-    if (!['thread/start', 'thread/resume', 'turn/start', 'turn/steer', 'thread/turns/list'].includes(method))
+    if (!['thread/start', 'thread/resume', 'turn/start', 'turn/steer', 'thread/turns/list', 'thread/items/list'].includes(method))
       return false
     if (method === 'thread/start') {
       thread = { id: 'fixture-chat', cwd: params.cwd, historyMode: 'paginated', turns: [], parentThreadId: null }
@@ -58,8 +58,16 @@ export function chatFixture() {
       counter = thread.turns.length
       emit({ id: request.id, result: { thread: { ...thread, turns: [] } } })
     }
-    if (method === 'thread/turns/list')
-      emit({ id: request.id, result: { data: [...thread.turns].reverse(), nextCursor: null } })
+    if (method === 'thread/turns/list' || method === 'thread/items/list') {
+      let data = method === 'thread/turns/list'
+        ? thread.turns.map(turn => ({ ...turn, items: params.itemsView === 'notLoaded' ? [] : params.itemsView === 'summary' ? [turn.items.find(item => item.type === 'userMessage'), turn.items.findLast(item => item.type === 'agentMessage')].filter(Boolean) : turn.items }))
+        : thread.turns.filter(turn => !params.turnId || turn.id === params.turnId).flatMap(turn => turn.items.map(item => ({ turnId: turn.id, item })))
+      if (params.sortDirection === 'desc')
+        data = data.toReversed()
+      const start = Number(params.cursor || 0)
+      const end = start + (params.limit || 50)
+      emit({ id: request.id, result: { data: data.slice(start, end), nextCursor: end < data.length ? `${end}` : null } })
+    }
     if (method === 'turn/start' || method === 'turn/steer') {
       if (method === 'turn/steer' && (!active || active.id !== params.expectedTurnId)) {
         emit({ id: request.id, error: { code: -32000, message: 'Turn has finished' } })

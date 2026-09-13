@@ -96,6 +96,7 @@ export interface Run {
   startedAt: number | null
   finishedAt: number | null
   summary: string
+  error?: string | null
   sessionId: string | null
   workspace: string | null
   workspaces?: { projectId: string, path: string, revision?: string | null, kind: 'worktree' | 'clone' | 'copy' | 'direct' }[]

@@ -97,7 +97,7 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
   await page.getByRole('link', { name: 'Open run', exact: true }).click()
   await expect(page).toHaveURL(/\/runs\//)
   await expect(page.locator('.run-title-meta .status')).toContainText(
-    'succeeded',
+    'Execution finished',
   )
   await page.getByRole('button', { name: 'Result', exact: true }).click()
   await expect(page.getByText('The fixture task passed.')).toBeVisible()

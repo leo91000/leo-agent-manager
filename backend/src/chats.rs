@@ -574,7 +574,7 @@ impl Service {
                     db.patch_run(
                         text(&run, "id"),
                         &json!({
-                        "snapshot":snapshot["snapshot"],"status":"queued","summary":"","outcome":null,"finishedAt":null,"cancelRequestedAt":null,"recoveryPending":true,"chatExecution":execution}
+                        "snapshot":snapshot["snapshot"],"status":"queued","summary":"","error":null,"outcome":null,"finishedAt":null,"cancelRequestedAt":null,"recoveryPending":true,"chatExecution":execution}
                         ),
                     )?;
                 } else {

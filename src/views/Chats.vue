@@ -34,6 +34,11 @@ const notifications = ref(false)
 const history = ref(false)
 const queueOpen = ref(true)
 const error = ref('')
+const dismissedError = ref(false)
+const visibleError = computed(() => error.value || detail.value?.error || (detail.value?.run?.status === 'failed' ? detail.value.run.error || 'The response stopped before finishing. Resume the conversation to continue.' : ''))
+watch(() => [visibleError.value, detail.value?.id, detail.value?.run?.finishedAt], () => {
+  dismissedError.value = false
+})
 const busy = ref(false)
 const editing = ref<string | null>(null)
 const agentId = ref(typeof route.query.agent === 'string' ? route.query.agent : MAIN_AGENT_ID)
@@ -279,8 +284,8 @@ function key(event: KeyboardEvent) {
             {{ connectionNotice }}
           </p>
           <Outcome v-if="detail?.run" :outcome="detail.run.outcome" :status="detail.run.status" class="mb-2" />
-          <UiAlert v-if="error || detail?.error || detail?.run?.status === 'failed'" class="mb-3">
-            {{ error || detail?.error || detail?.run?.summary }}<button :class="iconButton" aria-label="Dismiss error" @click="error = ''">
+          <UiAlert v-if="visibleError && !dismissedError" class="mb-3 flex items-start gap-2">
+            <span class="min-w-0 flex-1">{{ visibleError }}</span><button :class="iconButton" class="shrink-0" aria-label="Dismiss error" @click="dismissedError = true">
               <Icon :name="X" :size="14" />
             </button>
           </UiAlert>

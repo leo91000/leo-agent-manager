@@ -8,6 +8,10 @@ Explicit cancellations stay stopped. Failed and cancelled runs with retained his
 
 ## Process and container ownership
 
+Chat recovery requests thread metadata without embedding its history, then pages turn metadata and individual items. It retains user message receipts (including messages steered into an existing turn) and the final assistant answer, discarding historical tool output after reading each page. Codex summary view alone is insufficient because it omits steered messages. This prevents long histories from overflowing a single RPC response and prevents accepted messages from being sent twice. Individual Codex frames remain bounded at 32 MB; MCP frames retain their separate 2 MB limit, with an explicit transport error if either limit is exceeded.
+
+Each attempt records its own failure separately from the last successful result. A failed attempt displays that failure, never a previous reply or partial assistant commentary. Starting another attempt clears the error; dismissing the chat alert hides it until a new failure or page reload.
+
 The worker records a supervisor's PID, Linux boot ID and process start time before allowing it to launch Codex. The supervisor watches its IPC connection and terminates its child process group when its manager disappears. Recovery verifies this identity and waits for the old process to stop before launching a replacement.
 
 Isolated executions use unique attempt IDs. The broker serializes start/stop requests and retains stop markers in its dedicated `/runner-state` volume, rejecting late starts even after its own restart. Recovery requires confirmation that the old container was removed. If Docker or the broker is unavailable, the run remains queued with a recovery message; its project and account stay reserved. Credentials are recovered and removed only after the previous execution is fenced. Fresh MCP grants and scoped credentials are issued for the next attempt.

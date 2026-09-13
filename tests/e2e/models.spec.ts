@@ -64,7 +64,7 @@ test('selects live models and supported reasoning for agents and queued chat tur
   await reasoning.click()
   await page.getByRole('option', { name: 'Medium', exact: true }).click()
   await page.getByRole('button', { name: 'Save', exact: true }).click()
-  expect(workspace.service.chats.detail(chatId).messages.find(m => m.status === 'queued')).toMatchObject({ model: 'fixture-deep', reasoning: 'medium' })
+  await expect.poll(() => workspace.service.chats.detail(chatId).messages.find(m => m.status === 'queued')).toMatchObject({ model: 'fixture-deep', reasoning: 'medium' })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(page.getByText('Agent saved', { exact: true })).not.toBeVisible()

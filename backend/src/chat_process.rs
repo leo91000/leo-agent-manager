@@ -248,7 +248,7 @@ impl Chat {
                             _=self.cancel.cancelled()=>return Err(Error::new(409,"Conversation stopped.")),
                             result=&mut request=>return result,
                             incoming=self.session.incoming.recv()=>{
-            let incoming=incoming.ok_or_else(||Error::new(503,"Codex disconnected before finishing the response. Resume the conversation to continue."))?;
+            let Some(incoming) = incoming else { return Err(self.session.rpc.failure().await); };
             self.incoming(incoming).await?;
             }
                         }
@@ -291,7 +291,7 @@ impl Chat {
         let resume = plan["sessionId"].is_string();
         if resume {
             settings["threadId"] = plan["sessionId"].clone();
-            settings["excludeTurns"] = false.into();
+            settings["excludeTurns"] = true.into();
         }
         let result = self
             .request(
@@ -326,7 +326,7 @@ impl Chat {
             let mut cursors = HashSet::new();
             loop {
                 let mut params = json!({
-                "threadId":self.thread,"limit":100,"itemsView":"full","sortDirection":"desc"}
+                "threadId":self.thread,"limit":100,"itemsView":"notLoaded","sortDirection":"desc"}
                 );
                 if !cursor.is_null() {
                     params["cursor"] = cursor;
@@ -346,6 +346,65 @@ impl Chat {
                     ));
                 }
             }
+            // Read individual items, not full turns: one turn can contain megabytes
+            // of command output. Summary view omits steered user messages, whose
+            // client IDs are necessary to avoid delivering them twice after restart.
+            let indices: HashMap<String, usize> = turns
+                .iter()
+                .enumerate()
+                .map(|(index, turn)| (text(turn, "id").to_owned(), index))
+                .collect();
+            let mut cursor = Value::Null;
+            let mut cursors = HashSet::new();
+            loop {
+                let page = self
+                    .request(
+                        "thread/items/list",
+                        json!({
+                            "threadId":self.thread,"limit":1,"sortDirection":"asc","cursor":cursor
+                        }),
+                    )
+                    .await?;
+                let entries = page["data"]
+                    .as_array()
+                    .ok_or_else(|| Error::new(502, "Codex returned invalid conversation items."))?;
+                for entry in entries {
+                    let index = indices.get(text(entry, "turnId")).ok_or_else(|| {
+                        Error::new(502, "Codex returned an unknown conversation turn.")
+                    })?;
+                    let item = &entry["item"];
+                    let items = turns[*index]["items"].as_array_mut().ok_or_else(|| {
+                        Error::new(502, "Codex returned invalid conversation history.")
+                    })?;
+                    match text(item, "type") {
+                        "userMessage" => {
+                            items.push(json!({"type":"userMessage","clientId":item["clientId"]}))
+                        }
+                        "agentMessage" => {
+                            // Only the final answer is needed to settle a completed
+                            // turn. Its tools are already in our durable event log.
+                            items.retain(|item| item["type"] != "agentMessage");
+                            items.push(item.clone());
+                        }
+                        _ => {}
+                    }
+                }
+                cursor = page["nextCursor"].clone();
+                if cursor.is_null() {
+                    break;
+                }
+                if !cursors.insert(cursor.to_string()) || cursors.len() > 100_000 {
+                    return Err(Error::new(
+                        502,
+                        "Codex returned invalid conversation item pagination.",
+                    ));
+                }
+            }
+        } else if resume && turns.is_empty() {
+            return Err(Error::new(
+                502,
+                "Update Codex to resume conversations with paginated history.",
+            ));
         }
         for turn in &turns {
             for item in turn["items"].as_array().into_iter().flatten() {
@@ -412,7 +471,7 @@ impl Chat {
             tokio::select! {
                             _=self.cancel.cancelled()=>return Err(Error::new(409,"Conversation stopped.")),
                             incoming=self.session.incoming.recv()=>{
-            let incoming=incoming.ok_or_else(||Error::new(503,"Codex disconnected before finishing the response. Resume the conversation to continue."))?;
+            let Some(incoming) = incoming else { return Err(self.session.rpc.failure().await); };
             self.incoming(incoming).await?;
             }
             ,

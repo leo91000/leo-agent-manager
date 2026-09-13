@@ -1,4 +1,33 @@
+import { randomUUID } from 'node:crypto'
 import { expect, expectSingleScroll, initializeRepository, test } from './fixtures'
+
+test('failed replies show the current error instead of an old answer and can be dismissed', async ({ page, workspace }) => {
+  const chat = await workspace.api('/api/chats', 'POST', {})
+  await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: randomUUID(), text: 'A successful first reply' })
+  await expect.poll(() => workspace.service.chats.detail(chat.id).run?.status).toBe('succeeded')
+  await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: randomUUID(), text: 'fixture:disconnect' })
+  await expect.poll(() => workspace.service.chats.detail(chat.id).run?.status).toBe('failed')
+  await page.goto(`/chats/${chat.id}`)
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Codex')
+  await expect(page.getByRole('alert')).not.toContainText('A successful first reply')
+  for (const colorScheme of ['dark', 'light'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectSingleScroll(page)
+    await page.screenshot({ path: test.info().outputPath(`chat-failure-${colorScheme}.png`), animations: 'disabled' })
+  }
+  await page.getByRole('button', { name: 'Dismiss error' }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('alert')).toContainText('Codex')
+  const run = workspace.service.chats.detail(chat.id).run!
+  workspace.service.store.updateRun(run.id, { error: null, summary: 'An old **successful** reply' })
+  await page.reload()
+  await expect(page.getByRole('alert')).toContainText('The response stopped before finishing')
+  await expect(page.getByRole('alert')).not.toContainText('successful')
+})
 
 test('starts project chats, steers, edits the queue and preserves a compact mobile composer', async ({ page, workspace }) => {
   initializeRepository(workspace.projectPath)

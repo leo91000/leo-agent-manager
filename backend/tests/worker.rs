@@ -330,6 +330,17 @@ async fn native_chat_turns_reuse_the_same_run_and_conversation() {
         fixture.service.chat_detail(chat_id).await.unwrap()["runId"],
         run_id
     );
+    fixture
+        .service
+        .chat_send(chat_id, json!({"id":id(),"text":"fixture:disconnect"}))
+        .await
+        .unwrap();
+    let failed = fixture.until(&run_id, |r| r["status"] == "failed").await;
+    assert!(
+        !text(&failed, "summary").contains("Second message"),
+        "A failed attempt reused the previous result: {failed}"
+    );
+    assert!(text(&failed, "error").contains("Codex"), "{failed}");
     fixture.stop(false).await;
 }
 

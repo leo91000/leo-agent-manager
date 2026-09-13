@@ -457,7 +457,7 @@ impl Worker {
                 checkpoint
                     .save(json!({
                     "settled":{
-                    "status":status,"summary":summary,"finishedAt":now()}
+                    "status":status,"summary":summary,"error":summary,"finishedAt":now()}
                     }
                     ))
                     .await?;
@@ -474,7 +474,7 @@ impl Worker {
                     Value::Null}
                     else{
                     now().into()}
-                    ,"summary":summary,"accountWaitReason":if needs_fence{
+                    ,"summary":summary,"error":if status=="failed"{json!(summary)}else{Value::Null},"accountWaitReason":if needs_fence{
                     json!("Waiting for the previous VM to stop.")}
                     else if status=="queued"{
                     json!("Paused for worker restart. This run will resume automatically.")}
@@ -860,7 +860,7 @@ impl Worker {
             }
             checkpoint
                 .save(json!({
-                "process":identity,"launched":true,"completed":false}
+                "process":identity,"launched":true,"completed":false,"lastError":null}
                 ))
                 .await?;
             if cancel.is_cancelled() || s.shutdown.is_cancelled() {
@@ -1021,18 +1021,10 @@ impl Worker {
                 resume = session;
                 continue;
             }
-            let summary = crate::skills::small_file(Path::new(output))
+            let output_summary = crate::skills::small_file(Path::new(output))
                 .await
                 .unwrap_or_default();
-            let summary = if summary.is_empty() {
-                text(&saved, "lastMessage")
-            } else {
-                &summary
-            };
-            let summary = run_output::redact(summary, sensitive)
-                .chars()
-                .take(100000)
-                .collect::<String>();
+            let exit_status = status;
             let status = if cancel.is_cancelled() {
                 "cancelled"
             } else if timed_out {
@@ -1043,20 +1035,41 @@ impl Worker {
             } else {
                 "failed"
             };
-            let summary = if !summary.is_empty() {
-                summary
-            } else if cancel.is_cancelled() {
+            let error = if cancel.is_cancelled() {
                 "Run stopped. You can resume this conversation.".into()
             } else if timed_out {
                 "Run exceeded its time limit.".into()
+            } else if status == "succeeded" {
+                String::new()
+            } else if !text(&saved, "lastError").is_empty() {
+                text(&saved, "lastError").to_owned()
             } else {
-                format!("Process exited with status {status}.")
+                match exit_status {
+                    Some(code) => format!(
+                        "Process exited with status {code}. Resume the conversation to continue."
+                    ),
+                    None => {
+                        "Process stopped before finishing. Resume the conversation to continue."
+                            .into()
+                    }
+                }
             };
+            let summary = if status != "succeeded" {
+                &error
+            } else if !output_summary.is_empty() {
+                &output_summary
+            } else {
+                text(&saved, "lastMessage")
+            };
+            let summary = run_output::redact(summary, sensitive)
+                .chars()
+                .take(100000)
+                .collect::<String>();
             s.store
                 .patch_run(
                     &id,
                     json!({
-                    "status":status,"finishedAt":now(),"resumeAvailable":(status!="succeeded"||run["chatExecution"].is_object())&&session.is_some(),"summary":summary}
+                    "status":status,"finishedAt":now(),"resumeAvailable":(status!="succeeded"||run["chatExecution"].is_object())&&session.is_some(),"summary":summary,"error":if error.is_empty(){Value::Null}else{json!(run_output::redact(&error,sensitive))}}
                     ),
                 )
                 .await?;
@@ -1135,7 +1148,7 @@ impl Worker {
                 let result = db.patch_run(
                     &id,
                     &json!({
-                    "status":"queued","outcome":null,"recoveryPending":true,"cancelRequestedAt":null,"finishedAt":null,"accountWaitReason":if before_launch{
+                    "status":"queued","error":null,"outcome":null,"recoveryPending":true,"cancelRequestedAt":null,"finishedAt":null,"accountWaitReason":if before_launch{
                     Value::Null}
                     else{
                     "Resuming saved conversation.".into()}
@@ -1237,6 +1250,12 @@ async fn record(
             _ => {}
         }
         let exhausted = run_output::exhausted(&event);
+        if event["type"] == "turn.failed" && !text(&event["error"], "message").is_empty() {
+            let saved = checkpoint.value().await;
+            if text(&saved, "lastError").is_empty() {
+                checkpoint.save(json!({"lastError":run_output::redact(text(&event["error"], "message"), secrets).chars().take(10000).collect::<String>()})).await?;
+            }
+        }
         if event["type"] == "thread.started" && event["thread_id"].is_string() {
             s.store
                 .patch_run(

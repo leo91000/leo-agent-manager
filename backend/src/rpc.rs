@@ -33,6 +33,7 @@ pub struct Rpc {
     pending: Pending,
     sequence: Arc<AtomicU64>,
     closed: CancellationToken,
+    failure: Arc<Mutex<Option<(u16, String)>>>,
 }
 pub struct Session {
     pub auth: Option<crate::account_tokens::Client>,
@@ -130,6 +131,7 @@ impl Session {
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let stop = CancellationToken::new();
         let closed = CancellationToken::new();
+        let failure = Arc::new(Mutex::new(None));
         let (done, finished) = oneshot::channel();
         let rpc = Rpc {
             jsonrpc,
@@ -137,6 +139,7 @@ impl Session {
             pending: pending.clone(),
             sequence: Arc::new(AtomicU64::new(0)),
             closed: closed.clone(),
+            failure: failure.clone(),
         };
         let stopping = stop.clone();
         tokio::spawn(async move {
@@ -161,8 +164,15 @@ impl Session {
                         }
                         let end = buffer.iter().position(|b| *b == b'\n').map(|i| i + 1);
                         let length = end.unwrap_or(buffer.len());
-                        if bytes.len() + length > 2_000_000 {
-                            return Err(unavailable());
+                        let limit = if jsonrpc { 2_000_000 } else { 32_000_000 };
+                        if bytes.len() + length > limit {
+                            return Err(Error::new(
+                                502,
+                                format!(
+                                    "{} response exceeded the {limit}-byte limit.",
+                                    if jsonrpc { "MCP" } else { "Codex" }
+                                ),
+                            ));
                         }
                         bytes.extend_from_slice(&buffer[..length]);
                         reader.consume(length);
@@ -217,7 +227,10 @@ impl Session {
             }
             ,_=&mut writer=>{
             }
-            ,_=&mut reader=>{
+            ,result=&mut reader=>{
+                if let Err(error) = result {
+                    *failure.lock().await = Some((error.status, error.message));
+                }
             }
             ,_=async{
             let _=(&mut drain).await;
@@ -286,12 +299,18 @@ impl Session {
     }
 }
 impl Rpc {
+    pub async fn failure(&self) -> Error {
+        match &*self.failure.lock().await {
+            Some((status, message)) => Error::new(*status, message),
+            None => unavailable(),
+        }
+    }
     async fn send(&self, mut value: Value) -> Result<()> {
         if self.jsonrpc {
             value["jsonrpc"] = "2.0".into();
         }
         tokio::select! {
-        _=self.closed.cancelled()=>Err(unavailable()),result=self.outgoing.send(value)=>result.map_err(|_|unavailable())}
+        _=self.closed.cancelled()=>Err(self.failure().await),result=self.outgoing.send(value)=>result.map_err(|_|unavailable())}
     }
     pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
         let id = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
@@ -303,7 +322,12 @@ impl Rpc {
             ))
             .await?;
             tokio::select! {
-            _=self.closed.cancelled()=>Err(unavailable()),result=rx=>result.map_err(|_|unavailable())?}
+            _=self.closed.cancelled()=>Err(self.failure().await),result=rx=>match result {
+                Ok(Ok(value)) => Ok(value),
+                _ if self.closed.is_cancelled() => Err(self.failure().await),
+                Ok(Err(error)) => Err(error),
+                Err(_) => Err(unavailable()),
+            }}
         };
         let result = tokio::time::timeout(Duration::from_secs(20), result)
             .await
@@ -338,6 +362,6 @@ impl Rpc {
 fn unavailable() -> Error {
     Error::new(
         503,
-        "Codex account service stopped. Check the CLI installation and reconnect the account.",
+        "Codex disconnected before finishing the operation. Try again or resume the conversation.",
     )
 }
