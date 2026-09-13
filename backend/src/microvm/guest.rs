@@ -48,7 +48,9 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
                 let running = running.clone();
                 let stopping = stop.clone();
                 tokio::spawn(async move {
-                    let _ = handle(stream, running, stopping).await;
+                    if let Err(error) = handle(stream, running, stopping).await {
+                        tracing::warn!(message = %error.message, "Guest operation failed");
+                    }
                 });
             }
         }

@@ -145,48 +145,9 @@ async fn prepare_project(
         if !source.join(".git").exists() {
             kind = "copy";
             copy_tree(&source, &target, false).await?;
-        } else if is_isolated {
+        } else if is_isolated || project["sourceMode"] != "local" {
             kind = "clone";
-            git(
-                args(&[
-                    "clone",
-                    "--no-hardlinks",
-                    "--no-local",
-                    "--branch",
-                    text(project, "baseBranch"),
-                    path(&source)?,
-                    path(&target)?,
-                ]),
-                120,
-            )
-            .await?;
-            if let Ok(mut remote) = git(
-                args(&["-C", path(&source)?, "config", "--get", "remote.origin.url"]),
-                10,
-            )
-            .await
-            {
-                if let Some(repository) = remote
-                    .strip_prefix("git@github.com:")
-                    .or_else(|| remote.strip_prefix("ssh://git@github.com/"))
-                {
-                    remote = format!("https://github.com/{repository}");
-                }
-                if remote.starts_with("http:") || remote.starts_with("https:") {
-                    let mut url = url::Url::parse(&remote)
-                        .map_err(|_| Error::bad("Invalid repository remote"))?;
-                    let _ = url.set_username("");
-                    let _ = url.set_password(None);
-                    remote = url.to_string();
-                }
-                if !remote.is_empty() {
-                    git(
-                        args(&["-C", path(&target)?, "remote", "set-url", "origin", &remote]),
-                        10,
-                    )
-                    .await?;
-                }
-            }
+            crate::project_git::clone(&source, &target, project, config).await?;
         } else {
             kind = "worktree";
             if target == root {
@@ -214,7 +175,14 @@ async fn prepare_project(
             .await?;
         }
     }
-    Ok(json!({"projectId":project["id"],"path":target,"kind":kind}))
+    let revision = if kind == "clone" || kind == "worktree" {
+        git(args(&["-C", path(&target)?, "rev-parse", "HEAD"]), 10)
+            .await
+            .ok()
+    } else {
+        None
+    };
+    Ok(json!({"projectId":project["id"],"path":target,"kind":kind,"revision":revision}))
 }
 
 /// Prepare an immutable host seed. Guest working files are never copied back or replaced.
@@ -225,8 +193,13 @@ pub async fn project_seed(
     root: &Path,
 ) -> Result<Value> {
     let destination = root.join(text(project, "id"));
-    let value = json!({"projectId":project["id"],"path":destination,"kind":if Path::new(text(project,"path")).join(".git").exists() {"clone"} else {"copy"}});
+    let mut value = json!({"projectId":project["id"],"path":destination,"kind":if Path::new(text(project,"path")).join(".git").exists() {"clone"} else {"copy"}});
     if destination.exists() {
+        if destination.join(".git").exists() {
+            value["revision"] = git(args(&["-C", path(&destination)?, "rev-parse", "HEAD"]), 10)
+                .await?
+                .into();
+        }
         return Ok(value);
     }
     let staging = root.join(format!(".prepare-{}", text(project, "id")));
@@ -255,6 +228,7 @@ pub async fn project_seed(
             }
         }
     }
+    value["revision"] = prepared["revision"].clone();
     tokio::fs::rename(source, &destination).await?;
     tokio::fs::remove_dir(&staging).await?;
     Ok(value)

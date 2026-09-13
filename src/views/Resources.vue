@@ -89,7 +89,9 @@ async function edit(item?: any) {
           timeoutMinutes: 120,
           access: { projects: null, skills: null, mcps: null, mcpTools: {}, github: true, sandbox: 'yolo' },
         }
-      : { name: '', description: '', path: '', baseBranch: 'main' }
+      : { name: '', description: '', path: '', baseBranch: 'main', sourceMode: 'remote' }
+  if (!isAgent.value)
+    form.value.sourceMode ??= 'remote'
   error.value = ''
   open.value = true
   if (isAgent.value && editing.value) {
@@ -278,6 +280,7 @@ async function remove() {
           />
           </label>
         </template><template v-else>
+          <VirtualSelect v-model="form.sourceMode" label="New work starts from" :options="[{ value: 'remote', label: 'Latest remote branch', description: 'Fetch a fresh copy; local files stay untouched' }, { value: 'local', label: 'Local branch snapshot', description: 'Use committed files from the local branch' }]" />
           <label class="span-2 col-span-2 phone:col-span-1">Project directory<input
             v-model="form.path"
             required

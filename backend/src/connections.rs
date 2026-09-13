@@ -67,6 +67,8 @@ impl DeviceLogin {
             "--git-protocol",
             "https",
             "--web",
+            "--scopes",
+            "workflow",
         ];
         let mut command = command(
             &config.gh_bin,
@@ -190,7 +192,7 @@ impl Connections {
         *cache = Some((now(), value.clone()));
         Ok(value)
     }
-    pub async fn start(&self, s: &Service, provider: &str) -> Result<Value> {
+    pub async fn start(&self, s: &Arc<Service>, provider: &str) -> Result<Value> {
         if !["codex", "github"].contains(&provider) {
             return Err(Error::bad("Unknown connection provider."));
         }
@@ -198,7 +200,42 @@ impl Connections {
         if login.as_ref().is_some_and(DeviceLogin::running) {
             return Err(Error::new(409, "A sign-in is already in progress."));
         }
-        let flow = DeviceLogin::start(&s.config, provider, &s.config.home)?;
+        let owner = format!("github-login-{}", crate::config::id());
+        let lease = s.worker.deployment_lease(s, owner.clone(), false).await?;
+        let active = async {
+            Ok::<bool, Error>(
+                lease["activeRuns"].as_u64().unwrap_or(1) > 0
+                    || s.store
+                        .read(|db| {
+                            Ok(db.active()?.iter().any(|run| {
+                                run["status"] == "running" || run["recoveryPending"] == true
+                            }))
+                        })
+                        .await?,
+            )
+        }
+        .await;
+        let flow = match active {
+            Ok(false) => DeviceLogin::start(&s.config, provider, &s.config.home),
+            Ok(true) => Err(Error::new(
+                409,
+                "Wait for active runs to finish before changing the shared GitHub connection.",
+            )),
+            Err(error) => Err(error),
+        };
+        let flow = match flow {
+            Ok(flow) => flow,
+            Err(error) => {
+                s.worker.deployment_lease(s, owner, true).await?;
+                return Err(error);
+            }
+        };
+        let device = flow.clone();
+        let service = s.clone();
+        tokio::spawn(async move {
+            device.wait().await;
+            let _ = service.worker.deployment_lease(&service, owner, true).await;
+        });
         let result = flow.view();
         *login = Some(flow);
         *self.cache.lock().await = None;
@@ -245,7 +282,7 @@ async fn check(config: &Config, provider: &str) -> Value {
     let args = if provider == "codex" {
         vec!["login", "status"]
     } else {
-        vec!["api", "user", "--jq", ".login"]
+        vec!["api", "--include", "user", "--jq", ".login"]
     };
     let login = bounded_output(
         command(
@@ -266,7 +303,7 @@ async fn check(config: &Config, provider: &str) -> Value {
             if provider == "codex" {
                 format!("{}{}", o.stdout, o.stderr)
             } else {
-                o.stdout.trim().to_owned()
+                o.stdout.lines().last().unwrap_or("").trim().to_owned()
             }
         })
         .unwrap_or_default();
@@ -275,7 +312,13 @@ async fn check(config: &Config, provider: &str) -> Value {
     } else {
         login.is_some()
     };
+    let workflow = if provider == "github" {
+        login.as_ref().and_then(|o| workflow_scope(&o.stdout))
+    } else {
+        None
+    };
     json!({
+    "workflowPermission":workflow,
     "provider":provider,"installed":true,"version":version.stdout.lines().next().unwrap_or(""),"connected":connected,"account":if !connected{
     "Not signed in"}
     else if provider=="codex"{
@@ -417,5 +460,29 @@ impl Service {
                 }
             }
         }
+    }
+}
+
+fn workflow_scope(output: &str) -> Option<bool> {
+    output.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case("x-oauth-scopes")
+            .then(|| value.split(',').any(|scope| scope.trim() == "workflow"))
+    })
+}
+
+#[cfg(test)]
+mod capability_tests {
+    #[test]
+    fn workflow_scope_is_exact_and_unknown_for_fine_grained_tokens() {
+        assert_eq!(
+            super::workflow_scope("X-OAuth-Scopes: repo, workflow\r\n\r\nleo"),
+            Some(true)
+        );
+        assert_eq!(
+            super::workflow_scope("x-oauth-scopes: repo, not-workflow"),
+            Some(false)
+        );
+        assert_eq!(super::workflow_scope("HTTP/2 200\r\n\r\nleo"), None);
     }
 }

@@ -286,7 +286,7 @@ async fn builtin_mcp_endpoint_exposes_scoped_workspace_tools_and_checks_the_run_
         let value: Value = response.json().await.unwrap();
         assert!(value["error"].is_null(), "{value}");
         if method == "tools/list" {
-            assert_eq!(value["result"]["tools"].as_array().unwrap().len(), 2);
+            assert_eq!(value["result"]["tools"].as_array().unwrap().len(), 3);
             assert_eq!(value["result"]["tools"][1]["name"], "publish_artifact");
             assert_eq!(value["result"]["tools"][0]["name"], "open_project");
         }
@@ -328,4 +328,249 @@ async fn seed_cleanup_does_not_follow_repository_symlinks_outside_its_private_co
     assert!(outside.join("skills/keep").exists());
     assert!(!Path::new(text(&entry, "path")).join(".agents").exists());
     assert!(!Path::new(text(&entry, "path")).join(".codex").exists());
+}
+
+fn git(directory: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(directory)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "Fixture")
+        .env("GIT_AUTHOR_EMAIL", "fixture@example.test")
+        .env("GIT_COMMITTER_NAME", "Fixture")
+        .env("GIT_COMMITTER_EMAIL", "fixture@example.test")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().into()
+}
+#[tokio::test]
+async fn new_git_work_is_fresh_and_local_snapshots_preserve_the_registered_checkout() {
+    let (root, s, _) = fixture().await;
+    let origin = root.path().join("origin");
+    std::fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "-b", "main"]);
+    std::fs::write(origin.join("file"), "old").unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-m", "old"]);
+    let source = root.path().join("source");
+    git(
+        root.path(),
+        &["clone", origin.to_str().unwrap(), source.to_str().unwrap()],
+    );
+    let old = git(&source, &["rev-parse", "HEAD"]);
+    std::fs::write(origin.join("file"), "current").unwrap();
+    git(&origin, &["commit", "-am", "new"]);
+    let current = git(&origin, &["rev-parse", "HEAD"]);
+    std::fs::write(source.join("file"), "uncommitted").unwrap();
+    let mut project = s
+        .project(json!({"name":"Git","path":source}), None)
+        .await
+        .unwrap();
+    let fresh = root.path().join("fresh");
+    leo_agent_manager::project_git::clone(&source, &fresh, &project, &s.config)
+        .await
+        .unwrap();
+    assert_eq!(git(&fresh, &["rev-parse", "HEAD"]), current);
+    assert_eq!(git(&source, &["rev-parse", "HEAD"]), old);
+    assert_eq!(
+        std::fs::read_to_string(source.join("file")).unwrap(),
+        "uncommitted"
+    );
+    project["sourceMode"] = "local".into();
+    let local = root.path().join("local");
+    leo_agent_manager::project_git::clone(&source, &local, &project, &s.config)
+        .await
+        .unwrap();
+    assert_eq!(git(&local, &["rev-parse", "HEAD"]), old);
+    assert_eq!(std::fs::read_to_string(local.join("file")).unwrap(), "old");
+    project["sourceMode"] = "remote".into();
+    std::fs::rename(&origin, root.path().join("offline")).unwrap();
+    assert!(
+        leo_agent_manager::project_git::clone(
+            &source,
+            &root.path().join("failed"),
+            &project,
+            &s.config
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(source.join("file")).unwrap(),
+        "uncommitted"
+    );
+}
+#[tokio::test]
+async fn partial_clone_missing_blobs_are_fetched_from_the_real_promisor() {
+    let (root, s, _) = fixture().await;
+    let origin = root.path().join("origin");
+    std::fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "-b", "main"]);
+    git(&origin, &["config", "uploadpack.allowFilter", "true"]);
+    std::fs::write(origin.join("blob"), "not in the partial object store").unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-m", "initial"]);
+    let source = root.path().join("partial");
+    git(
+        root.path(),
+        &[
+            "clone",
+            "--filter=blob:none",
+            "--no-checkout",
+            &format!("file://{}", origin.display()),
+            source.to_str().unwrap(),
+        ],
+    );
+    let missing = git(
+        &source,
+        &["rev-list", "--objects", "--missing=print", "HEAD"],
+    );
+    assert!(
+        missing.lines().any(|line| line.starts_with('?')),
+        "fixture must actually omit blobs"
+    );
+    let mut project = s
+        .project(json!({"name":"Partial","path":source}), None)
+        .await
+        .unwrap();
+    for mode in ["remote", "local"] {
+        project["sourceMode"] = mode.into();
+        let target = root.path().join(mode);
+        leo_agent_manager::project_git::clone(&source, &target, &project, &s.config)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(target.join("blob")).unwrap(),
+            "not in the partial object store"
+        );
+    }
+    assert_eq!(
+        git(
+            &source,
+            &["rev-list", "--objects", "--missing=print", "HEAD"]
+        ),
+        missing
+    );
+}
+#[tokio::test]
+async fn outcome_is_explicit_validated_and_rejected_after_run_revocation() {
+    let (_root, s, _) = fixture().await;
+    let run = run(&s, Value::Null, MAIN_AGENT_ID).await;
+    s.store
+        .patch_run(text(&run, "id"), json!({"status":"running"}))
+        .await
+        .unwrap();
+    let config = s.mcps.run_configuration(&s, &run).await.unwrap();
+    let bearer = text(&config["env"], "LEO_MCP_RUN_TOKEN");
+    let input = json!({"status":"blocked","reason":"GitHub workflow permission is missing.","evidence":["Local tests passed; push was refused."]});
+    leo_agent_manager::outcome::report(&s, bearer, &input)
+        .await
+        .unwrap();
+    assert_eq!(
+        s.store.run(text(&run, "id")).await.unwrap()["outcome"]["status"],
+        "blocked"
+    );
+    assert!(
+        leo_agent_manager::outcome::report(
+            &s,
+            bearer,
+            &json!({"status":"completed","reason":" " ,"evidence":[]})
+        )
+        .await
+        .is_err()
+    );
+    s.store
+        .patch_run(text(&run, "id"), json!({"status":"succeeded"}))
+        .await
+        .unwrap();
+    assert!(
+        leo_agent_manager::outcome::report(&s, bearer, &input)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        s.store.run(text(&run, "id")).await.unwrap()["outcome"]["status"],
+        "blocked"
+    );
+}
+
+#[tokio::test]
+async fn github_sign_in_requests_workflow_and_releases_the_startup_fence() {
+    use std::os::unix::fs::PermissionsExt;
+    let (root, mut s, _) = fixture().await;
+    let script = root.path().join("gh-fixture");
+    std::fs::write(&script,"#!/bin/sh\nif [ \"$1\" = '--version' ]; then echo 'gh fixture'; elif [ \"$1\" = api ]; then printf 'HTTP/2 200\\r\\nX-OAuth-Scopes: repo\\r\\n\\r\\nfixture\\n'; else printf '%s\\n' \"$@\" > \"$HOME/login-args\"; fi\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Arc::get_mut(&mut s).unwrap().config.gh_bin = script.to_string_lossy().into();
+    let status = s.connections.status(&s, true).await.unwrap();
+    assert_eq!(status[1]["connected"], true);
+    assert_eq!(status[1]["workflowPermission"], false);
+    assert_eq!(status[1]["account"], "fixture");
+    s.connections.start(&s, "github").await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while s.store.kv("deployment-lease").await.unwrap().is_some() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        std::fs::read_to_string(s.config.home.join("login-args"))
+            .unwrap()
+            .contains("--scopes\nworkflow")
+    );
+    let run = run(&s, Value::Null, MAIN_AGENT_ID).await;
+    s.store
+        .patch_run(
+            text(&run, "id"),
+            json!({"status":"running","recoveryPending":true}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        s.connections.start(&s, "github").await.unwrap_err().status,
+        409
+    );
+    assert!(s.store.kv("deployment-lease").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn an_old_message_grant_cannot_report_an_outcome_for_a_new_turn() {
+    let (_root, s, _) = fixture().await;
+    let run = run(&s, Value::Null, MAIN_AGENT_ID).await;
+    s.store
+        .patch_run(
+            text(&run, "id"),
+            json!({"status":"running","chatExecution":{"messageId":"first"}}),
+        )
+        .await
+        .unwrap();
+    let first = s.store.run(text(&run, "id")).await.unwrap();
+    let old = s.mcps.run_configuration(&s, &first).await.unwrap();
+    s.store
+        .patch_run(
+            text(&run, "id"),
+            json!({"chatExecution":{"messageId":"second"},"outcome":null}),
+        )
+        .await
+        .unwrap();
+    let input = json!({"status":"completed","reason":"Validated and delivered.","evidence":["Tests passed"]});
+    assert!(
+        leo_agent_manager::outcome::report(&s, text(&old["env"], "LEO_MCP_RUN_TOKEN"), &input)
+            .await
+            .is_err()
+    );
+    let second = s.store.run(text(&run, "id")).await.unwrap();
+    assert!(second["outcome"].is_null());
+    let current = s.mcps.run_configuration(&s, &second).await.unwrap();
+    let outcome =
+        leo_agent_manager::outcome::report(&s, text(&current["env"], "LEO_MCP_RUN_TOKEN"), &input)
+            .await
+            .unwrap();
+    assert_eq!(outcome["messageId"], "second");
 }

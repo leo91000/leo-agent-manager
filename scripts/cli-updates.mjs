@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { appendFile, readFile, writeFile } from 'node:fs/promises'
 import process from 'node:process'
+import { newerTool } from '../deploy/toolkit/versions.mjs'
 import { deploy } from './deploy-coolify.mjs'
 
 const stable = /^\d+\.\d+\.\d+$/
@@ -85,7 +86,7 @@ export function toolkitUpdate(plan, available, now = Date.now()) {
   const toolkit = { mise: newer(installed.mise, available.mise), tools: {} }
   let changed = plan.changed || toolkit.mise !== installed.mise || now - installed.builtAt >= 7 * 86400000
   for (const [tool, version] of Object.entries(available.tools)) {
-    toolkit.tools[tool] = newer(installed.tools[tool], version)
+    toolkit.tools[tool] = newerTool(tool, installed.tools[tool], version)
     changed ||= toolkit.tools[tool] !== installed.tools[tool]
   }
   return { toolkit, changed }

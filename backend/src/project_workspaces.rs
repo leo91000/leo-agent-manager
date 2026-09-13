@@ -31,7 +31,8 @@ pub fn authorize_in(db: &crate::store::Db<'_>, bearer: &str) -> Result<Value> {
     let denied = || Error::new(401, "Workspace access expired or was revoked.");
     let grant = db.kv(&key)?.ok_or_else(denied)?;
     let run = db.run(text(&grant, "runId"))?.ok_or_else(denied)?;
-    if grant["workspace"] != true
+    if grant["messageId"] != run["chatExecution"]["messageId"]
+        || grant["workspace"] != true
         || run["status"] != "running"
         || !run["cancelRequestedAt"].is_null()
     {
@@ -73,7 +74,10 @@ impl Projects {
             .get("projects", project_id)
             .await?
             .ok_or_else(|| Error::new(404, "Project no longer exists."))?;
-        if current["path"] != project["path"] || current["baseBranch"] != project["baseBranch"] {
+        if current["path"] != project["path"]
+            || current["baseBranch"] != project["baseBranch"]
+            || (current["sourceMode"] == "local") != (project["sourceMode"] == "local")
+        {
             return Err(Error::new(
                 409,
                 "Project configuration changed. Start a new conversation.",
@@ -141,12 +145,24 @@ impl Projects {
             })
             .await?;
         Ok(
-            json!({"projectId":project_id,"name":project["name"],"path":entry["path"],"reused":response["reused"]}),
+            json!({"projectId":project_id,"name":project["name"],"path":entry["path"],"reused":response["reused"],"revision":entry["revision"]}),
         )
     }
 }
 
 pub async fn rpc(s: &Service, bearer: &str, method: &str, params: &Value) -> Result<Value> {
+    if method == "tools/call" && params["name"] == "report_outcome" {
+        return Ok(
+            match crate::outcome::report(s, bearer, &params["arguments"]).await {
+                Ok(result) => {
+                    json!({"content":[{"type":"text","text":"Outcome saved."}],"structuredContent":result})
+                }
+                Err(error) => {
+                    json!({"isError":true,"content":[{"type":"text","text":error.message}]})
+                }
+            },
+        );
+    }
     if method == "tools/call" && params["name"] == "publish_artifact" {
         return Ok(
             match s.artifacts.publish(s, bearer, &params["arguments"]).await {
@@ -166,6 +182,10 @@ pub async fn rpc(s: &Service, bearer: &str, method: &str, params: &Value) -> Res
                 .as_array_mut()
                 .unwrap()
                 .push(crate::artifacts::tool());
+            catalog["tools"]
+                .as_array_mut()
+                .unwrap()
+                .push(crate::outcome::tool());
             Ok(catalog)
         }
         "tools/call" if params["name"] == "open_project" => {

@@ -16,6 +16,10 @@ async function main() {
   const run = (binary, args = ['--version'], cwd = directory) => execFileSync(binary, args, { env, cwd, encoding: 'utf8', timeout: 120000 }).trim()
   try {
     const manifest = JSON.parse(await readFile('/opt/leo-toolkit/manifest.json', 'utf8'))
+    assert.ok(run('java').includes(manifest.tools.java.replace('temurin-', '').split('+')[0]))
+    assert.equal(env.ANDROID_HOME, path.join(process.env.HOME, '.local/share/android/sdk'))
+    assert.equal(env.GRADLE_USER_HOME, path.join(process.env.HOME, '.gradle'))
+    assert.equal(JSON.parse(run('leo-android', ['status'])).sdkInstalled, false)
     for (const [tool, binary] of Object.entries({ 'node': 'node', 'pnpm': 'pnpm', 'python': 'python', 'uv': 'uv', 'ripgrep': 'rg', 'fd': 'fd', 'jq': 'jq', 'yq': 'yq', 'ast-grep': 'ast-grep', 'shellcheck': 'shellcheck', 'shfmt': 'shfmt', 'actionlint': 'actionlint', 'just': 'just', 'hyperfine': 'hyperfine', 'delta': 'delta', 'bat': 'bat', 'ruff': 'ruff', 'go': 'go', 'rust': 'rustc', 'cmake': 'cmake' })) {
       const version = run(binary, tool === 'go' ? ['version'] : tool === 'actionlint' ? ['-version'] : ['--version'])
       assert.ok(version.includes(manifest.tools[tool]), `${tool}: ${version}`)

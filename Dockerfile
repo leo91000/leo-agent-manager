@@ -53,6 +53,7 @@ RUN arch="${TARGETARCH:-amd64}" \
     && rm -rf /tmp/gh*
 RUN pnpm add --global "@openai/codex@${CODEX_VERSION}"
 COPY deploy/toolkit /opt/leo-toolkit
+RUN chmod +x /opt/leo-toolkit/android.mjs && ln -s /opt/leo-toolkit/android.mjs /usr/local/bin/leo-android
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN /usr/local/bin/node /opt/leo-toolkit/manage.mjs install
 # Keep the Codex npm launcher on the manager runtime even in older Node projects.
 RUN ln -s /usr/local/bin/node /pnpm/bin/node

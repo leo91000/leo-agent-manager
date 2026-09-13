@@ -35,6 +35,7 @@ export const projectInput = z.object({
   name,
   path: z.string().min(1).max(2000),
   description: z.string().max(500).default(''),
+  sourceMode: z.enum(['remote', 'local']).default('remote'),
   baseBranch: z
     .string()
     .regex(/^[a-z0-9][\w/.-]*$/i)
@@ -69,7 +70,15 @@ export type Task = z.infer<typeof taskInput> & {
 }
 export type RunStatus
   = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
+export interface TaskOutcome {
+  status: 'completed' | 'blocked' | 'needs_input'
+  reason: string
+  evidence: string[]
+  reportedAt: number
+  messageId?: string | null
+}
 export interface Run {
+  outcome?: TaskOutcome | null
   chatExecution?: import('./chats').ChatExecution
   recoveryPending?: boolean
   resumeAvailable?: boolean
@@ -89,7 +98,7 @@ export interface Run {
   summary: string
   sessionId: string | null
   workspace: string | null
-  workspaces?: { projectId: string, path: string, kind: 'worktree' | 'clone' | 'copy' | 'direct' }[]
+  workspaces?: { projectId: string, path: string, revision?: string | null, kind: 'worktree' | 'clone' | 'copy' | 'direct' }[]
   isolated?: boolean
   workspaceCleanedAt?: number
   snapshot: {

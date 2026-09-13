@@ -10,5 +10,5 @@ const tones: Record<string, string> = {
 </script>
 
 <template>
-  <span class="status inline-flex items-center gap-[5px] rounded-[5px] px-[7px] py-1 text-xs whitespace-nowrap capitalize" :class="[status, tones[status] ?? 'bg-soft text-muted']"><span class="size-[5px] rounded-full bg-current" />{{ status }}</span>
+  <span class="status inline-flex items-center gap-[5px] rounded-[5px] px-[7px] py-1 text-xs whitespace-nowrap capitalize" :class="[status, tones[status] ?? 'bg-soft text-muted']"><span class="size-[5px] rounded-full bg-current" />{{ status === 'succeeded' ? 'Execution finished' : status }}</span>
 </template>

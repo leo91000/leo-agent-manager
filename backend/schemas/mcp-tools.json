@@ -712,13 +712,22 @@
           "default": "main",
           "type": "string",
           "pattern": "^[a-z0-9][\\w/.-]*$"
+        },
+        "sourceMode": {
+          "type": "string",
+          "enum": [
+            "remote",
+            "local"
+          ],
+          "default": "remote"
         }
       },
       "required": [
         "name",
         "path",
         "description",
-        "baseBranch"
+        "baseBranch",
+        "sourceMode"
       ],
       "additionalProperties": false
     }

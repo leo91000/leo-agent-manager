@@ -107,13 +107,19 @@ onBeforeUnmount(() => clearInterval(timer))
           }}</strong><small>{{ item.account }}</small>
         </div>
       </div>
+      <UiAlert v-if="item.connected && item.workflowPermission === false" class="mb-4">
+        Reconnect to allow agents to update GitHub Actions workflows.
+      </UiAlert>
+      <p v-else-if="item.connected && item.workflowPermission == null" class="mb-4 text-xs text-muted">
+        Workflow permission could not be verified for this credential.
+      </p>
       <footer>
         <code>{{ item.version || "Install the CLI on your worker" }}</code><UiButton
           size="small"
           :disabled="busy || !item.installed || flow?.state === 'pending'"
           @click="connect(item.provider)"
         >
-          {{ item.connected ? "Reconnect" : "Connect account"
+          {{ item.connected && item.workflowPermission === false ? "Enable workflow updates" : item.connected ? "Reconnect" : "Connect account"
           }}<Icon :name="ArrowUpRight" :size="15" />
         </UiButton>
       </footer>

@@ -85,7 +85,7 @@ pub async fn environment(home: &Path, mut env: Environment) -> Result<Environmen
     }
     prune(&rustup.join("toolchains"), directory).await?;
     let installs = home.join(".local/share/mise/installs");
-    for tool in ["node", "pnpm", "python", "go", "rust"] {
+    for tool in ["node", "pnpm", "python", "go", "rust", "java"] {
         let source = Path::new("/usr/local/share/mise/installs").join(tool);
         let target = installs.join(tool);
         tokio::fs::create_dir_all(&target).await?;
@@ -98,10 +98,11 @@ pub async fn environment(home: &Path, mut env: Environment) -> Result<Environmen
         .await?;
         for version in names(&source).await? {
             let parts = version.split('.').collect::<Vec<_>>();
-            if parts.len() == 3
-                && parts
-                    .iter()
-                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+            if tool == "java" && version.starts_with("temurin-")
+                || parts.len() == 3
+                    && parts
+                        .iter()
+                        .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
             {
                 link(&source.join(&version), &target.join(version)).await?;
             }
@@ -139,15 +140,31 @@ pub async fn environment(home: &Path, mut env: Environment) -> Result<Environmen
         false,
     )
     .await?;
+    env.insert(
+        "ANDROID_HOME".into(),
+        home.join(".local/share/android/sdk")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    env.insert(
+        "ANDROID_USER_HOME".into(),
+        home.join(".android").to_string_lossy().into_owned(),
+    );
+    env.insert(
+        "GRADLE_USER_HOME".into(),
+        home.join(".gradle").to_string_lossy().into_owned(),
+    );
     env.insert("HOME".into(), home.to_string_lossy().into_owned());
     env.insert("RUSTUP_HOME".into(), rustup.to_string_lossy().into_owned());
     env.insert("CARGO_HOME".into(), cargo.to_string_lossy().into_owned());
     env.insert(
         "PATH".into(),
         format!(
-            "{}:/usr/local/share/mise/shims:{}:{}",
+            "{}:/usr/local/share/mise/shims:{}:{}/.local/share/android/sdk/platform-tools:{}/.local/share/android/sdk/cmdline-tools/latest/bin:{}",
             shims.display(),
             cargo.join("bin").display(),
+            home.display(),
+            home.display(),
             env.get("PATH")
                 .map(String::as_str)
                 .unwrap_or("/usr/local/bin:/usr/bin:/bin")

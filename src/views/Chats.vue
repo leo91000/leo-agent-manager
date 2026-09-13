@@ -11,6 +11,7 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import ModelSettings from '../components/ModelSettings.vue'
 import NotificationSettings from '../components/NotificationSettings.vue'
+import Outcome from '../components/Outcome.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
@@ -277,6 +278,7 @@ function key(event: KeyboardEvent) {
           <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
             {{ connectionNotice }}
           </p>
+          <Outcome v-if="detail?.run" :outcome="detail.run.outcome" :status="detail.run.status" class="mb-2" />
           <UiAlert v-if="error || detail?.error || detail?.run?.status === 'failed'" class="mb-3">
             {{ error || detail?.error || detail?.run?.summary }}<button :class="iconButton" aria-label="Dismiss error" @click="error = ''">
               <Icon :name="X" :size="14" />

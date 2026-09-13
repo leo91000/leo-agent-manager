@@ -1,4 +1,5 @@
 {
+  "java": "temurin-21",
   "node": "lts",
   "pnpm": "12",
   "python": "3",

@@ -134,11 +134,15 @@ async function duplicate(task: Task) {
 }
 const selected = computed(() => tasks.value.find(task => task.id === route.query.task) || tasks.value.find(task => ['running', 'queued'].includes(latest.value.get(task.id)?.status || '')) || tasks.value[0])
 const selectedRun = computed(() => selected.value && latest.value.get(selected.value.id))
+function needsAttention(task: Task) {
+  const run = latest.value.get(task.id)
+  return !!run && (['failed', 'interrupted'].includes(run.status) || (run.status === 'succeeded' && !!run.outcome && run.outcome.status !== 'completed'))
+}
 const groups = computed(() => [
   { label: 'In progress', items: tasks.value.filter(task => ['running', 'queued'].includes(latest.value.get(task.id)?.status || '')) },
-  { label: 'Needs attention', items: tasks.value.filter(task => ['failed', 'interrupted'].includes(latest.value.get(task.id)?.status || '')) },
+  { label: 'Needs attention', items: tasks.value.filter(needsAttention) },
   { label: 'Ready', items: tasks.value.filter(task => !latest.value.has(task.id)) },
-  { label: 'Finished', items: tasks.value.filter(task => ['succeeded', 'cancelled'].includes(latest.value.get(task.id)?.status || '')) },
+  { label: 'Finished', items: tasks.value.filter(task => !needsAttention(task) && ['succeeded', 'cancelled'].includes(latest.value.get(task.id)?.status || '')) },
 ].filter(group => group.items.length))
 function closeMenu(event: MouseEvent) {
   if ((event.target as HTMLElement).closest('button'))
@@ -221,7 +225,7 @@ watch(() => route.query.new, (value) => {
       <div id="task-inbox-items" class="task-inbox-items flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
         <section v-for="group in groups" :key="group.label" class="task-inbox-group">
           <h3>{{ group.label }}</h3><button v-for="task in group.items" :key="task.id" class="task-inbox-row flex items-start text-left gap-[9px] border border-transparent rounded-lg w-full px-[9px] py-3.5 phone:px-[9px] phone:py-3" :class="{ selected: selected?.id === task.id }" :aria-pressed="selected?.id === task.id" @click="select(task)">
-            <span class="inbox-status"><Icon v-if="['running', 'queued'].includes(latest.get(task.id)?.status || '')" :name="Zap" :size="15" /><Icon v-else-if="['failed', 'interrupted'].includes(latest.get(task.id)?.status || '')" :name="AlertCircle" :size="15" /><Icon v-else-if="latest.has(task.id)" :name="Check" :size="15" /><Icon v-else :name="Clock" :size="15" /></span><span><strong>{{ task.name }}</strong><small>{{ state.agents.find(agent => agent.id === task.agentId)?.name || 'Deleted agent' }}<template v-if="task.projectId"> · {{ state.projects.find(project => project.id === task.projectId)?.name || 'Project' }}</template></small></span><Icon :name="ArrowUpRight" :size="13" />
+            <span class="inbox-status"><Icon v-if="['running', 'queued'].includes(latest.get(task.id)?.status || '')" :name="Zap" :size="15" /><Icon v-else-if="needsAttention(task)" :name="AlertCircle" :size="15" /><Icon v-else-if="latest.has(task.id)" :name="Check" :size="15" /><Icon v-else :name="Clock" :size="15" /></span><span><strong>{{ task.name }}</strong><small>{{ state.agents.find(agent => agent.id === task.agentId)?.name || 'Deleted agent' }}<template v-if="task.projectId"> · {{ state.projects.find(project => project.id === task.projectId)?.name || 'Project' }}</template></small></span><Icon :name="ArrowUpRight" :size="13" />
           </button>
         </section>
       </div>

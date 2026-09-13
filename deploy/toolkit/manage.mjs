@@ -7,16 +7,16 @@ import process from 'node:process'
 
 import tools from './tools.json' with { type: 'json' }
 
-const directory = import.meta.dirname
+import { validVersion } from './versions.mjs'
 
-const versionPattern = /^\d+\.\d+\.\d+$/
-const settings = '\n[settings]\nidiomatic_version_file_enable_tools = ["node", "pnpm", "npm", "python", "rust", "go"]\nnot_found_auto_install = true\npython.compile = false\n'
+const directory = import.meta.dirname
+const settings = '\n[settings]\nidiomatic_version_file_enable_tools = ["node", "pnpm", "npm", "python", "rust", "go", "java"]\nnot_found_auto_install = true\npython.compile = false\n'
 const run = (command, args, env = process.env) => execFileSync(command, args, { env, encoding: 'utf8', timeout: 600000, maxBuffer: 4 * 1024 * 1024 }).trim()
 export function validate(plan) {
   if (!/^\d+\.\d+\.\d+$/.test(plan.mise) || Object.keys(plan.tools).sort().join() !== Object.keys(tools).sort().join())
     throw new Error('Invalid toolkit manifest')
-  for (const version of Object.values(plan.tools)) {
-    if (typeof version !== 'string' || !versionPattern.test(version))
+  for (const [tool, version] of Object.entries(plan.tools)) {
+    if (!validVersion(tool, version))
       throw new Error('Invalid toolkit version')
   }
   return plan

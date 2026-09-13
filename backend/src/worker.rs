@@ -1135,7 +1135,7 @@ impl Worker {
                 let result = db.patch_run(
                     &id,
                     &json!({
-                    "status":"queued","recoveryPending":true,"cancelRequestedAt":null,"finishedAt":null,"accountWaitReason":if before_launch{
+                    "status":"queued","outcome":null,"recoveryPending":true,"cancelRequestedAt":null,"finishedAt":null,"accountWaitReason":if before_launch{
                     Value::Null}
                     else{
                     "Resuming saved conversation.".into()}

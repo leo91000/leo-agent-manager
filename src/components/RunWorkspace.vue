@@ -10,6 +10,7 @@ import ArtifactViewer from './ArtifactViewer.vue'
 import Icon from './Icon.vue'
 import Markdown from './Markdown.vue'
 import Modal from './Modal.vue'
+import Outcome from './Outcome.vue'
 import Status from './Status.vue'
 import UiAlert from './UiAlert.vue'
 import UiButton from './UiButton.vue'
@@ -129,7 +130,7 @@ async function copy() {
             {{ run.snapshot.task.name }}
           </component>
           <div class="run-title-meta flex items-center gap-3 mt-3.5 text-subtle text-xs phone:flex-wrap phone:text-xs">
-            <Status :status="run.status" /><span v-if="run.codexAccountName">{{ run.codexAccountName }}</span><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
+            <Status :status="run.status" /><Outcome :outcome="run.outcome" :status="run.status" /><span v-if="run.codexAccountName">{{ run.codexAccountName }}</span><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
           </div>
         </div>
       </div>
@@ -176,6 +177,9 @@ async function copy() {
             run.workspace
               || (run.workspaceCleanedAt ? "Worktree cleaned up" : "Not prepared yet")
           }}</code>
+          <p v-for="entry in run.workspaces?.filter(entry => entry.revision)" :key="entry.projectId" class="text-xs text-muted">
+            Starting commit <code :title="entry.revision || undefined">{{ entry.revision?.slice(0, 12) }}</code>
+          </p>
           <UiButton
             v-if="!active && run.workspace && run.snapshot.task.worktree && !run.isolated"
             size="small"

@@ -4,6 +4,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, date, duration } from '../api'
 import Empty from '../components/Empty.vue'
 import Icon from '../components/Icon.vue'
+import Outcome from '../components/Outcome.vue'
 import Status from '../components/Status.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
@@ -17,10 +18,10 @@ const error = ref('')
 const offset = ref(0)
 const busy = ref(false)
 const outcomes = [
-  { value: '', label: 'All outcomes', icon: ListFilter },
+  { value: '', label: 'All executions', icon: ListFilter },
   { value: 'queued', label: 'Queued', icon: Clock, group: 'In progress' },
   { value: 'running', label: 'Running', icon: LoaderCircle, group: 'In progress' },
-  { value: 'succeeded', label: 'Succeeded', icon: CircleCheck, group: 'Finished' },
+  { value: 'succeeded', label: 'Execution finished', icon: CircleCheck, group: 'Finished' },
   { value: 'failed', label: 'Failed', icon: TriangleAlert, group: 'Finished' },
   { value: 'cancelled', label: 'Cancelled', icon: Square, group: 'Finished' },
   { value: 'interrupted', label: 'Interrupted', icon: CirclePause, group: 'Finished' },
@@ -93,7 +94,7 @@ onBeforeUnmount(() => clearInterval(timer))
             </RouterLink><small>{{ run.agentName }}</small>
           </td>
           <td data-label="Outcome">
-            <Status :status="run.status" />
+            <Status :status="run.status" /><Outcome :outcome="run.outcome" :status="run.status" />
           </td>
           <td data-label="Started">
             {{ date(run.createdAt) }}

@@ -343,7 +343,7 @@ impl Mcps {
                 .set(
                     &format!("mcp-grant:{}", hex_digest(&token)),
                     json!({
-                    "runId":run["id"],"servers":servers,"workspace":workspace}
+                    "runId":run["id"],"messageId":run["chatExecution"]["messageId"],"servers":servers,"workspace":workspace}
                     ),
                     Some(
                         now()
