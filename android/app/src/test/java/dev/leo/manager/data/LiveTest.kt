@@ -30,6 +30,18 @@ class LiveTest {
         "event: batch\nid: $cursor\ndata: ${wireJson.encodeToString(batch)}\n\n"
 
     @Test
+    fun `backwards page keeps latest message snapshot and intervening tools`() {
+        fun message(id: Long, content: String) = RunEvent(id, id, "item.updated", content, mapOf("item" to buildJsonObject {
+            put("id", "m"); put("type", "agent_message"); put("text", content)
+        }))
+        val merged = mergeHistory(listOf(message(1, "old"), RunEvent(2, 2, "output", "tool")), listOf(message(3, "complete")))
+        assertEquals(2, merged.size)
+        assertEquals("complete", merged[0].text)
+        assertEquals("tool", merged[1].text)
+        assertEquals(merged, mergeHistory(listOf(message(1, "old")), merged))
+    }
+
+    @Test
     fun `restoring a folded snapshot retains the delta baseline without duplicating a message`() {
         val first = LiveAccumulator()
         val saved = first.append(listOf(message(1, "Bonjour"), message(2, " Leo", true)))
@@ -159,8 +171,8 @@ class LiveTest {
                             .take(2)
                             .toList()
                     }
-                assertEquals("/api/chats/chat/stream?after=0", server.takeRequest().path)
-                assertEquals("/api/chats/chat/stream?after=1", server.takeRequest().path)
+                assertEquals("/api/chats/chat/stream?after=0&window=1", server.takeRequest().path)
+                assertEquals("/api/chats/chat/stream?after=1&window=1", server.takeRequest().path)
                 assertEquals("r2", snapshots.last().state?.run?.id)
                 assertEquals(1, snapshots.last().events.size)
                 assertTrue(api.streamCalls.isEmpty())
@@ -225,10 +237,10 @@ class LiveTest {
                             .content,
                     )
                 }
-                assertEquals("/api/chats/one/stream?after=0", server.takeRequest().path)
-                assertEquals("/api/chats/one/stream?after=1", server.takeRequest().path)
-                assertEquals("/api/chats/two/stream?after=0", server.takeRequest().path)
-                assertEquals("/api/chats/two/stream?after=0", server.takeRequest().path)
+                assertEquals("/api/chats/one/stream?after=0&window=1", server.takeRequest().path)
+                assertEquals("/api/chats/one/stream?after=1&window=1", server.takeRequest().path)
+                assertEquals("/api/chats/two/stream?after=0&window=1", server.takeRequest().path)
+                assertEquals("/api/chats/two/stream?after=0&window=1", server.takeRequest().path)
             }
         }
 

@@ -1,5 +1,5 @@
 import type { RunEvent } from '../shared/contracts'
-import type { LiveState } from '../shared/live'
+import type { HistoryPage, LiveState } from '../shared/live'
 import type { ReadingPosition } from './history-cache'
 import type { LiveStatus } from './live-connection'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -16,6 +16,11 @@ export function useLiveRun(path: () => string) {
   const synced = ref(false)
   const error = ref('')
   const position = ref<ReadingPosition>()
+  const hasOlder = ref(false)
+  const loadingOlder = ref(false)
+  const olderError = ref('')
+  let fetchOlder: (() => Promise<void>) | undefined
+  const loadOlder = () => fetchOlder?.()
   let connection: ReturnType<typeof liveConnection> | undefined
   let disposed = false
   let generation = 0
@@ -42,6 +47,10 @@ export function useLiveRun(path: () => string) {
     clearTimeout(saveTimer)
     saveTimer = undefined
     persist = undefined
+    fetchOlder = undefined
+    hasOlder.value = false
+    loadingOlder.value = false
+    olderError.value = ''
     snapshot.value = undefined
     events.value = []
     position.value = undefined
@@ -62,6 +71,8 @@ export function useLiveRun(path: () => string) {
     let detail = cached?.state
     let cursor = cached?.cursor ?? 0
     let history = cached?.history
+    let oldest = cached?.oldest ?? 0
+    hasOlder.value = cached?.hasOlder ?? false
     let complete = !!cached
     let storedPosition = cached?.position
     position.value = storedPosition
@@ -75,7 +86,40 @@ export function useLiveRun(path: () => string) {
       if (!scope || !complete || !detail || !history || current !== generation || !state.authenticated || state.signingOut)
         return
       storedPosition = position.value
-      void writeHistory(scope, value, { version: 1, cursor, history, state: detail, events: rows.slice(), savedAt: Date.now(), position: storedPosition })
+      void writeHistory(scope, value, { version: 1, cursor, history, state: detail, events: rows.slice(), oldest, hasOlder: hasOlder.value, savedAt: Date.now(), position: storedPosition })
+    }
+    fetchOlder = async () => {
+      if (!history || !hasOlder.value || loadingOlder.value)
+        return
+      const expected = history
+      const before = oldest
+      loadingOlder.value = true
+      olderError.value = ''
+      try {
+        const page = await api<HistoryPage>(`${value.replace(/\/stream$/, '')}/history?before=${before}&history=${encodeURIComponent(expected)}`)
+        if (disposed || current !== generation || history !== expected || page.history !== expected)
+          return
+        if (page.hasOlder && page.oldest >= before)
+          throw new Error('Invalid history page')
+        const next: RunEvent[] = []
+        const candidate = new LiveEvents()
+        candidate.append(next, [...new Map([...page.events, ...rows].map(e => [e.id, e])).values()].sort((a, b) => a.id - b.id))
+        candidate.restore(next, cursor)
+        accumulator = candidate
+        rows = next
+        oldest = page.oldest
+        hasOlder.value = page.hasOlder
+        events.value = rows.slice()
+        scheduleSave()
+      }
+      catch (e) {
+        if (current === generation)
+          olderError.value = e instanceof Error ? e.message : 'Unable to load history'
+      }
+      finally {
+        if (current === generation)
+          loadingOlder.value = false
+      }
     }
     let checking = false
     connection = liveConnection(value, (batch, accepted) => {
@@ -86,6 +130,7 @@ export function useLiveRun(path: () => string) {
         accumulator = new LiveEvents()
         complete = false
         position.value = undefined
+        olderError.value = ''
         if (scope)
           void removeHistory(scope, value)
       }
@@ -99,6 +144,10 @@ export function useLiveRun(path: () => string) {
         detail = batch.state
       cursor = accepted
       history = batch.history
+      if (batch.oldest !== undefined) {
+        oldest = batch.oldest
+        hasOlder.value = batch.hasOlder ?? false
+      }
       complete = !batch.more
       if (complete) {
         snapshot.value = detail
@@ -139,6 +188,10 @@ export function useLiveRun(path: () => string) {
   })
   return {
     snapshot,
+    hasOlder,
+    loadingOlder,
+    olderError,
+    loadOlder,
     events,
     catchingUp,
     synced,

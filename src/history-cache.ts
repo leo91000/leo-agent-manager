@@ -3,6 +3,8 @@ import type { LiveState } from '../shared/live'
 
 export interface ReadingPosition { top: number, follow: boolean }
 export interface CachedHistory {
+  oldest?: number
+  hasOlder?: boolean
   version: 1
   cursor: number
   history: string
@@ -93,8 +95,11 @@ function trimMemory() {
 export function writeHistory(scope: string, path: string, value: CachedHistory) {
   const key = `${scope}:${path}`
   const current = epoch
+  if (!valid(value))
+    return removeHistory(scope, path)
+  value = recentHistory(value)
   const text = JSON.stringify(value)
-  if (!valid(value) || text.length * 2 > MAX_ENTRY)
+  if (text.length * 2 > MAX_ENTRY)
     return removeHistory(scope, path)
   memory.delete(key)
   memory.set(key, JSON.parse(text))
@@ -130,4 +135,22 @@ export function clearHistoryCache() {
   return enqueue(() => transaction<void>('readwrite', (store) => {
     store.clear()
   }))
+}
+
+export function recentHistory(value: CachedHistory): CachedHistory {
+  let size = JSON.stringify(value.state).length * 2 + 4096
+  const ordered = value.events.toSorted((a, b) => a.id - b.id)
+  let start = ordered.length
+  while (start > 0 && value.events.length - start < 200) {
+    const bytes = JSON.stringify(ordered[start - 1]).length * 2 + 2
+    if (size + bytes > 3 * 1024 * 1024)
+      break
+    size += bytes
+    start--
+  }
+  if (!start)
+    return value
+  const oldest = ordered[start]?.id ?? value.cursor + 1
+  const events = value.events.filter(e => e.id >= oldest)
+  return { ...value, events, oldest, hasOlder: true, position: undefined }
 }

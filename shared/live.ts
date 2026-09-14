@@ -9,6 +9,8 @@ export interface LiveState {
   artifacts: Deliverable[]
 }
 export interface LiveBatch {
+  oldest?: number
+  hasOlder?: boolean
   /** Append-only history identity and retention revision; absent on older servers. */
   history?: string
   events: RunEvent[]
@@ -16,3 +18,5 @@ export interface LiveBatch {
   reset: boolean
   more: boolean
 }
+
+export interface HistoryPage { events: RunEvent[], history: string, oldest: number, hasOlder: boolean }

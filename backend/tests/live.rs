@@ -532,3 +532,223 @@ async fn cache_revision_resumes_valid_history_and_resets_pruned_or_foreign_histo
     assert_ne!(batch["history"], initial["history"]);
     assert_eq!(batch["events"].as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn recent_window_pages_backwards_without_gaps_and_keeps_live_cursor() {
+    let f = Fixture::new().await;
+    f.append(245).await;
+    let all = ids(&f).await;
+    let mut stream = f
+        .open_path(&format!("/api/runs/{}/stream?window=1", f.run), None)
+        .await;
+    let (cursor, batch) = stream.batch().await;
+    assert_eq!(cursor, *all.last().unwrap());
+    assert_eq!(batch["more"], false);
+    assert_eq!(batch["hasOlder"], true);
+    assert!(batch["state"]["chat"].is_null());
+    assert_eq!(batch["events"].as_array().unwrap().len(), 100);
+    let history = batch["history"].as_str().unwrap();
+    let mut before = batch["oldest"].as_i64().unwrap();
+    let mut collected: Vec<_> = batch["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["id"].as_i64().unwrap())
+        .collect();
+    let client = reqwest::Client::new();
+    loop {
+        let response = client
+            .get(format!(
+                "{}/api/runs/{}/history?before={before}&history={history}",
+                f.url, f.run
+            ))
+            .header("cookie", format!("leo_session={}", f.token))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let page: Value = response.json().await.unwrap();
+        let mut previous: Vec<_> = page["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["id"].as_i64().unwrap())
+            .collect();
+        assert!(previous.iter().all(|id| *id < before));
+        previous.extend(collected);
+        collected = previous;
+        before = page["oldest"].as_i64().unwrap();
+        if page["hasOlder"] == false {
+            break;
+        }
+    }
+    assert_eq!(collected, all);
+    f.append(1).await;
+    let (next, update) = stream.batch().await;
+    assert!(next > cursor);
+    assert_eq!(update["events"].as_array().unwrap().len(), 1);
+    assert!(update.get("oldest").is_none());
+    for (query, expected) in [
+        ("before=0&history=x", 400),
+        ("before=5&history=v1:foreign:1", 409),
+        ("before=5", 400),
+    ] {
+        let response = client
+            .get(format!("{}/api/runs/{}/history?{query}", f.url, f.run))
+            .header("cookie", format!("leo_session={}", f.token))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    let response = client
+        .get(format!(
+            "{}/api/runs/{}/history?history={history}",
+            f.url, f.run
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn paginated_chat_metadata_keeps_pending_messages_without_replaying_delivered_text() {
+    let f = Fixture::new().await;
+    let mut chat = f.service.chat_create(json!({})).await.unwrap();
+    chat["runId"] = f.run.clone().into();
+    let id = text(&chat, "id").to_owned();
+    f.service.store.put("chats", chat).await.unwrap();
+    let chat_id = id.clone();
+    f.service.store.transaction(move |db| {
+        for status in ["delivered", "queued"] {
+            db.put_message(&json!({"id":status,"chatId":chat_id,"createdAt":1,"status":status,"text":"A message"}))?;
+        }
+        Ok(())
+    }).await.unwrap();
+    let mut modern = f
+        .open_path(&format!("/api/chats/{id}/stream?window=1"), None)
+        .await;
+    let (_, batch) = modern.batch().await;
+    assert_eq!(
+        batch["state"]["chat"]["messages"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(batch["state"]["chat"]["messages"][0]["status"], "queued");
+    let mut legacy = f.open_path(&format!("/api/chats/{id}/stream"), None).await;
+    let (_, batch) = legacy.batch().await;
+    assert_eq!(
+        batch["state"]["chat"]["messages"].as_array().unwrap().len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn profile_long_answer_delivery_with_small_wire_deltas() {
+    let f = Fixture::new().await;
+    let mut stream = f
+        .open_path(&format!("/api/runs/{}/stream?window=1", f.run), None)
+        .await;
+    stream.batch().await;
+    for length in [2000, 20000, 100000] {
+        let mut content = "a".repeat(length);
+        let publish = async |value: &str| {
+            f.service
+                .store
+                .event(
+                    &f.run,
+                    "item.updated",
+                    value,
+                    Some(json!({"item":{"id":"profile","type":"agent_message","text":value}})),
+                )
+                .await
+                .unwrap();
+        };
+        publish(&content).await;
+        stream.batch().await;
+        let mut times = Vec::new();
+        let mut bytes = Vec::new();
+        for _ in 0..18 {
+            let suffix = " more text".repeat(20);
+            content.push_str(&suffix);
+            let start = Instant::now();
+            publish(&content).await;
+            let (_, batch) = stream.batch().await;
+            times.push(start.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(batch["events"][0]["payload"]["item"]["delta"], suffix);
+            bytes.push(serde_json::to_vec(&batch).unwrap().len());
+        }
+        times.sort_by(|a, b| a.total_cmp(b));
+        println!(
+            "STREAM_SERVER_PROFILE {}",
+            json!({"characters":length,"samples":times.len(),"p50_ms":times[9],"p95_ms":times[17],"max_batch_bytes":bytes.into_iter().max()})
+        );
+    }
+}
+
+#[tokio::test]
+async fn backwards_pages_skip_superseded_long_answers_but_keep_reused_ids_in_older_turns() {
+    let f = Fixture::new().await;
+    let run = f.run.clone();
+    f.service
+        .store
+        .transaction(move |db| {
+            db.event(&run, "turn.started", "", None)?;
+            db.event(
+                &run,
+                "item.completed",
+                "previous turn",
+                Some(&json!({"item":{"id":"m","type":"agent_message","text":"previous turn"}})),
+            )?;
+            db.event(&run, "turn.completed", "", None)?;
+            db.event(&run, "turn.started", "", None)?;
+            db.event(&run, "chat.user", "Older question", None)?;
+            for n in 0..80 {
+                let text = format!("{}-{n}", "x".repeat(300_000));
+                db.event(
+                    &run,
+                    "item.updated",
+                    &text,
+                    Some(&json!({"item":{"id":"m","type":"agent_message","text":text}})),
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let mut stream = f
+        .open_path(&format!("/api/runs/{}/stream?window=1", f.run), None)
+        .await;
+    let (_, first) = stream.batch().await;
+    assert_eq!(first["events"].as_array().unwrap().len(), 1);
+    assert!(
+        first["events"][0]["payload"]["item"]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("-79")
+    );
+    assert_eq!(first["hasOlder"], true);
+    let before = first["oldest"].as_i64().unwrap();
+    let history = first["history"].as_str().unwrap();
+    let page: Value = reqwest::Client::new()
+        .get(format!(
+            "{}/api/runs/{}/history?before={before}&history={history}",
+            f.url, f.run
+        ))
+        .header("cookie", format!("leo_session={}", f.token))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(page["hasOlder"], false);
+    let events = page["events"].as_array().unwrap();
+    assert!(events.iter().any(|e| e["text"] == "Older question"));
+    let messages: Vec<_> = events
+        .iter()
+        .filter(|e| e["payload"]["item"]["type"] == "agent_message")
+        .collect();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["payload"]["item"]["text"], "previous turn");
+}

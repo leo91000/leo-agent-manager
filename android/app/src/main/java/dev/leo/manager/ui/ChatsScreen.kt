@@ -139,6 +139,7 @@ fun ChatScreen(
         ) {
             follow = it
         }
+    val loadOlder = rememberHistoryPaging(live, listState, positionReady && !gallery, follow, timeline.map { it.key }) { follow = false }
     val active = chat?.run?.active == true
     val selectedAgent = state.agents.find { it.id == (chat?.agentId ?: agent) }
     val projects =
@@ -445,6 +446,7 @@ fun ChatScreen(
                                     Text("Envoyez un message ou un fichier pour commencer.")
                                 }
                             }
+                        historyHeader(live, loadOlder)
                         items(timeline, key = { it.key }) {
                             TimelineRow(vm, it, chat?.agentName ?: "Leo")
                         }

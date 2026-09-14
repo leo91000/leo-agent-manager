@@ -13,9 +13,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import dev.leo.manager.data.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 
@@ -26,6 +28,24 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
     val api = if (enabled) vm.api else null
     var value by remember(path, api) { mutableStateOf(LiveSnapshot()) }
     val session = remember(path, api) { LiveSession() }
+    val scope = rememberCoroutineScope()
+    var older by remember(path, api) { mutableStateOf(emptyList<RunEvent>()) }
+    var olderHistory by remember(path, api) { mutableStateOf<String?>(null) }
+    var boundary by remember(path, api) { mutableStateOf<Long?>(null) }
+    var moreOlder by remember(path, api) { mutableStateOf(false) }
+    var loadingOlder by remember(path, api) { mutableStateOf(false) }
+    var olderError by remember(path, api) { mutableStateOf<String?>(null) }
+    fun display(snapshot: LiveSnapshot): LiveSnapshot {
+        if (snapshot.history != olderHistory) {
+            older = emptyList()
+            boundary = null
+            olderHistory = snapshot.history
+            olderError = null
+        }
+        return if (boundary == null) snapshot else snapshot.copy(
+            events = mergeHistory(older, snapshot.events), oldest = boundary!!, hasOlder = moreOlder,
+        )
+    }
     LaunchedEffect(path, api, owner) {
         if (enabled && api != null) {
             val cacheGeneration = vm.historyCache.generation
@@ -38,7 +58,7 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
                 owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     try {
                         api.live(path, session).collect {
-                            if (!it.catchingUp || it.httpStatus != null) value = it
+                            if (!it.catchingUp || it.httpStatus != null) value = display(it)
                             if (it.httpStatus in listOf(401, 403, 404)) {
                                 vm.historyCache.remove(key)
                                 value =
@@ -50,7 +70,7 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
                             } else if (!it.catchingUp && it.state != null && it.history != null) {
                                 vm.historyCache.save(
                                     key,
-                                    CachedHistory(it.cursor, it.history, it.state, it.events),
+                                    CachedHistory(it.cursor, it.history, it.state, value.events, oldest = value.oldest, hasOlder = value.hasOlder),
                                     expectedGeneration = cacheGeneration,
                                 )
                             }
@@ -66,7 +86,88 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
             }
         }
     }
-    return value
+    return value.copy(loadingOlder = loadingOlder, olderError = olderError, loadOlder = {
+        val history = value.history
+        if (enabled && api != null && history != null && value.hasOlder && !loadingOlder) {
+            loadingOlder = true
+            olderError = null
+            val before = value.oldest
+            val cacheGeneration = vm.historyCache.generation
+            scope.launch {
+                try {
+                    val page = api.get<HistoryPage>(path.removeSuffix("/stream") + "/history?before=$before&history=${segment(history)}")
+                    if (value.history == history && page.history == history) {
+                        require(page.oldest < before || !page.hasOlder) { "Page d’historique invalide." }
+                        older = mergeHistory(page.events, older)
+                        olderHistory = history
+                        boundary = page.oldest
+                        moreOlder = page.hasOlder
+                        value = display(value)
+                        value.state?.let { detail ->
+                            vm.historyCache.save(
+                                vm.historyCache.key(workspace.origin, api.csrf, path),
+                                CachedHistory(value.cursor, history, detail, value.events, oldest = value.oldest, hasOlder = value.hasOlder),
+                                expectedGeneration = cacheGeneration,
+                            )
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    olderError = e.message ?: "Historique indisponible. Réessayez."
+                    if (e is ApiException && e.status == 401) vm.report(e)
+                } finally {
+                    loadingOlder = false
+                }
+            }
+        }
+    })
+}
+
+/** Load near the top only after the reader leaves follow mode. Stable LazyColumn keys anchor the viewport. */
+@Composable
+internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, ready: Boolean, follow: Boolean, keys: List<String>, stopFollowing: () -> Unit): () -> Unit {
+    val current by rememberUpdatedState(live)
+    var anchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
+    var requestedBefore by remember(list) { mutableLongStateOf(0L) }
+    val load = {
+        if (current.hasOlder && !current.loadingOlder) {
+            val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key != "history:older" }
+            anchor = item?.let { it.key.toString() to -it.offset }
+            requestedBefore = current.oldest
+            stopFollowing()
+            current.loadOlder()
+        }
+    }
+    val currentLoad by rememberUpdatedState(load)
+    LaunchedEffect(list, ready, follow) {
+        if (ready && !follow) snapshotFlow { list.firstVisibleItemIndex }.collect {
+            if (it <= 2 && current.olderError == null) currentLoad()
+        }
+    }
+    LaunchedEffect(live.loadingOlder, live.oldest, keys) {
+        val saved = anchor
+        if (saved != null && !live.loadingOlder && live.oldest != requestedBefore) {
+            val index = keys.indexOf(saved.first)
+            if (index >= 0) {
+                val target = index + if (live.hasOlder || live.olderError != null) 1 else 0
+                snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > target }
+                list.scrollToItem(target, saved.second)
+            }
+            anchor = null
+        }
+    }
+    return load
+}
+
+internal fun androidx.compose.foundation.lazy.LazyListScope.historyHeader(live: LiveSnapshot, load: () -> Unit) {
+    if (live.hasOlder || live.loadingOlder || live.olderError != null) item(key = "history:older") {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (live.loadingOlder) CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp))
+            else TextButton(onClick = load) { Text("Messages précédents") }
+            live.olderError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        }
+    }
 }
 
 /** Restore once the feed exists; background resumes retain the existing list state. */
@@ -83,6 +184,7 @@ fun rememberHistoryPosition(
 ): Boolean {
     var ready by remember(path) { mutableStateOf(false) }
     val currentFollow by rememberUpdatedState(follow)
+    val firstEvent by rememberUpdatedState(live.events.firstOrNull()?.id)
     val api = vm.api
     val key = remember(path, api) { vm.historyCache.key(workspace.origin, api.csrf, path) }
     LaunchedEffect(path, live.catchingUp, visible) {
@@ -109,6 +211,7 @@ fun rememberHistoryPosition(
                         list.firstVisibleItemIndex,
                         list.firstVisibleItemScrollOffset,
                         currentFollow,
+                        firstEvent,
                     )
                 }
                     .collectLatest { vm.historyCache.position(key, it) }
@@ -120,6 +223,7 @@ fun rememberHistoryPosition(
                             list.firstVisibleItemIndex,
                             list.firstVisibleItemScrollOffset,
                             currentFollow,
+                            firstEvent,
                         ),
                     )
                     vm.historyCache.flush(key)

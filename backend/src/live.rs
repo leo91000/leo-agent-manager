@@ -25,9 +25,18 @@ struct Page {
     reset: bool,
     more: bool,
     history: String,
+    oldest: Option<i64>,
+    has_older: bool,
 }
 
-async fn page(s: &Service, scope: Scope, after: i64, expected: Option<String>) -> Result<Page> {
+async fn page(
+    s: &Service,
+    scope: Scope,
+    after: i64,
+    expected: Option<String>,
+    window: bool,
+    before: Option<i64>,
+) -> Result<Page> {
     s.store
         .read(move |db| {
             // A single SQLite snapshot covers metadata and the event boundary.
@@ -60,7 +69,16 @@ async fn page(s: &Service, scope: Scope, after: i64, expected: Option<String>) -
                 || expected.as_ref().is_some_and(|value| *value != history);
             // Stop reading rows at the byte budget, rather than allocating an
             // entire page of large historical outputs for every subscriber.
-            let events = db.event_batch(run_id, if reset { 0 } else { after }, 100, 256 * 1024)?;
+            if before.is_some() && reset {
+                return Err(Error::new(409, "History changed. Reconnect before loading older messages."));
+            }
+            let tail = before.is_some() || (window && (after == 0 || reset));
+            let (events, has_older) = if tail {
+                db.events_before(run_id, before.unwrap_or(i64::MAX))?
+            } else {
+                (db.event_batch(run_id, if reset { 0 } else { after }, 100, 256 * 1024)?, false)
+            };
+            let oldest = tail.then(|| events.first().map_or(before.unwrap_or(0), |e| e.id));
             let cursor = events
                 .last()
                 .map_or(if reset { 0 } else { after }, |e| e.id);
@@ -77,12 +95,21 @@ async fn page(s: &Service, scope: Scope, after: i64, expected: Option<String>) -
             if scope.chat {
                 state["chats"] = crate::chats::list(&db)?.into();
             }
+            // Delivered messages already live in the event history. Do not resend
+            // the entire conversation as metadata on every paginated stream update.
+            if window && scope.chat && !scope.id.is_empty()
+                && let Some(messages) = state["chat"]["messages"].as_array_mut()
+            {
+                messages.retain(|m| m["status"] != "delivered");
+            }
             Ok(Page {
                 state,
                 events,
                 reset,
                 more: cursor < max,
                 history,
+                oldest,
+                has_older,
             })
         })
         .await
@@ -114,11 +141,13 @@ pub async fn http(s: Arc<Service>, kind: &str, id: &str, input: Input) -> Result
     if expected.as_ref().is_some_and(|v| v.len() > 200) {
         return Err(Error::bad("Invalid history version."));
     }
-    let first = page(&s, scope.clone(), after, expected).await?;
+    let window = input.query.get("window").is_some_and(|v| v == "1");
+    let first = page(&s, scope.clone(), after, expected, window, None).await?;
     let session = cookie(&input.headers);
     let subscription = Subscription {
         s,
         scope,
+        window,
         changes,
         cursor: after,
         pending: Some(first),
@@ -145,6 +174,7 @@ pub async fn http(s: Arc<Service>, kind: &str, id: &str, input: Input) -> Result
 struct Subscription {
     s: Arc<Service>,
     scope: Scope,
+    window: bool,
     changes: tokio::sync::watch::Receiver<u64>,
     cursor: i64,
     pending: Option<Page>,
@@ -159,18 +189,22 @@ impl Subscription {
             if self.s.shutdown.is_cancelled() {
                 return Ok(None);
             }
+            // Mark observed changes before reading auth. Otherwise a logout
+            // between the auth check and the page read can be consumed unseen.
+            self.changes.borrow_and_update();
             if self.s.auth.read(&self.session).await?.is_none() {
                 return Ok(None);
             }
             let mut current = match self.pending.take() {
                 Some(first) => first,
                 None => {
-                    self.changes.borrow_and_update();
                     page(
                         &self.s,
                         self.scope.clone(),
                         self.cursor,
                         self.history.clone(),
+                        self.window,
+                        None,
                     )
                     .await?
                 }
@@ -178,7 +212,7 @@ impl Subscription {
             let run_changed = !self.previous.is_null()
                 && self.previous["run"]["id"] != current.state["run"]["id"];
             if run_changed {
-                current = page(&self.s, self.scope.clone(), 0, None).await?;
+                current = page(&self.s, self.scope.clone(), 0, None, self.window, None).await?;
             }
             let reset = current.reset || run_changed;
             if reset {
@@ -189,6 +223,10 @@ impl Subscription {
             let has_events = !current.events.is_empty();
             self.cursor = current.events.last().map_or(self.cursor, |e| e.id);
             let mut data = json!({"events":self.deltas.encode(current.events, reset)?,"reset":reset,"more":current.more,"history":current.history});
+            if let Some(oldest) = current.oldest {
+                data["oldest"] = oldest.into();
+                data["hasOlder"] = current.has_older.into();
+            }
             if changed {
                 data["state"] = current.state.clone();
             }
@@ -212,4 +250,29 @@ impl Subscription {
             }
         }
     }
+}
+
+/// Backwards pages use full persisted snapshots, never connection-local deltas.
+pub async fn history(s: &Service, kind: &str, id: &str, input: &Input) -> Result<Value> {
+    uuid(id)?;
+    let before = input.number("before", i64::MAX, 1, i64::MAX)?;
+    let expected = input.query.get("history").cloned();
+    if expected.as_ref().is_none_or(|v| v.len() > 200) {
+        return Err(Error::bad("A history revision is required."));
+    }
+    let page = page(
+        s,
+        Scope {
+            chat: kind == "chats",
+            id: id.to_owned(),
+        },
+        0,
+        expected,
+        true,
+        Some(before),
+    )
+    .await?;
+    Ok(
+        json!({"events":page.events,"history":page.history,"oldest":page.oldest,"hasOlder":page.has_older}),
+    )
 }

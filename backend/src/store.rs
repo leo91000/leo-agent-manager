@@ -81,6 +81,10 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at
             "CREATE TABLE IF NOT EXISTS chat_messages(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,data TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages(chat_id,created_at); PRAGMA user_version=4;",
         )?;
+        // Backwards history excludes superseded text snapshots. These small keys
+        // bound both the next-turn lookup and the same-message revision lookup.
+        tx.execute_batch("CREATE INDEX IF NOT EXISTS events_turns ON events(run_id,id) WHERE type='turn.started';
+CREATE INDEX IF NOT EXISTS events_messages ON events(run_id,json_extract(payload,'$.item.id'),id) WHERE json_extract(payload,'$.item.type')='agent_message';")?;
         tx.commit()?;
         let mut readers = Vec::new();
         for _ in 0..2 {
@@ -424,20 +428,51 @@ impl Db<'_> {
         limit: i64,
         max_bytes: usize,
     ) -> Result<Vec<Event>> {
-        let mut stmt = self.0.prepare_cached("SELECT id,run_id,created_at,type,text,payload FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?")?;
-        let rows = stmt.query_map(params![run, after, limit], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-                r.get::<_, Option<String>>(5)?,
-            ))
-        })?;
+        self.event_slice(run, after, limit, max_bytes, false)
+            .map(|(events, _)| events)
+    }
+    pub fn events_before(&self, run: &str, before: i64) -> Result<(Vec<Event>, bool)> {
+        let (mut events, more) = self.event_slice(run, before, 100, 256 * 1024, true)?;
+        events.reverse();
+        Ok((events, more))
+    }
+    fn event_slice(
+        &self,
+        run: &str,
+        boundary: i64,
+        limit: i64,
+        max_bytes: usize,
+        backwards: bool,
+    ) -> Result<(Vec<Event>, bool)> {
+        let sql = if backwards {
+            "SELECT e.id,e.run_id,e.created_at,e.type,e.text,e.payload FROM events e
+WHERE e.run_id=? AND e.id<? AND (
+ json_extract(e.payload,'$.item.type') IS NOT 'agent_message'
+ OR COALESCE(json_extract(e.payload,'$.item.id'),'')=''
+ OR NOT EXISTS (
+  SELECT 1 FROM events n WHERE n.run_id=e.run_id
+   AND json_extract(n.payload,'$.item.type')='agent_message'
+   AND json_extract(n.payload,'$.item.id')=json_extract(e.payload,'$.item.id')
+   AND n.id>e.id AND n.id<COALESCE((SELECT t.id FROM events t WHERE t.run_id=e.run_id AND t.type='turn.started' AND t.id>e.id ORDER BY t.id LIMIT 1),9223372036854775807)
+ )) ORDER BY e.id DESC LIMIT ?"
+        } else {
+            "SELECT id,run_id,created_at,type,text,payload FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?"
+        };
+        let mut stmt = self.0.prepare_cached(sql)?;
+        let mut rows =
+            stmt.query_map(params![run, boundary, limit + i64::from(backwards)], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ))
+            })?;
         let mut events = Vec::new();
         let mut bytes = 0;
-        for row in rows {
+        for row in rows.by_ref() {
             let (id, run, created, kind, text, payload) = row?;
             bytes += text.len() + payload.as_ref().map_or(0, String::len) + 256;
             events.push(Event {
@@ -450,11 +485,12 @@ impl Db<'_> {
                     .map(serde_json::value::RawValue::from_string)
                     .transpose()?,
             });
-            if bytes >= max_bytes {
+            if bytes >= max_bytes || events.len() >= limit as usize {
                 break;
             }
         }
-        Ok(events)
+        let more = backwards && rows.next().transpose()?.is_some();
+        Ok((events, more))
     }
     pub fn require_run(&self, id: &str) -> Result<()> {
         let exists = self

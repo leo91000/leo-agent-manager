@@ -159,6 +159,7 @@ fun RunScreen(
         ) {
             follow = it
         }
+    val loadOlder = rememberHistoryPaging(live, logState, positionReady && tab == 1, follow, timeline.map { it.key }) { follow = false }
     LaunchedEffect(run?.id, live.synced) {
         if (autoTab && run != null && live.synced) {
             autoTab = false
@@ -330,6 +331,7 @@ fun RunScreen(
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
+                            historyHeader(live, loadOlder)
                             items(timeline, key = { it.key }) { entry ->
                                 TimelineRow(
                                     vm,

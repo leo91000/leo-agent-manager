@@ -226,3 +226,54 @@ test('a cached run restores the reading offset while its stream is still connect
   await expect(page.getByRole('status').filter({ hasText: 'Updating…' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Activity/ })).toHaveAttribute('aria-pressed', 'true')
 })
+
+test('recent history loads older pages without moving the reader and survives a blocked reconnect', async ({ page, workspace }) => {
+  const run = workspace.service.store.runs()[0]
+  for (let i = 0; i < 350; i++) {
+    const text = `Paged line ${String(i).padStart(3, '0')}. A paragraph to retain a stable reading position.`
+    workspace.service.store.event(run.id, 'item.completed', text, { item: { id: `page-${i}`, type: 'agent_message', text } })
+  }
+  await page.goto(`${workspace.url}/runs/${run.id}`)
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: /^Activity/ }).click()
+  await expect(page.locator('.activity-message').filter({ hasText: 'Paged line 349' })).toBeVisible()
+  await expect(page.locator('.activity-message').filter({ hasText: 'Paged line 249' })).toHaveCount(0)
+  await page.getByLabel('Follow output').uncheck()
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let requested = false
+  await page.route('**/history?**', async (route) => {
+    requested = true
+    await gate
+    await route.continue()
+  })
+  const scroller = page.getByRole('region', { name: 'Activity output' })
+  await scroller.evaluate(el => el.scrollTop = 0)
+  await expect.poll(() => requested).toBe(true)
+  const anchor = page.locator('.activity-message').filter({ hasText: 'Paged line 250' })
+  const top = (await anchor.boundingBox())!.y
+  release()
+  await expect(page.locator('.activity-message').filter({ hasText: 'Paged line 150' })).toBeAttached()
+  await expect.poll(async () => Math.abs((await anchor.boundingBox())!.y - top)).toBeLessThan(2)
+  await page.unrouteAll({ behavior: 'wait' })
+  // Move back to the latest content and let its bounded disk snapshot commit.
+  await page.getByLabel('Follow output').check()
+  await expect(page.locator('.activity-message').filter({ hasText: 'Paged line 349' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => new Promise<number>((resolve) => {
+    const open = indexedDB.open('leo-history-v1', 1)
+    open.onsuccess = () => {
+      const db = open.result
+      const tx = db.transaction('entries')
+      const request = tx.objectStore('entries').getAll()
+      request.onsuccess = () => resolve(Math.max(0, ...request.result.map(e => JSON.parse(e.text).events.length)))
+      tx.oncomplete = () => db.close()
+    }
+  }))).toBe(200)
+  await page.route(`**/api/runs/${run.id}/stream?**`, route => route.abort())
+  await page.reload()
+  await page.getByRole('button', { name: /^Activity/ }).click()
+  await expect(page.locator('.activity-message').filter({ hasText: 'Paged line 349' })).toBeVisible()
+})

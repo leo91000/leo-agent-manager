@@ -50,6 +50,7 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
             let task = input.query.get("taskId").cloned();
             s.store.read(move |db| Ok(db.runs(status.as_deref(), task.as_deref(), limit, offset, false)?.into())).await
         }
+        ("GET", [kind @ ("chats" | "runs"), id, "history"]) => crate::live::history(s, kind, id, input).await,
         ("GET", ["runs", id]) => s.store.run(id).await,
         ("GET", ["runs", id, "events"]) => {
             s.store.run(id).await?;

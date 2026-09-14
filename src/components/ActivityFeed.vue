@@ -18,7 +18,7 @@ import ChatAttachments from './ChatAttachments.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, deliverables?: Deliverable[], cacheKey?: string, position?: ReadingPosition }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, deliverables?: Deliverable[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string }>()
 const emit = defineEmits<{ load: [], position: [value: ReadingPosition, key?: string] }>()
 const entries = computed(() => deliveryEntries(activityEntries(props.events), props.deliverables ?? []))
 const artifactViewer = ref<string | null>(null)
@@ -83,10 +83,31 @@ function followChanged() {
     jump()
   savePosition()
 }
+let prependAnchor: { height: number, top: number } | undefined
+function loadOlder() {
+  if (!props.more || props.loadingOlder)
+    return
+  follow.value = false
+  const el = scroller.value
+  if (el)
+    prependAnchor = { height: el.scrollHeight, top: el.scrollTop }
+  emit('load')
+}
+watch(() => props.loadingOlder, async (loading) => {
+  if (loading)
+    return
+  await nextTick()
+  const el = scroller.value
+  if (el && prependAnchor && !props.olderError)
+    el.scrollTop = prependAnchor.top + el.scrollHeight - prependAnchor.height
+  prependAnchor = undefined
+})
 function scrolled() {
   const el = scroller.value
   if (el && el.scrollHeight - el.scrollTop - el.clientHeight > 60)
     follow.value = false
+  if (el && el.scrollTop < 100 && !follow.value && !props.olderError)
+    loadOlder()
   savePosition()
 }
 watch(entries, async () => {
@@ -140,7 +161,13 @@ onBeforeUnmount(() => viewer.value?.close())
             </button>
           </div>
         </header>
+        <p v-if="olderError" class="px-5 text-sm text-danger">
+          {{ olderError }}
+        </p>
         <div ref="scroller" class="activity-scroll flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:var(--color-control)_transparent] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-accent" tabindex="0" role="region" aria-label="Activity output" @scroll="scrolled">
+          <UiButton v-if="more" class="activity-load my-3 flex text-xs mx-auto" :disabled="loadingOlder" @click="loadOlder">
+            {{ loadingOlder ? 'Loading history…' : 'Earlier messages' }}
+          </UiButton>
           <div class="activity-conversation max-w-205 pt-5 pb-7 px-9 mx-auto my-0 phone:px-4 phone:py-6">
             <div v-if="!chat" class="activity-intro flex items-center gap-3 mb-7 phone:gap-2.5">
               <span class="activity-avatar bg-surface text-ink grid place-items-center w-[39px] h-[39px] rounded-card border border-line shrink-0"><Icon :name="Zap" :size="19" /></span><div><strong>{{ agent }}</strong></div>
@@ -171,10 +198,8 @@ onBeforeUnmount(() => viewer.value?.close())
                 </div>
               </section>
             </template>
-            <UiButton v-if="more" class="activity-load mt-6 mb-0 flex text-xs mx-auto" :disabled="loading" @click="$emit('load')">
-              {{ loading ? 'Loading activity…' : 'Load next activity' }}<Icon :name="ArrowDown" :size="15" />
-            </UiButton>
-            <div v-else-if="active" class="activity-working flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
+
+            <div v-if="active" class="activity-working flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
               <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0 live" />{{ events.length ? 'Your agent is working…' : 'Waiting for the worker…' }}
             </div>
             <div v-else-if="!chat" class="activity-end flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">

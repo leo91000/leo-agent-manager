@@ -40,7 +40,7 @@ export function liveConnection(path: string, accept: (batch: LiveBatch, cursor: 
       return
     }
     status(failures ? 'reconnecting' : 'connecting')
-    const current = new EventSource(`/api${path}?after=${cursor}${history ? `&history=${encodeURIComponent(history)}` : ''}`)
+    const current = new EventSource(`/api${path}?after=${cursor}${history ? `&history=${encodeURIComponent(history)}` : ''}${path === '/chats/stream' ? '' : '&window=1'}`)
     source = current
     alive()
     current.addEventListener('ping', () => {

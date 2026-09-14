@@ -173,7 +173,7 @@ async function copy() {
             </p>
           </div>
         </div>
-        <ActivityFeed v-else-if="tab === 'events'" :key="run.id" :cache-key="`/runs/${run.id}/stream`" :position="live.position.value" :deliverables="deliverables" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="false" :loading="loading" :trimmed="0" :preview="embedded" @position="live.savePosition" />
+        <ActivityFeed v-else-if="tab === 'events'" :key="run.id" :cache-key="`/runs/${run.id}/stream`" :position="live.position.value" :deliverables="deliverables" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="loading" :trimmed="0" :preview="embedded" @load="live.loadOlder" @position="live.savePosition" />
         <div v-else class="result-content flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] text-sm leading-[1.8] p-7.5 phone:p-5.5">
           <div class="run-facts grid grid-cols-[repeat(4,_1fr)] border border-line bg-raised rounded-[10px] text-xs text-subtle phone:grid-cols-2 phone:gap-5 px-6 py-5 mx-0 my-6.5">
             <span>Project<strong>{{ run.snapshot.projects?.map(project => project.name).join(', ') || run.snapshot.project?.name || 'Agent workspace' }}</strong></span><span>Duration<strong>{{ duration(run.startedAt, run.finishedAt) }}</strong></span><span>Triggered by<strong>{{ run.trigger }}</strong></span><span>Model<strong>{{ run.snapshot.agent.model || 'Codex default' }}</strong></span>

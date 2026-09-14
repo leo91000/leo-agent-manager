@@ -112,7 +112,12 @@ data class LiveBatch(
     val reset: Boolean,
     val more: Boolean,
     val history: String? = null,
+    val oldest: Long? = null,
+    val hasOlder: Boolean = false,
 )
+
+@Serializable
+data class HistoryPage(val events: List<RunEvent>, val history: String, val oldest: Long, val hasOlder: Boolean)
 
 @Serializable data class ReasoningOption(val reasoningEffort: String, val description: String = "")
 

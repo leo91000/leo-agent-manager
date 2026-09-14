@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class ReadingPosition(val index: Int = 0, val offset: Int = 0, val follow: Boolean = true)
+data class ReadingPosition(val index: Int = 0, val offset: Int = 0, val follow: Boolean = true, val firstEvent: Long? = null)
 
 @Serializable
 data class CachedHistory(
@@ -29,6 +29,8 @@ data class CachedHistory(
     val savedAt: Long = System.currentTimeMillis(),
     val position: ReadingPosition? = null,
     val version: Int = 1,
+    val oldest: Long = 0,
+    val hasOlder: Boolean = false,
 )
 
 /** Bounded, session-scoped snapshots. The cursor and decoded events commit together. */
@@ -99,22 +101,10 @@ class HistoryCache(
                     removeLocked(key)
                     return@withLock
                 }
-                val next =
-                    value.copy(
-                        position =
-                            value.position
-                                ?: memory[key]?.takeIf { it.history == value.history }?.position
-                    )
-                // Estimate before retaining large output; exact encoded size is checked on disk
-                // writes.
-                val size =
-                    next.events.sumOf {
-                        (it.text.length + it.payload.toString().length).toLong() * 2
-                    } + wireJson.encodeToString(next.state).length.toLong() * 2
-                if (size > maxEntry) {
-                    removeLocked(key)
-                    return@withLock
-                }
+                val position = (value.position ?: memory[key]?.takeIf { it.history == value.history }?.position)
+                    ?.takeIf { it.firstEvent == null || it.firstEvent == value.events.firstOrNull()?.id }
+                val original = value.copy(position = position)
+                val next = recentHistory(original)
                 memory.remove(key)
                 memory[key] = next
                 dirty.add(key)
@@ -128,6 +118,7 @@ class HistoryCache(
         withContext(Dispatchers.IO) {
             lock.withLock {
                 memory[key]?.let {
+                    if (value.firstEvent != null && value.firstEvent != it.events.firstOrNull()?.id) return@withLock
                     memory[key] = it.copy(position = value)
                     dirty.add(key)
                 }
@@ -259,4 +250,20 @@ class HistoryCache(
             )
         }
     }
+}
+
+/** Keep a contiguous recent suffix. An oversized older event stays available via pagination. */
+internal fun recentHistory(value: CachedHistory): CachedHistory {
+    val kept = ArrayDeque<RunEvent>()
+    var bytes = wireJson.encodeToString(value.state).toByteArray().size + 4096
+    for (event in value.events.sortedByDescending { it.id }) {
+        val size = wireJson.encodeToString(event).toByteArray().size + 1
+        if (kept.size >= 200 || bytes + size > 3 * 1024 * 1024) break
+        kept.addFirst(event)
+        bytes += size
+    }
+    if (kept.size == value.events.size) return value
+    // A numeric list index is no longer valid after dropping a prefix.
+    val oldest = kept.minOfOrNull { it.id } ?: (value.cursor + 1)
+    return value.copy(events = value.events.filter { it.id >= oldest }, oldest = oldest, hasOlder = true, position = null)
 }

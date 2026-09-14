@@ -110,6 +110,11 @@ data class LiveSnapshot(
     val cursor: Long = 0,
     val position: ReadingPosition? = null,
     val synced: Boolean = false,
+    val oldest: Long = 0,
+    val hasOlder: Boolean = false,
+    val loadingOlder: Boolean = false,
+    val olderError: String? = null,
+    val loadOlder: () -> Unit = {},
 )
 
 private fun LeoApi.frames(
@@ -120,7 +125,7 @@ private fun LeoApi.frames(
 ): Flow<StreamFrame> = callbackFlow {
     val call =
         streaming.newCall(
-            builder("$path?after=$cursor" + (history?.let { "&history=${segment(it)}" } ?: ""))
+            builder("$path?after=$cursor" + (history?.let { "&history=${segment(it)}" } ?: "") + if (path == "/chats/stream") "" else "&window=1")
                 .header("Accept", "text/event-stream")
                 .get()
                 .build()
@@ -217,6 +222,8 @@ class LiveSession {
                 history = value.history,
                 cursor = value.cursor,
                 position = value.position,
+                oldest = value.oldest,
+                hasOlder = value.hasOlder,
             )
     }
 }
@@ -260,6 +267,8 @@ fun LeoApi.live(path: String, session: LiveSession = LiveSession()): Flow<LiveSn
                             synced = !batch.more,
                             history = batch.history,
                             cursor = frame.cursor,
+                            oldest = batch.oldest ?: snapshot.oldest,
+                            hasOlder = if (batch.oldest != null) batch.hasOlder else snapshot.hasOlder,
                             position =
                                 if (
                                     batch.reset ||
@@ -302,3 +311,9 @@ fun LeoApi.live(path: String, session: LiveSession = LiveSession()): Flow<LiveSn
     }
 }
     .flowOn(Dispatchers.Default)
+
+/** Prepending full snapshots must not replace a newer text revision at a page boundary. */
+internal fun mergeHistory(older: List<RunEvent>, recent: List<RunEvent>): List<RunEvent> {
+    val merged = (older + recent).distinctBy { it.id }.sortedBy { it.id }
+    return LiveAccumulator().append(merged)
+}

@@ -21,6 +21,20 @@ class HistoryCacheTest {
         CachedHistory(2, "v1:r:1", LiveState(), listOf(RunEvent(2, 1, "item.completed", "saved")))
 
     @Test
+    fun `recent suffix survives on disk and records its backwards boundary`() = runBlocking {
+        val events = (1L..250L).map { RunEvent(it, it, "chat.user", "Message $it") }
+        val original = CachedHistory(250, "v1:r:1", LiveState(), events, position = ReadingPosition(5, 10, false))
+        val first = cache()
+        first.save("window", original, true)
+        val restored = cache().read("window")!!
+        assertEquals((51L..250L).toList(), restored.events.map { it.id })
+        assertEquals(51L, restored.oldest)
+        assertTrue(restored.hasOlder)
+        assertNull(restored.position)
+        assertEquals(250L, restored.cursor)
+    }
+
+    @Test
     fun `disk restores complete snapshots and position across instances and isolates sessions`() =
         runBlocking {
             val first = cache()
@@ -57,7 +71,9 @@ class HistoryCacheTest {
                 ),
             true,
         )
-        assertNull(cache.read("huge"))
+        assertNotNull(cache.read("huge"))
+        assertTrue(cache.read("huge")!!.hasOlder)
+        assertEquals(3L, cache.read("huge")!!.oldest)
         for (i in 0..14) cache.save("key$i", record(), true)
         assertTrue(directory.root.listFiles()!!.size <= 12)
         assertNull(cache.read("key0"))

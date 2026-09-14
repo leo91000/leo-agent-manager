@@ -166,7 +166,7 @@ Reference documentation used to select compatible Android versions:
 [WorkManager](https://developer.android.com/jetpack/androidx/releases/work),
 [periodic work](https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work).
 
-## Conversation cache (0.5.0)
+## Conversation cache and paginated history
 
 Chats and run activity restore a bounded local snapshot before reconnecting the
 SSE stream. The snapshot includes the accepted cursor, decoded messages, tool
@@ -175,12 +175,31 @@ Android encrypts disk records with an Android Keystore AES-GCM key, excludes the
 from backups, and scopes them to the server and authenticated session. Signing
 out or forgetting the server clears the cache. Storage failure falls back to the
 normal stream. Limits: 12 histories, 4 MiB per history, 20 MiB total, seven days.
-Oversized histories use the normal live stream without a persisted snapshot.
+The cache retains up to 200 recent decoded events within a 3 MiB payload budget,
+instead of discarding the whole conversation when it grows. The backwards cursor
+is retained separately from the live cursor. A single event exceeding the cache
+budget remains available from the server through the older-history control.
+Reading positions are saved only when their content is still in the cached window.
 
 The web client follows the same protocol using session-scoped IndexedDB records.
 The backend emits a `history` revision (run identity + earliest retained event)
 and validates it with `after`. Unchanged histories transfer only new events;
 changed or pruned histories send a reset. Existing clients without a revision
-remain supported. This does not add an offline mutation queue or eliminate the
+remain supported.
+
+New clients request `window=1` on individual chat/run streams. A cold start or
+reset returns the newest page (up to 100 events / 256 KiB, allowing one larger
+event), with `oldest` and `hasOlder`. `GET /api/{chats|runs}/{id}/history?before=…&history=…`
+loads strictly older events in chronological order, using full text snapshots so
+pages do not depend on another connection's deltas. Superseded assistant-text
+snapshots are skipped, including across page boundaries; reused item IDs in
+different turns remain separate. Partial SQLite indexes support these lookups.
+A changed revision returns
+409; it never mixes histories. Scrolling near the top loads an older page while
+preserving the visible content; the explicit control also allows retrying errors.
+Delivered chat messages are omitted from live metadata because their content is
+already in the event history. Attachments and pending messages remain available.
+
+This does not add an offline mutation queue or eliminate the
 initial session check; it lets previously read content appear while the stream
 reconnects.

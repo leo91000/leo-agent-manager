@@ -178,7 +178,7 @@ class ScrollResumeTest {
                 compose.waitForIdle()
                 assertTrue(visible(60))
                 assertEquals(
-                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1",
+                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1&window=1",
                     requests[1],
                 )
                 // A reader who scrolled upward must stay at the same offset on resume.
@@ -203,7 +203,7 @@ class ScrollResumeTest {
                 compose.waitForIdle()
                 assertEquals(before, position(), 0.01f)
                 assertEquals(
-                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1",
+                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1&window=1",
                     requests[2],
                 )
                 compose.runOnIdle { opened = false }
@@ -219,7 +219,7 @@ class ScrollResumeTest {
                 compose.waitForIdle()
                 assertEquals(before, position(), 0.01f)
                 assertEquals(
-                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1",
+                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1&window=1",
                     requests[3],
                 )
                 compose.runOnIdle {
