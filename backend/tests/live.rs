@@ -473,3 +473,62 @@ async fn wire_deltas_reestablish_baselines_after_reconnect_and_keep_rest_compati
         .unwrap();
     assert_eq!(stored[0]["payload"]["item"]["text"], "Bonjour 👋 café");
 }
+
+#[tokio::test]
+async fn cache_revision_resumes_valid_history_and_resets_pruned_or_foreign_history() {
+    let fixture = Fixture::new().await;
+    fixture.append(3).await;
+    let mut first = fixture.open(0).await;
+    let (cursor, initial) = first.batch().await;
+    let history = initial["history"].as_str().unwrap();
+    let mut resumed = fixture
+        .open_path(
+            &format!(
+                "/api/runs/{}/stream?after={cursor}&history={history}",
+                fixture.run
+            ),
+            None,
+        )
+        .await;
+    let (_, batch) = resumed.batch().await;
+    assert_eq!(batch["reset"], false);
+    assert_eq!(batch["events"].as_array().unwrap().len(), 0);
+    let mut foreign = fixture
+        .open_path(
+            &format!(
+                "/api/runs/{}/stream?after={cursor}&history=v1:other:1",
+                fixture.run
+            ),
+            None,
+        )
+        .await;
+    let (_, batch) = foreign.batch().await;
+    assert_eq!(batch["reset"], true);
+    assert!(!batch["events"].as_array().unwrap().is_empty());
+    let run = fixture.run.clone();
+    fixture
+        .service
+        .store
+        .transaction(move |db| {
+            db.0.execute(
+                "DELETE FROM events WHERE run_id=? AND id<?",
+                rusqlite::params![run, cursor],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let mut pruned = fixture
+        .open_path(
+            &format!(
+                "/api/runs/{}/stream?after={cursor}&history={history}",
+                fixture.run
+            ),
+            None,
+        )
+        .await;
+    let (_, batch) = pruned.batch().await;
+    assert_eq!(batch["reset"], true);
+    assert_ne!(batch["history"], initial["history"]);
+    assert_eq!(batch["events"].as_array().unwrap().len(), 1);
+}

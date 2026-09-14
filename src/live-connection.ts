@@ -3,14 +3,16 @@ import type { LiveBatch } from '../shared/live'
 export type LiveStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
 
 // The cursor advances only after the consumer accepts a complete batch. Every
-// connection (including another tab) owns its cursor; nothing is shared in storage.
-export function liveConnection(path: string, accept: (batch: LiveBatch) => void, status: (value: LiveStatus) => void) {
-  let cursor = '0'
+// connection owns its cursor, optionally restored with a matching cached snapshot.
+export function liveConnection(path: string, accept: (batch: LiveBatch, cursor: number) => void, status: (value: LiveStatus) => void, initial?: { cursor: number, history: string }) {
+  let cursor = String(initial?.cursor ?? 0)
+  let history = initial?.history
   let source: EventSource | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let watchdog: ReturnType<typeof setTimeout> | undefined
   let stopped = false
   let failures = 0
+  let resetConsumer = false
   function disconnect() {
     source?.close()
     source = undefined
@@ -38,7 +40,7 @@ export function liveConnection(path: string, accept: (batch: LiveBatch) => void,
       return
     }
     status(failures ? 'reconnecting' : 'connecting')
-    const current = new EventSource(`/api${path}?after=${cursor}`)
+    const current = new EventSource(`/api${path}?after=${cursor}${history ? `&history=${encodeURIComponent(history)}` : ''}`)
     source = current
     alive()
     current.addEventListener('ping', () => {
@@ -54,8 +56,23 @@ export function liveConnection(path: string, accept: (batch: LiveBatch) => void,
         const batch = JSON.parse(event.data) as LiveBatch
         if (!Array.isArray(batch.events) || typeof batch.reset !== 'boolean' || typeof batch.more !== 'boolean')
           throw new Error('Invalid stream batch')
-        accept(batch)
+        if (history && !batch.history) {
+          cursor = '0'
+          history = undefined
+          throw new Error('Server no longer supports history validation')
+        }
+        try {
+          accept(resetConsumer ? { ...batch, reset: true } : batch, Number(event.lastEventId))
+          resetConsumer = false
+        }
+        catch (error) {
+          cursor = '0'
+          history = undefined
+          resetConsumer = true
+          throw error
+        }
         cursor = event.lastEventId
+        history = batch.history
         failures = 0
         status('live')
         alive()

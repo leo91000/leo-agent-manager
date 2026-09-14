@@ -71,7 +71,13 @@ class ScrollResumeTest {
                             }
                     val json =
                         wireJson.encodeToString(
-                            LiveBatch(events, LiveState(chat = chat), false, end < 60)
+                            LiveBatch(
+                                events,
+                                LiveState(chat = chat),
+                                false,
+                                end < 60,
+                                history = "v1:fixture:1",
+                            )
                         )
                     val frame = "event: batch\nid: $end\ndata: $json\n\n"
                     val padding = 8192 - frame.toByteArray().size - 4
@@ -85,7 +91,8 @@ class ScrollResumeTest {
                             if (request.path.orEmpty().contains("/stream")) {
                                 requests.add(request.path!!)
                                 val history =
-                                    if (request.path!!.endsWith("after=60")) block(60, true)
+                                    if (request.requestUrl?.queryParameter("after") == "60")
+                                        block(60, true)
                                     else block(20) + block(40) + block(60)
                                 return MockResponse()
                                     .setHeader("Content-Type", "text/event-stream")
@@ -170,7 +177,10 @@ class ScrollResumeTest {
                 Thread.sleep(300)
                 compose.waitForIdle()
                 assertTrue(visible(60))
-                assertEquals("/api/chats/diagnostic/stream?after=60", requests[1])
+                assertEquals(
+                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1",
+                    requests[1],
+                )
                 // A reader who scrolled upward must stay at the same offset on resume.
                 compose.onNode(hasScrollAction()).performTouchInput { swipeDown() }
                 compose.waitForIdle()
@@ -192,7 +202,10 @@ class ScrollResumeTest {
                 Thread.sleep(300)
                 compose.waitForIdle()
                 assertEquals(before, position(), 0.01f)
-                assertEquals("/api/chats/diagnostic/stream?after=60", requests[2])
+                assertEquals(
+                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1",
+                    requests[2],
+                )
                 compose.runOnIdle { opened = false }
                 compose.waitForIdle()
                 compose.waitUntil(5000) { vm.api.streamCalls.isEmpty() }
@@ -204,8 +217,11 @@ class ScrollResumeTest {
                 }
                 Thread.sleep(300)
                 compose.waitForIdle()
-                assertFalse(visible(20))
-                waitLast()
+                assertEquals(before, position(), 0.01f)
+                assertEquals(
+                    "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1",
+                    requests[3],
+                )
                 compose.runOnIdle {
                     owner.registry.currentState = Lifecycle.State.DESTROYED
                     opened = false

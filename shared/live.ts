@@ -9,6 +9,8 @@ export interface LiveState {
   artifacts: Deliverable[]
 }
 export interface LiveBatch {
+  /** Append-only history identity and retention revision; absent on older servers. */
+  history?: string
   events: RunEvent[]
   state?: LiveState
   reset: boolean

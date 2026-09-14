@@ -30,6 +30,18 @@ class LiveTest {
         "event: batch\nid: $cursor\ndata: ${wireJson.encodeToString(batch)}\n\n"
 
     @Test
+    fun `restoring a folded snapshot retains the delta baseline without duplicating a message`() {
+        val first = LiveAccumulator()
+        val saved = first.append(listOf(message(1, "Bonjour"), message(2, " Leo", true)))
+        val restored = LiveAccumulator()
+        restored.restore(saved, 2)
+        val result = restored.append(listOf(message(2, "duplicate", true), message(3, " !", true)))
+        assertEquals(1, result.size)
+        assertEquals("Bonjour Leo !", result.single().text)
+        assertEquals(3L, restored.cursor)
+    }
+
+    @Test
     fun `deltas fold assistant rows and a new turn isolates reused item identifiers`() {
         val accumulator = LiveAccumulator()
         accumulator.append(listOf(message(1, "Bonjour"), message(2, " Leo", true)))

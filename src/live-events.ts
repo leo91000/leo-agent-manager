@@ -8,6 +8,25 @@ export class LiveEvents {
   cursor = 0
   private messages = new Map<string, number>()
 
+  copy() {
+    const next = new LiveEvents()
+    next.cursor = this.cursor
+    next.messages = new Map(this.messages)
+    return next
+  }
+
+  restore(events: RunEvent[], cursor: number) {
+    this.messages.clear()
+    this.cursor = cursor
+    events.forEach((event, index) => {
+      if (event.type === 'turn.started')
+        this.messages.clear()
+      const item = event.payload?.item as { id?: string, type?: string } | undefined
+      if (item?.type === 'agent_message' && item.id)
+        this.messages.set(item.id, index)
+    })
+  }
+
   append(target: RunEvent[], incoming: RunEvent[]) {
     for (let event of incoming) {
       if (event.id <= this.cursor)

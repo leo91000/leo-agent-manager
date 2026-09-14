@@ -45,3 +45,13 @@ it('refuses a delta without a baseline without advancing the cursor', () => {
   expect(() => reducer.append([], [{ id: 2, runId: 'r', type: 'item.updated', createdAt: 1, text: '', payload: { item: { id: 'm', type: 'agent_message', delta: 'lost?' } } }])).toThrow('baseline')
   expect(reducer.cursor).toBe(0)
 })
+
+it('restores a folded cached baseline before accepting further deltas', () => {
+  const target: RunEvent[] = [{ id: 7, runId: 'r', createdAt: 2, type: 'item.updated', text: 'Bonjour', payload: { item: { id: 'm', type: 'agent_message', text: 'Bonjour' } } }]
+  const reducer = new LiveEvents()
+  reducer.restore(target, 7)
+  reducer.append(target, [{ id: 8, runId: 'r', createdAt: 8, type: 'item.updated', text: '', payload: { item: { id: 'm', type: 'agent_message', delta: ' Leo' } } }])
+  expect(target).toHaveLength(1)
+  expect(target[0].text).toBe('Bonjour Leo')
+  expect(target[0].createdAt).toBe(2)
+})

@@ -34,6 +34,22 @@ class LiveAccumulator {
         messages.clear()
     }
 
+    fun restore(events: List<RunEvent>, accepted: Long) {
+        clear()
+        rows = events.toMutableList()
+        cursor = accepted
+        rows.forEachIndexed { index, event ->
+            if (event.type == "turn.started") messages.clear()
+            val item = event.payload?.get("item") as? JsonObject
+            val id = item?.get("id")?.jsonPrimitive?.contentOrNull
+            if (
+                item?.get("type")?.jsonPrimitive?.contentOrNull == "agent_message" &&
+                    !id.isNullOrBlank()
+            )
+                messages[id] = index
+        }
+    }
+
     fun append(incoming: List<RunEvent>): List<RunEvent> {
         // Commit only a complete valid batch, so reconnect never skips data after a parse failure.
         val next = rows.toMutableList()
@@ -90,82 +106,91 @@ data class LiveSnapshot(
     val status: String = "Connexion…",
     val error: String? = null,
     val catchingUp: Boolean = true,
+    val history: String? = null,
+    val cursor: Long = 0,
+    val position: ReadingPosition? = null,
 )
 
-private fun LeoApi.frames(path: String, cursor: Long, generation: Long): Flow<StreamFrame> =
-    callbackFlow {
-        val call =
-            streaming.newCall(
-                builder("$path?after=$cursor").header("Accept", "text/event-stream").get().build()
-            )
-        synchronized(streamLock) {
-            if (generation != streamGeneration.get()) throw CancellationException("Session fermée")
-            streamCalls.add(call)
-        }
-        call.enqueue(
-            object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    close(e)
-                }
+private fun LeoApi.frames(
+    path: String,
+    cursor: Long,
+    generation: Long,
+    history: String?,
+): Flow<StreamFrame> = callbackFlow {
+    val call =
+        streaming.newCall(
+            builder("$path?after=$cursor" + (history?.let { "&history=${segment(it)}" } ?: ""))
+                .header("Accept", "text/event-stream")
+                .get()
+                .build()
+        )
+    synchronized(streamLock) {
+        if (generation != streamGeneration.get()) throw CancellationException("Session fermée")
+        streamCalls.add(call)
+    }
+    call.enqueue(
+        object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                close(e)
+            }
 
-                override fun onResponse(call: Call, response: Response) {
-                    try {
-                        response.use {
-                            checkResponse(it)
-                            require(
-                                it.header("Content-Type").orEmpty().startsWith("text/event-stream")
-                            ) {
-                                "Flux temps réel invalide."
-                            }
-                            val source = it.body.source()
-                            var event = ""
-                            var id = ""
-                            val data = StringBuilder()
-                            while (!call.isCanceled() && !source.exhausted()) {
-                                val line = source.readUtf8LineStrict(16L * 1024 * 1024)
-                                if (line.isEmpty()) {
-                                    if (event == "batch") {
-                                        val next =
-                                            id.toLongOrNull()?.takeIf { n -> n >= 0 }
-                                                ?: error("Curseur invalide")
-                                        val batch =
-                                            wireJson.decodeFromString<LiveBatch>(data.toString())
-                                        if (trySendBlocking(StreamFrame(next, batch)).isFailure)
-                                            return
-                                    }
-                                    event = ""
-                                    id = ""
-                                    data.clear()
-                                } else {
-                                    val value = line.substringAfter(':', "").removePrefix(" ")
-                                    when (line.substringBefore(':')) {
-                                        "event" -> event = value
-                                        "id" -> id = value
-                                        "data" -> {
-                                            if (data.isNotEmpty()) data.append('\n')
-                                            data.append(value)
-                                            require(data.length <= 16 * 1024 * 1024) {
-                                                "Événement trop volumineux."
-                                            }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    response.use {
+                        checkResponse(it)
+                        require(
+                            it.header("Content-Type").orEmpty().startsWith("text/event-stream")
+                        ) {
+                            "Flux temps réel invalide."
+                        }
+                        val source = it.body.source()
+                        var event = ""
+                        var id = ""
+                        val data = StringBuilder()
+                        while (!call.isCanceled() && !source.exhausted()) {
+                            val line = source.readUtf8LineStrict(16L * 1024 * 1024)
+                            if (line.isEmpty()) {
+                                if (event == "batch") {
+                                    val next =
+                                        id.toLongOrNull()?.takeIf { n -> n >= 0 }
+                                            ?: error("Curseur invalide")
+                                    val batch =
+                                        wireJson.decodeFromString<LiveBatch>(data.toString())
+                                    if (trySendBlocking(StreamFrame(next, batch)).isFailure) return
+                                }
+                                event = ""
+                                id = ""
+                                data.clear()
+                            } else {
+                                val value = line.substringAfter(':', "").removePrefix(" ")
+                                when (line.substringBefore(':')) {
+                                    "event" -> event = value
+                                    "id" -> id = value
+                                    "data" -> {
+                                        if (data.isNotEmpty()) data.append('\n')
+                                        data.append(value)
+                                        require(data.length <= 16 * 1024 * 1024) {
+                                            "Événement trop volumineux."
                                         }
                                     }
                                 }
                             }
                         }
-                        close(IOException("Flux interrompu"))
-                    } catch (e: Exception) {
-                        close(e)
-                    } finally {
-                        streamCalls.remove(call)
                     }
+                    close(IOException("Flux interrompu"))
+                } catch (e: Exception) {
+                    close(e)
+                } finally {
+                    streamCalls.remove(call)
                 }
             }
-        )
-        awaitClose {
-            call.cancel()
-            streamCalls.remove(call)
         }
+    )
+    awaitClose {
+        call.cancel()
+        streamCalls.remove(call)
     }
+}
     .buffer(1)
 
 /** Retained by an open screen, while its network collection follows STARTED/STOPPED. */
@@ -176,6 +201,23 @@ class LiveSession {
     internal var path = ""
     internal var cursor = 0L
     internal var snapshot = LiveSnapshot()
+
+    fun restore(value: CachedHistory, route: String, currentGeneration: Long) {
+        accumulator.restore(value.events, value.cursor)
+        generation = currentGeneration
+        path = route
+        cursor = value.cursor
+        snapshot =
+            LiveSnapshot(
+                value.state,
+                value.events,
+                status = "Actualisation…",
+                catchingUp = false,
+                history = value.history,
+                cursor = value.cursor,
+                position = value.position,
+            )
+    }
 }
 
 fun LeoApi.live(path: String, session: LiveSession = LiveSession()): Flow<LiveSnapshot> = flow {
@@ -196,10 +238,14 @@ fun LeoApi.live(path: String, session: LiveSession = LiveSession()): Flow<LiveSn
         var failures = 0
         while (currentCoroutineContext().isActive && generation == streamGeneration.get()) {
             try {
-                frames(path, cursor, generation).collect { frame ->
+                frames(path, cursor, generation, snapshot.history).collect { frame ->
                     val batch = frame.batch
+                    require(snapshot.history == null || batch.history != null) {
+                        "Révision indisponible"
+                    }
                     if (
                         batch.reset ||
+                            (snapshot.history != null && batch.history != snapshot.history) ||
                             (batch.state != null && snapshot.state?.run?.id != batch.state.run?.id)
                     )
                         accumulator.clear()
@@ -210,6 +256,16 @@ fun LeoApi.live(path: String, session: LiveSession = LiveSession()): Flow<LiveSn
                             events,
                             status = "En direct",
                             catchingUp = batch.more,
+                            history = batch.history,
+                            cursor = frame.cursor,
+                            position =
+                                if (
+                                    batch.reset ||
+                                        (snapshot.history != null &&
+                                            batch.history != snapshot.history)
+                                )
+                                    null
+                                else snapshot.position,
                         )
                     cursor = frame.cursor
                     session.cursor = cursor

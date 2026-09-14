@@ -146,14 +146,26 @@ fun RunScreen(
     var follow by rememberSaveable(id) { mutableStateOf(true) }
     var confirm by rememberSaveable(id) { mutableStateOf<String?>(null) }
     val logState = rememberLazyListState()
+    val positionReady =
+        rememberHistoryPosition(
+            vm,
+            state,
+            "/runs/${segment(id)}/stream",
+            live,
+            logState,
+            tab == 1,
+            follow,
+        ) {
+            follow = it
+        }
     LaunchedEffect(run?.id) { if (run?.active == true) tab = 1 }
     LaunchedEffect(logState) {
         logState.interactionSource.interactions.collect {
             if (it is DragInteraction.Start) follow = false
         }
     }
-    LaunchedEffect(events.lastOrNull(), follow, tab, more) {
-        if (follow && tab == 1 && !more)
+    LaunchedEffect(events.lastOrNull(), follow, tab, more, positionReady) {
+        if (positionReady && follow && tab == 1 && !more)
             snapshotFlow {
                 logState.layoutInfo.totalItemsCount to logState.layoutInfo.viewportSize.height
             }

@@ -47,6 +47,7 @@ constructor(
     application: Application,
     private val vault: SessionVault = KeystoreSessionVault(application),
 ) : AndroidViewModel(application) {
+    val historyCache = HistoryCache.encrypted(application)
     val files = Files(application)
     val notifications = NotificationPreferences(application)
 
@@ -91,6 +92,7 @@ constructor(
     fun report(error: Throwable) {
         if (error is CancellationException) throw error
         if (error is ApiException && error.status == 401) {
+            viewModelScope.launch { historyCache.clear() }
             connection?.clearSession()
             schedule(getApplication(), false)
             mutable.update {
@@ -124,6 +126,12 @@ constructor(
         val session = next.get<Session>("/session")
         next.csrf = session.csrf
         connection?.closeStreams()
+        if (
+            !session.authenticated ||
+                (connection != null &&
+                    (connection?.origin != next.origin || connection?.csrf != next.csrf))
+        )
+            historyCache.clear()
         connection = next
         preferences.setOrigin(origin.toString())
         mutable.update {
@@ -150,6 +158,7 @@ constructor(
 
     suspend fun logout() {
         mutable.update { it.copy(signingOut = true) }
+        historyCache.clear()
         try {
             api.closeStreams()
             schedule(getApplication(), false)
@@ -162,6 +171,7 @@ constructor(
     }
 
     suspend fun forget() {
+        historyCache.clear()
         withContext(Dispatchers.IO) { connection?.clearSession() }
         connection = null
         schedule(getApplication(), false)

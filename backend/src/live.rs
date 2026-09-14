@@ -24,9 +24,10 @@ struct Page {
     events: Vec<crate::store::Event>,
     reset: bool,
     more: bool,
+    history: String,
 }
 
-async fn page(s: &Service, scope: Scope, after: i64) -> Result<Page> {
+async fn page(s: &Service, scope: Scope, after: i64, expected: Option<String>) -> Result<Page> {
     s.store
         .read(move |db| {
             // A single SQLite snapshot covers metadata and the event boundary.
@@ -46,12 +47,17 @@ async fn page(s: &Service, scope: Scope, after: i64) -> Result<Page> {
                 crate::error::required(db.run(&scope.id)?, "Run not found")?
             };
             let run_id = text(&run, "id");
-            let max: i64 = db.0.query_row(
-                "SELECT COALESCE(MAX(id),0) FROM events WHERE run_id=?",
+            let (first, max): (i64, i64) = db.0.query_row(
+                "SELECT COALESCE((SELECT id FROM events WHERE run_id=?1 ORDER BY id LIMIT 1),0),COALESCE((SELECT id FROM events WHERE run_id=?1 ORDER BY id DESC LIMIT 1),0)",
                 [run_id],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
-            let reset = after > max;
+            // Events are append-only and IDs are AUTOINCREMENT. The retained first
+            // ID changes on pruning; a new run has a new UUID. No full-history hash.
+            let history = format!("v1:{run_id}:{first}");
+            let reset = after > max
+                || (after > 0 && after < first)
+                || expected.as_ref().is_some_and(|value| *value != history);
             // Stop reading rows at the byte budget, rather than allocating an
             // entire page of large historical outputs for every subscriber.
             let events = db.event_batch(run_id, if reset { 0 } else { after }, 100, 256 * 1024)?;
@@ -76,6 +82,7 @@ async fn page(s: &Service, scope: Scope, after: i64) -> Result<Page> {
                 events,
                 reset,
                 more: cursor < max,
+                history,
             })
         })
         .await
@@ -103,7 +110,11 @@ pub async fn http(s: Arc<Service>, kind: &str, id: &str, input: Input) -> Result
     };
     // Subscribe before reading: commits during replay remain observable.
     let changes = s.store.subscribe();
-    let first = page(&s, scope.clone(), after).await?;
+    let expected = input.query.get("history").cloned();
+    if expected.as_ref().is_some_and(|v| v.len() > 200) {
+        return Err(Error::bad("Invalid history version."));
+    }
+    let first = page(&s, scope.clone(), after, expected).await?;
     let session = cookie(&input.headers);
     let subscription = Subscription {
         s,
@@ -112,6 +123,7 @@ pub async fn http(s: Arc<Service>, kind: &str, id: &str, input: Input) -> Result
         cursor: after,
         pending: Some(first),
         previous: Value::Null,
+        history: None,
         session,
         deltas: crate::live_text::TextDeltas::default(),
     };
@@ -137,6 +149,7 @@ struct Subscription {
     cursor: i64,
     pending: Option<Page>,
     previous: Value,
+    history: Option<String>,
     session: String,
     deltas: crate::live_text::TextDeltas,
 }
@@ -153,22 +166,29 @@ impl Subscription {
                 Some(first) => first,
                 None => {
                     self.changes.borrow_and_update();
-                    page(&self.s, self.scope.clone(), self.cursor).await?
+                    page(
+                        &self.s,
+                        self.scope.clone(),
+                        self.cursor,
+                        self.history.clone(),
+                    )
+                    .await?
                 }
             };
             let run_changed = !self.previous.is_null()
                 && self.previous["run"]["id"] != current.state["run"]["id"];
             if run_changed {
-                current = page(&self.s, self.scope.clone(), 0).await?;
+                current = page(&self.s, self.scope.clone(), 0, None).await?;
             }
             let reset = current.reset || run_changed;
             if reset {
                 self.cursor = 0;
             }
+            self.history = Some(current.history.clone());
             let changed = self.previous != current.state;
             let has_events = !current.events.is_empty();
             self.cursor = current.events.last().map_or(self.cursor, |e| e.id);
-            let mut data = json!({"events":self.deltas.encode(current.events, reset)?,"reset":reset,"more":current.more});
+            let mut data = json!({"events":self.deltas.encode(current.events, reset)?,"reset":reset,"more":current.more,"history":current.history});
             if changed {
                 data["state"] = current.state.clone();
             }

@@ -1,6 +1,7 @@
 package dev.leo.manager.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -12,6 +13,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import dev.leo.manager.data.*
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 
 @Composable
@@ -22,17 +27,107 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
     var value by remember(path, api) { mutableStateOf(LiveSnapshot()) }
     val session = remember(path, api) { LiveSession() }
     LaunchedEffect(path, api, owner) {
-        if (enabled)
-            owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                checkNotNull(api).live(path, session).collect {
-                    // Publish history atomically: never replace a complete conversation with
-                    // an old partial page during initial loading, a reset or a reconnect.
-                    if (!it.catchingUp || it.httpStatus != null) value = it
-                    if (it.httpStatus == 401) vm.report(ApiException(401, "Session expirée"))
-                }
+        if (enabled && api != null) {
+            val cacheGeneration = vm.historyCache.generation
+            val key = vm.historyCache.key(workspace.origin, api.csrf, path)
+            vm.historyCache.read(key)?.let {
+                session.restore(it, path, api.streamGeneration.get())
+                value = session.snapshot
             }
+            try {
+                owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    try {
+                        api.live(path, session).collect {
+                            if (!it.catchingUp || it.httpStatus != null) value = it
+                            if (it.httpStatus in listOf(401, 403, 404)) {
+                                vm.historyCache.remove(key)
+                                value =
+                                    LiveSnapshot(
+                                        httpStatus = it.httpStatus,
+                                        status = it.status,
+                                        error = it.error,
+                                    )
+                            } else if (!it.catchingUp && it.state != null && it.history != null) {
+                                vm.historyCache.save(
+                                    key,
+                                    CachedHistory(it.cursor, it.history, it.state, it.events),
+                                    expectedGeneration = cacheGeneration,
+                                )
+                            }
+                            if (it.httpStatus == 401)
+                                vm.report(ApiException(401, "Session expirée"))
+                        }
+                    } finally {
+                        withContext(NonCancellable) { vm.historyCache.flush(key) }
+                    }
+                }
+            } finally {
+                withContext(NonCancellable) { vm.historyCache.flush(key) }
+            }
+        }
     }
     return value
+}
+
+/** Restore once the feed exists; background resumes retain the existing list state. */
+@Composable
+fun rememberHistoryPosition(
+    vm: LeoViewModel,
+    workspace: Workspace,
+    path: String,
+    live: LiveSnapshot,
+    list: LazyListState,
+    visible: Boolean,
+    follow: Boolean,
+    setFollow: (Boolean) -> Unit,
+): Boolean {
+    var ready by remember(path) { mutableStateOf(false) }
+    val currentFollow by rememberUpdatedState(follow)
+    val api = vm.api
+    val key = remember(path, api) { vm.historyCache.key(workspace.origin, api.csrf, path) }
+    LaunchedEffect(path, live.catchingUp, visible) {
+        if (!ready && !live.catchingUp && visible) {
+            val saved = live.position
+            if (saved != null) {
+                setFollow(saved.follow)
+                if (!saved.follow && live.events.isNotEmpty()) {
+                    snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > 0 }
+                    list.scrollToItem(
+                        saved.index.coerceIn(0, list.layoutInfo.totalItemsCount - 1),
+                        saved.offset.coerceAtLeast(0),
+                    )
+                }
+            }
+            ready = true
+        }
+    }
+    LaunchedEffect(key, ready, visible) {
+        if (ready && visible) {
+            try {
+                snapshotFlow {
+                    ReadingPosition(
+                        list.firstVisibleItemIndex,
+                        list.firstVisibleItemScrollOffset,
+                        currentFollow,
+                    )
+                }
+                    .collectLatest { vm.historyCache.position(key, it) }
+            } finally {
+                withContext(NonCancellable) {
+                    vm.historyCache.position(
+                        key,
+                        ReadingPosition(
+                            list.firstVisibleItemIndex,
+                            list.firstVisibleItemScrollOffset,
+                            currentFollow,
+                        ),
+                    )
+                    vm.historyCache.flush(key)
+                }
+            }
+        }
+    }
+    return ready
 }
 
 @Composable

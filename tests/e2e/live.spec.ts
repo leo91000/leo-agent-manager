@@ -95,3 +95,107 @@ test('two independent clients follow deltas, recover offline, refresh mid-answer
     for (const context of contexts) await context.close()
   }
 })
+
+test('cached history survives reload before a delayed stream, then clear on logout', async ({ page, workspace }) => {
+  const chat = await workspace.api('/api/chats', 'POST', {})
+  await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: randomUUID(), text: 'Cache persistence proof' })
+  await page.goto(`${workspace.url}/chats/${chat.id}`)
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.activity-message').filter({ hasText: 'Cache persistence proof' }).first()).toBeVisible()
+  const count = () => page.evaluate(() => new Promise<number>((resolve, reject) => {
+    const request = indexedDB.open('leo-history-v1', 1)
+    request.onsuccess = () => {
+      const db = request.result
+      const tx = db.transaction('entries', 'readonly')
+      const read = tx.objectStore('entries').count()
+      read.onsuccess = () => resolve(read.result)
+      tx.oncomplete = () => db.close()
+    }
+    request.onerror = () => reject(request.error)
+  }))
+  await expect.poll(count).toBeGreaterThan(0)
+  const requests: string[] = []
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(`**/api/chats/${chat.id}/stream?**`, async (route) => {
+    requests.push(route.request().url())
+    await gate
+    try {
+      await route.continue()
+    }
+    catch (error) {
+      // pageshow may replace an EventSource while its request is deliberately held.
+      if (!(error instanceof Error) || !error.message.includes('Route is already handled'))
+        throw error
+    }
+  })
+  try {
+    await page.reload()
+    await expect(page.locator('.activity-message').filter({ hasText: 'Cache persistence proof' }).first()).toBeVisible()
+    await expect.poll(() => requests.length).toBeGreaterThan(0)
+    expect(new URL(requests[0]).searchParams.get('history')).toMatch(/^v1:/)
+    expect(Number(new URL(requests[0]).searchParams.get('after'))).toBeGreaterThan(0)
+  }
+  finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+  await expect.poll(count).toBe(0)
+})
+
+test('a cached run restores the reading offset while its stream is still connecting', async ({ page, workspace }) => {
+  const run = workspace.service.store.runs()[0]
+  for (let i = 0; i < 40; i++) {
+    const text = `Saved reading position ${i}. A longer paragraph to exercise the scrolling activity view across reloads.`
+    workspace.service.store.event(run.id, 'item.completed', text, { item: { id: `cache-${i}`, type: 'agent_message', text } })
+  }
+  await page.goto(`${workspace.url}/runs/${run.id}`)
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: /^Activity/ }).click()
+  await expect(page.locator('.activity-message').filter({ hasText: 'Saved reading position 39.' })).toBeVisible()
+  await page.getByLabel('Follow output').uncheck()
+  const scroller = page.getByRole('region', { name: 'Activity output' })
+  await scroller.evaluate(element => element.scrollTop = 300)
+  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(300)
+  await expect.poll(() => page.evaluate(() => new Promise<number>((resolve) => {
+    const request = indexedDB.open('leo-history-v1', 1)
+    request.onsuccess = () => {
+      const db = request.result
+      const tx = db.transaction('entries', 'readonly')
+      const read = tx.objectStore('entries').getAll()
+      read.onsuccess = () => resolve(read.result.map(entry => JSON.parse(entry.text).position?.top).find(top => top === 300) ?? -1)
+      tx.oncomplete = () => db.close()
+    }
+  }))).toBe(300)
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(`**/api/runs/${run.id}/stream?**`, async (route) => {
+    await gate
+    try {
+      await route.continue()
+    }
+    catch (error) {
+      // pageshow may replace an EventSource while its request is deliberately held.
+      if (!(error instanceof Error) || !error.message.includes('Route is already handled'))
+        throw error
+    }
+  })
+  try {
+    await page.reload()
+    await page.getByRole('button', { name: /^Activity/ }).click()
+    await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(300)
+    await expect(page.getByLabel('Follow output')).not.toBeChecked()
+  }
+  finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})

@@ -1,6 +1,7 @@
 import type { Agent, Project, Skill, Task } from '../shared/contracts'
 import type { McpView } from '../shared/mcp'
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
+import { clearHistoryCache } from './history-cache'
 
 export const state = reactive({
   ready: false,
@@ -16,6 +17,10 @@ export const state = reactive({
   toast: '',
   error: '',
 })
+watch(() => state.signingOut || (state.ready && !state.authenticated), (clear) => {
+  if (clear)
+    void clearHistoryCache()
+}, { flush: 'sync' })
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 export function notify(message: string) {
   state.toast = message

@@ -2,6 +2,7 @@
 import type { Deliverable } from '../../shared/artifacts'
 import type { RunEvent } from '../../shared/contracts'
 import type { ActivityArtifact } from '../activity'
+import type { ReadingPosition } from '../history-cache'
 import { twMerge } from 'tailwind-merge'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { latestArtifacts } from '../../shared/artifacts'
@@ -17,11 +18,11 @@ import ChatAttachments from './ChatAttachments.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, deliverables?: Deliverable[] }>()
-defineEmits<{ load: [] }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, deliverables?: Deliverable[], cacheKey?: string, position?: ReadingPosition }>()
+const emit = defineEmits<{ load: [], position: [value: ReadingPosition, key?: string] }>()
 const entries = computed(() => deliveryEntries(activityEntries(props.events), props.deliverables ?? []))
 const artifactViewer = ref<string | null>(null)
-const follow = ref(true)
+const follow = ref(props.position?.follow ?? true)
 const fullscreen = ref(false)
 const viewer = ref<HTMLDialogElement>()
 const fullscreenHost = ref<HTMLElement>()
@@ -35,13 +36,19 @@ watch(scroller, (element) => {
   resizeObserver?.disconnect()
   if (!element)
     return
+  follow.value = props.position?.follow ?? true
+  if (props.position && !follow.value)
+    element.scrollTop = props.position.top
   resizeObserver = new ResizeObserver(() => {
     if (follow.value)
       jump()
   })
   resizeObserver.observe(element)
 })
-onBeforeUnmount(() => resizeObserver?.disconnect())
+onBeforeUnmount(() => {
+  savePosition()
+  resizeObserver?.disconnect()
+})
 watch(entries, (items) => {
   if (!props.preview || previewed)
     return
@@ -67,14 +74,20 @@ function groupLabel(artifacts: ActivityArtifact[]) {
 function jump() {
   scroller.value?.scrollTo({ top: scroller.value.scrollHeight })
 }
+function savePosition() {
+  if (scroller.value)
+    emit('position', { top: scroller.value.scrollTop, follow: follow.value }, props.cacheKey)
+}
 function followChanged() {
   if (follow.value)
     jump()
+  savePosition()
 }
 function scrolled() {
   const el = scroller.value
   if (el && el.scrollHeight - el.scrollTop - el.clientHeight > 60)
     follow.value = false
+  savePosition()
 }
 watch(entries, async () => {
   if (!follow.value)

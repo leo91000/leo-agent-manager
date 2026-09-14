@@ -86,3 +86,31 @@ it('backs off repeated failures and does not advance after a consumer failure', 
   expect(Source.instances).toHaveLength(3)
   connection.close()
 })
+
+it('validates cached history and restarts safely when the server no longer supports revisions', () => {
+  const accept = vi.fn()
+  const connection = liveConnection('/chats/c/stream', accept, vi.fn(), { cursor: 42, history: 'v1:r:1' })
+  expect(Source.instances[0].url).toBe('/api/chats/c/stream?after=42&history=v1%3Ar%3A1')
+  Source.instances[0].batch('43', '{"events":[],"reset":false,"more":false,"history":"v1:r:1"}')
+  expect(accept).toHaveBeenCalledTimes(1)
+  connection.reconnect()
+  expect(Source.instances[1].url).toContain('after=43&history=')
+  Source.instances[1].batch('44')
+  expect(accept).toHaveBeenCalledTimes(1)
+  vi.advanceTimersByTime(500)
+  expect(Source.instances[2].url).toBe('/api/chats/c/stream?after=0')
+  connection.close()
+})
+
+it('replays from zero with a reset when a cached consumer baseline is invalid', () => {
+  const accept = vi.fn().mockImplementationOnce(() => {
+    throw new Error('invalid baseline')
+  })
+  const connection = liveConnection('/chats/c/stream', accept, vi.fn(), { cursor: 42, history: 'v1:r:1' })
+  Source.instances[0].batch('43', '{"events":[],"reset":false,"more":false,"history":"v1:r:1"}')
+  vi.advanceTimersByTime(500)
+  expect(Source.instances[1].url).toBe('/api/chats/c/stream?after=0')
+  Source.instances[1].batch('10', '{"events":[],"reset":false,"more":true,"history":"v1:r:1"}')
+  expect(accept.mock.calls[1][0].reset).toBe(true)
+  connection.close()
+})

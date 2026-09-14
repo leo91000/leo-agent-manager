@@ -127,6 +127,18 @@ fun ChatScreen(
     var stopping by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<ChatMessage?>(null) }
     val listState = rememberLazyListState()
+    val positionReady =
+        rememberHistoryPosition(
+            vm,
+            state,
+            if (id == null) "/chats/stream" else "/chats/${segment(id)}/stream",
+            live,
+            listState,
+            !gallery,
+            follow,
+        ) {
+            follow = it
+        }
     val active = chat?.run?.active == true
     val selectedAgent = state.agents.find { it.id == (chat?.agentId ?: agent) }
     val projects =
@@ -238,8 +250,15 @@ fun ChatScreen(
             if (it is DragInteraction.Start) follow = false
         }
     }
-    LaunchedEffect(live.events.lastOrNull(), pending.size, follow, gallery, live.catchingUp) {
-        if (follow && !gallery && !live.catchingUp)
+    LaunchedEffect(
+        live.events.lastOrNull(),
+        pending.size,
+        follow,
+        gallery,
+        live.catchingUp,
+        positionReady,
+    ) {
+        if (positionReady && follow && !gallery && !live.catchingUp)
             snapshotFlow {
                 listState.layoutInfo.totalItemsCount to listState.layoutInfo.viewportSize.height
             }

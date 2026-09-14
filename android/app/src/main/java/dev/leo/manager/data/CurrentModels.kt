@@ -111,6 +111,7 @@ data class LiveBatch(
     val state: LiveState? = null,
     val reset: Boolean,
     val more: Boolean,
+    val history: String? = null,
 )
 
 @Serializable data class ReasoningOption(val reasoningEffort: String, val description: String = "")
