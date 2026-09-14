@@ -27,7 +27,6 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import dev.leo.manager.data.*
 import java.io.File
 import java.util.UUID
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.serialization.json.*
 
 @Composable
@@ -127,6 +126,7 @@ fun ChatScreen(
     var stopping by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<ChatMessage?>(null) }
     val listState = rememberLazyListState()
+    val rendering = remember(id) { MarkdownRendering() }
     val positionReady =
         rememberHistoryPosition(
             vm,
@@ -136,6 +136,7 @@ fun ChatScreen(
             listState,
             !gallery,
             follow,
+            rendering,
         ) {
             follow = it
         }
@@ -251,22 +252,7 @@ fun ChatScreen(
             if (it is DragInteraction.Start) follow = false
         }
     }
-    LaunchedEffect(
-        live.events.lastOrNull(),
-        pending.size,
-        follow,
-        gallery,
-        live.catchingUp,
-        positionReady,
-    ) {
-        if (positionReady && follow && !gallery && !live.catchingUp)
-            snapshotFlow {
-                listState.layoutInfo.totalItemsCount to listState.layoutInfo.viewportSize.height
-            }
-                .collectLatest { (count, _) ->
-                    if (count > 0) listState.scrollToItem(count - 1)
-                }
-    }
+    FollowHistoryTail(listState, positionReady && follow && !gallery && !live.catchingUp, live.cursor, rendering)
     ArtifactLinkHost(vm, live.state?.artifacts.orEmpty()) {
         Column(Modifier.fillMaxSize()) {
             DetailHeader(
@@ -448,7 +434,7 @@ fun ChatScreen(
                             }
                         historyHeader(live, loadOlder)
                         items(timeline, key = { it.key }) {
-                            TimelineRow(vm, it, chat?.agentName ?: "Leo")
+                            TimelineRow(vm, it, chat?.agentName ?: "Leo", rendering)
                         }
                         if (active && !live.catchingUp)
                             item {

@@ -42,6 +42,7 @@ internal fun JsonElement?.plain(): String = (this as? JsonPrimitive)?.contentOrN
 internal fun RunEvent.activityData(): JsonObject? =
     payload?.let(::JsonObject)
         ?: runCatching {
+            if (text.firstOrNull { !it.isWhitespace() } != '{') return@runCatching null
             (wireJson.parseToJsonElement(text) as? JsonObject)?.takeIf {
                 it.string("type") == type || it.containsKey("item")
             }

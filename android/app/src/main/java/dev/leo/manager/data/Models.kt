@@ -124,6 +124,8 @@ data class RunEvent(
     val type: String,
     val text: String,
     val payload: Map<String, JsonElement>? = null,
+    // Presentation identity survives newer wire event IDs and encrypted cache restores.
+    val displayId: Long? = null,
 )
 
 @Serializable

@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.leo.manager.data.*
-import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 fun RunsScreen(vm: LeoViewModel, state: Workspace, open: (String) -> Unit) {
@@ -147,6 +146,7 @@ fun RunScreen(
     var follow by rememberSaveable(id) { mutableStateOf(true) }
     var confirm by rememberSaveable(id) { mutableStateOf<String?>(null) }
     val logState = rememberLazyListState()
+    val rendering = remember(id) { MarkdownRendering() }
     val positionReady =
         rememberHistoryPosition(
             vm,
@@ -156,6 +156,7 @@ fun RunScreen(
             logState,
             tab == 1,
             follow,
+            rendering,
         ) {
             follow = it
         }
@@ -171,15 +172,7 @@ fun RunScreen(
             if (it is DragInteraction.Start) follow = false
         }
     }
-    LaunchedEffect(events.lastOrNull(), follow, tab, more, positionReady) {
-        if (positionReady && follow && tab == 1 && !more)
-            snapshotFlow {
-                logState.layoutInfo.totalItemsCount to logState.layoutInfo.viewportSize.height
-            }
-                .collectLatest { (count, _) ->
-                    if (count > 0) logState.scrollToItem(count - 1)
-                }
-    }
+    FollowHistoryTail(logState, positionReady && follow && tab == 1 && !more, live.cursor, rendering)
     ArtifactLinkHost(vm, live.state?.artifacts.orEmpty()) {
         Column(Modifier.fillMaxSize()) {
             live.error?.let { ErrorNotice(it) {} }
@@ -337,6 +330,7 @@ fun RunScreen(
                                     vm,
                                     entry,
                                     current.snapshot.agent.name.ifBlank { "Leo" },
+                                    rendering,
                                 )
                             }
                             if (events.isEmpty()) item { Text("L’activité apparaîtra ici.") }

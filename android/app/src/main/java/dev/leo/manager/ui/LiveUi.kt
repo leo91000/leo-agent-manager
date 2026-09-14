@@ -172,7 +172,7 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.historyHeader(live: 
 
 /** Restore once the feed exists; background resumes retain the existing list state. */
 @Composable
-fun rememberHistoryPosition(
+internal fun rememberHistoryPosition(
     vm: LeoViewModel,
     workspace: Workspace,
     path: String,
@@ -180,6 +180,7 @@ fun rememberHistoryPosition(
     list: LazyListState,
     visible: Boolean,
     follow: Boolean,
+    rendering: MarkdownRendering? = null,
     setFollow: (Boolean) -> Unit,
 ): Boolean {
     var ready by remember(path) { mutableStateOf(false) }
@@ -193,11 +194,7 @@ fun rememberHistoryPosition(
             if (saved != null) {
                 setFollow(saved.follow)
                 if (!saved.follow && live.events.isNotEmpty()) {
-                    snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > 0 }
-                    list.scrollToItem(
-                        saved.index.coerceIn(0, list.layoutInfo.totalItemsCount - 1),
-                        saved.offset.coerceAtLeast(0),
-                    )
+                    restoreHistoryPosition(list, saved, rendering)
                 }
             }
             ready = true
@@ -307,7 +304,8 @@ internal fun timelineEntries(events: List<RunEvent>): List<TimelineEntry> {
             positions.clear()
             legacyTool = null
         }
-        if (event.activityData() == null && event.type == "item.completed" && legacyTool != null) {
+        val legacy = (event.type == "item.started" || event.type == "item.completed") && event.activityData() == null
+        if (legacy && event.type == "item.completed" && legacyTool != null) {
             val index = legacyTool
             val original = folded[index]
             folded[index] =
@@ -326,7 +324,7 @@ internal fun timelineEntries(events: List<RunEvent>): List<TimelineEntry> {
             legacyTool = null
             continue
         }
-        if (event.activityData() == null && event.type == "item.started") legacyTool = folded.size
+        if (legacy && event.type == "item.started") legacyTool = folded.size
         val item = event.item()
         val id = item.string("id")
         if (!event.isMessage() && id.isNotBlank()) {
@@ -339,15 +337,20 @@ internal fun timelineEntries(events: List<RunEvent>): List<TimelineEntry> {
         } else folded.add(event)
     }
     val result = mutableListOf<TimelineEntry>()
-    for (event in folded) {
-        if (event.isMessage()) result.add(TimelineEntry("message:${event.id}", listOf(event), true))
-        else {
-            val last = result.lastOrNull()
-            if (last != null && !last.message)
-                result[result.lastIndex] = last.copy(events = last.events + event)
-            else result.add(TimelineEntry("activity:${event.id}", listOf(event), false))
+    var activity = mutableListOf<RunEvent>()
+    fun flushActivity() {
+        if (activity.isNotEmpty()) {
+            result.add(TimelineEntry("activity:${activity.first().id}", activity.toList(), false))
+            activity = mutableListOf()
         }
     }
+    for (event in folded) {
+        if (event.isMessage()) {
+            flushActivity()
+            result.add(TimelineEntry("message:${event.displayId ?: event.id}", listOf(event), true))
+        } else activity.add(event)
+    }
+    flushActivity()
     return result
 }
 
@@ -401,9 +404,9 @@ internal fun deliveryTimeline(
 }
 
 @Composable
-internal fun TimelineRow(vm: LeoViewModel, entry: TimelineEntry, agent: String) {
+internal fun TimelineRow(vm: LeoViewModel, entry: TimelineEntry, agent: String, rendering: MarkdownRendering? = null) {
     if (entry.files.isNotEmpty()) ArtifactStrip(vm, entry.files)
-    else if (entry.message) EventRow(vm, entry.events.single(), agent)
+    else if (entry.message) CompositionLocalProvider(LocalMarkdownRendering provides rendering) { EventRow(vm, entry.events.single(), agent) }
     else {
         var expanded by rememberSaveable(entry.key) { mutableStateOf(false) }
         val presentations = remember(entry.events) { entry.events.map(::presentActivity) }
@@ -496,4 +499,30 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
             }
         }
     } else ActivityCard(event)
+}
+
+/** Follow actual measured growth, including Markdown renders that finish after an SSE update. */
+@Composable
+internal fun FollowHistoryTail(list: LazyListState, enabled: Boolean, content: Any?, rendering: MarkdownRendering) {
+    LaunchedEffect(list, enabled, content, rendering) {
+        if (enabled) snapshotFlow {
+            val info = list.layoutInfo
+            Triple(info.totalItemsCount, info.viewportSize.height, rendering.revision)
+        }.collectLatest { (count, _, _) ->
+            // Layout notifications must not trigger a synchronous nested measurement.
+            withFrameNanos { }
+            if (count > 0) {
+                val last = list.layoutInfo.visibleItemsInfo.lastOrNull { it.index == count - 1 }
+                list.scrollToItem(count - 1, last?.size ?: 0)
+            }
+        }
+    }
+}
+
+internal suspend fun restoreHistoryPosition(list: LazyListState, saved: ReadingPosition, rendering: MarkdownRendering?) {
+    snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > 0 }
+    val index = saved.index.coerceIn(0, list.layoutInfo.totalItemsCount - 1)
+    list.scrollToItem(index, saved.offset.coerceAtLeast(0))
+    rendering?.awaitLayout()
+    list.scrollToItem(index, saved.offset.coerceAtLeast(0))
 }

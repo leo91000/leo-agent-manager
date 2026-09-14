@@ -31,6 +31,25 @@ class TimelineTest {
         )
 
     @Test
+    fun `assistant key survives deltas cache restoration and isolates reused ids`() {
+        val accumulator = dev.leo.manager.data.LiveAccumulator()
+        val first = accumulator.append(listOf(event(1, "item.started", "answer", "agent_message")))
+        val key = timelineEntries(first).single().key
+        val updated = accumulator.append(listOf(event(9, "item.updated", "answer", "agent_message")))
+        assertEquals(9L, updated.single().id)
+        assertEquals(key, timelineEntries(updated).single().key)
+        val restored = dev.leo.manager.data.LiveAccumulator()
+        val encoded = dev.leo.manager.data.wireJson.encodeToString(updated.single())
+        restored.restore(listOf(dev.leo.manager.data.wireJson.decodeFromString<RunEvent>(encoded)), 9)
+        val resumed = restored.append(listOf(event(10, "item.completed", "answer", "agent_message")))
+        assertEquals(key, timelineEntries(resumed).single().key)
+        val nextTurn = restored.append(listOf(event(11, "turn.started"), event(12, "item.started", "answer", "agent_message")))
+        val keys = timelineEntries(nextTurn).filter { it.message }.map { it.key }
+        assertEquals(2, keys.distinct().size)
+        assertEquals(key, keys.first())
+    }
+
+    @Test
     fun `tool updates stay in their original group across assistant messages`() {
         val rows =
             timelineEntries(

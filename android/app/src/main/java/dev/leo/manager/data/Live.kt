@@ -9,6 +9,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -86,7 +87,10 @@ class LiveAccumulator {
                 if (index == null) {
                     indices[id] = next.size
                     next.add(event)
-                } else next[index] = event.copy(createdAt = next[index].createdAt)
+                } else next[index] = event.copy(
+                    createdAt = next[index].createdAt,
+                    displayId = event.displayId ?: next[index].displayId ?: next[index].id,
+                )
             } else next.add(event)
             accepted = original.id
         }
@@ -311,6 +315,8 @@ fun LeoApi.live(path: String, session: LiveSession = LiveSession()): Flow<LiveSn
     }
 }
     .flowOn(Dispatchers.Default)
+    // Only decoded, complete snapshots can be conflated. Never drop wire deltas.
+    .conflate()
 
 /** Prepending full snapshots must not replace a newer text revision at a page boundary. */
 internal fun mergeHistory(older: List<RunEvent>, recent: List<RunEvent>): List<RunEvent> {

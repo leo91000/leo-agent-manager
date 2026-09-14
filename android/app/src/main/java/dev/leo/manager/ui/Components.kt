@@ -3,7 +3,6 @@
 package dev.leo.manager.ui
 
 import android.content.Intent
-import android.widget.TextView
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -35,7 +34,10 @@ import io.noties.markwon.ext.tables.TablePlugin
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.withContext
 
 fun date(value: Long?): String =
     value
@@ -325,20 +327,47 @@ fun Markdown(content: String) {
                 )
                 .build()
         }
-    AndroidView(
-        factory = {
-            TextView(it).apply {
-                textSize = 16f
-                setLineSpacing(0f, 1.2f)
-                includeFontPadding = false
-                setTextIsSelectable(true)
+    val rendering = LocalMarkdownRendering.current
+    var initial by remember(markwon, rendering) { mutableStateOf(true) }
+    DisposableEffect(markwon, rendering) {
+        rendering?.begin()
+        onDispose { if (initial) rendering?.end() }
+    }
+    val currentContent by rememberUpdatedState(content)
+    var blocks by remember(markwon) { mutableStateOf(emptyList<MarkdownBlock>()) }
+    LaunchedEffect(markwon, rendering) {
+        val renderer = MarkdownBlocks(markwon)
+        // Keep displaying the last complete render while working. Conflation applies
+        // to whole texts, after the stream accumulator has accepted every delta.
+        snapshotFlow { currentContent }.conflate().collect { text ->
+            blocks = withContext(Dispatchers.Default) { renderer.render(text) }
+            withFrameNanos { }
+            withFrameNanos { }
+            if (initial) {
+                initial = false
+                rendering?.end()
             }
-        },
+            rendering?.changed()
+            delay(80)
+        }
+    }
+    val copyText = remember { { currentContent } }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        blocks.forEachIndexed { index, block ->
+            key(index) { MarkdownBlockView(markwon, block, color, linkColor, copyText) }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownBlockView(markwon: Markwon, block: MarkdownBlock, color: Int, linkColor: Int, copyText: () -> String) {
+    AndroidView(
+        factory = { MarkdownTextView(it, copyText) },
         modifier = Modifier.fillMaxWidth(),
         update = {
             it.setTextColor(color)
             it.setLinkTextColor(linkColor)
-            markwon.setMarkdown(it, content)
+            it.bind(markwon, block)
         },
     )
 }

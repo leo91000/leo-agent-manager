@@ -203,3 +203,29 @@ already in the event history. Attachments and pending messages remain available.
 This does not add an offline mutation queue or eliminate the
 initial session check; it lets previously read content appear while the stream
 reconnects.
+
+
+## Streaming rendering (Android 0.5.2)
+
+Assistant rows retain their first presentation ID while the wire event ID and
+resume cursor continue advancing. The presentation ID is persisted with the
+cached snapshot and survives reconnects; reused item IDs in later turns remain
+independent.
+
+Markdown is parsed as a complete document on a background dispatcher, preserving
+reference links and unfinished Markdown syntax. Groups of eight top-level AST
+nodes are fingerprinted and rendered separately. Unchanged groups retain their
+spans and TextViews, so appending a response normally only lays out its last group.
+The canonical HTML fingerprint is never displayed or loaded into a WebView.
+
+Only fully decoded snapshots and complete source texts are conflated. Wire deltas
+are always applied in order. Display work runs sequentially with an 80 ms pause
+between completed renders, so bursts coalesce without indefinitely postponing
+the last update. Following the conversation tracks measured view growth; restoring
+a reading offset waits for the initial asynchronous Markdown layout.
+
+Selection works within a rendered group. Its selection toolbar also offers
+**Copier tout le texte** to copy the whole Markdown source. A single very large
+paragraph, code block or table is deliberately not split across views, preserving
+its formatting; such a block can still cost more to lay out. These changes do not
+alter the backend or web client.
