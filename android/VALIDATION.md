@@ -6,7 +6,7 @@ with server-side history revision validation and incremental stream resume.
 
 ## Checks performed
 
-- **43 Android tests pass**, zero failures/errors/skips, using Robolectric,
+- **44 Android tests pass**, zero failures/errors/skips, using Robolectric,
   native Compose, MockWebServer and the WorkManager test environment.
 - The 60-message lifecycle journey verifies atomic initial loading, foreground
   resume and reopening the conversation. Reopening sends `after=60` plus the
@@ -15,6 +15,8 @@ with server-side history revision validation and incremental stream resume.
   position, isolate sessions, reject invalid cursors/corruption/expired or oversized
   records, bound retained histories, and prevent writes after logout invalidation.
   Disk serialization tests inject a codec; they do not validate hardware Keystore.
+- A valid initial snapshot remains synchronized if its stream closes immediately;
+  tab selection does not depend on a transient connection-status label.
 - Existing chat/run, activity, artifact, permissions, notifications and workspace
   journeys pass. The delta reducer accepts further text after a cached baseline.
 - Android lint: **0 errors, 6 existing warnings**. The development APK builds.

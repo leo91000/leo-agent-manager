@@ -159,8 +159,8 @@ fun RunScreen(
         ) {
             follow = it
         }
-    LaunchedEffect(run?.id, live.status, live.catchingUp) {
-        if (autoTab && run != null && live.status == "En direct" && !live.catchingUp) {
+    LaunchedEffect(run?.id, live.synced) {
+        if (autoTab && run != null && live.synced) {
             autoTab = false
             if (run.active) tab = 1
         }

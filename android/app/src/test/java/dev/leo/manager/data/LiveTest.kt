@@ -76,6 +76,53 @@ class LiveTest {
     }
 
     @Test
+    fun `a verified cached snapshot stays synced after the transport closes immediately`() =
+        runBlocking {
+            MockWebServer().use { server ->
+                val revision = "v1:r1:1"
+                server.enqueue(
+                    MockResponse()
+                        .setHeader("Content-Type", "text/event-stream")
+                        .setBody(
+                            frame(
+                                1,
+                                LiveBatch(
+                                    emptyList(),
+                                    LiveState(run = Run("r1", status = "succeeded")),
+                                    false,
+                                    false,
+                                    revision,
+                                ),
+                            )
+                        )
+                )
+                server.start()
+                val api = LeoApi(server.url("/"), MemoryVault())
+                val path = "/runs/r1/stream"
+                val session = LiveSession()
+                session.restore(
+                    CachedHistory(
+                        1,
+                        revision,
+                        LiveState(run = Run("r1", status = "running")),
+                        listOf(message(1, "saved")),
+                    ),
+                    path,
+                    api.streamGeneration.get(),
+                )
+                assertFalse(session.snapshot.synced)
+                val resumed =
+                    withTimeout(10000) {
+                        api.live(path, session).first { it.status == "Reconnexion…" }
+                    }
+                assertTrue(resumed.synced)
+                assertFalse(resumed.catchingUp)
+                assertEquals("succeeded", resumed.state?.run?.status)
+                assertEquals(1, resumed.events.size)
+            }
+        }
+
+    @Test
     fun `SSE reconnect sends accepted cursor and reset discards previous execution`() =
         runBlocking {
             MockWebServer().use { server ->

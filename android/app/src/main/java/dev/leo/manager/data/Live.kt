@@ -109,6 +109,7 @@ data class LiveSnapshot(
     val history: String? = null,
     val cursor: Long = 0,
     val position: ReadingPosition? = null,
+    val synced: Boolean = false,
 )
 
 private fun LeoApi.frames(
@@ -256,6 +257,7 @@ fun LeoApi.live(path: String, session: LiveSession = LiveSession()): Flow<LiveSn
                             events,
                             status = "En direct",
                             catchingUp = batch.more,
+                            synced = !batch.more,
                             history = batch.history,
                             cursor = frame.cursor,
                             position =
