@@ -480,6 +480,19 @@ async fn oauth(State(app): State<App>, request: Request) -> Result<Response> {
     let input = Input::read(request).await?;
     let auth = &app.service.auth;
     if input.method == "GET" && input.path == "/oauth/mcp/callback" {
+        if app
+            .service
+            .mcps
+            .capture_native_callback(&app.service, &input.query)
+            .await?
+        {
+            return Ok(([
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-store"),
+                (header::REFERRER_POLICY, "no-referrer"),
+                (header::CONTENT_SECURITY_POLICY, "default-src 'none'; frame-ancestors 'none'"),
+            ], "<!doctype html><html lang=fr><meta name=viewport content='width=device-width,initial-scale=1'><title>Leo</title><h1>Revenez dans Leo</h1><p>Fermez cet onglet pour terminer la connexion dans l’application Android.</p></html>").into_response());
+        }
         let result = if let Some(session) = auth.read(&cookie(&input.headers)).await? {
             app.service
                 .mcps

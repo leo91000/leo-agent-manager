@@ -226,7 +226,7 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
             ))
         }
         ("GET", ["settings"]) => Ok(json!({
-        "publicUrl":s.config.public_url,"workspaceRoots":s.config.workspace_roots,"home":s.config.home,"concurrency":s.config.concurrency,"mcpUrl":format!("{}/mcp",s.config.public_url),"version":env!("CARGO_PKG_VERSION"),"commit":std::env::var("APP_COMMIT").unwrap_or_else(|_|"development".into()),"protocol":"2026-07-28"}
+        "publicUrl":s.config.public_url,"workspaceRoots":s.config.workspace_roots,"home":s.config.home,"concurrency":s.config.concurrency,"mcpUrl":format!("{}/mcp",s.config.public_url),"version":env!("CARGO_PKG_VERSION"),"commit":std::env::var("APP_COMMIT").unwrap_or_else(|_|"development".into()),"protocol":"2026-07-28","nativeMcpOauth":true}
         )),
         ("GET", ["audit"]) => s.store.read(|db| Ok(db.json_rows("SELECT json_object('id',id,'created_at',created_at,'action',action,'detail',detail) FROM audit ORDER BY id DESC LIMIT 100", [])?.into())).await,
         ("GET", ["tokens"]) => Ok(s

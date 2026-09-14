@@ -377,6 +377,18 @@ pub async fn refresh(s: &Service, item: &Value) -> Result<()> {
 }
 impl Mcps {
     pub async fn connect(&self, s: &Service, id: &str, session: &str) -> Result<Value> {
+        self.connect_mode(s, id, session, false).await
+    }
+    pub async fn connect_native(&self, s: &Service, id: &str, session: &str) -> Result<Value> {
+        self.connect_mode(s, id, session, true).await
+    }
+    async fn connect_mode(
+        &self,
+        s: &Service,
+        id: &str,
+        session: &str,
+        native: bool,
+    ) -> Result<Value> {
         let _guard = self.lock(id).await;
         let mut item = self.get(s, id).await?;
         if item["auth"] != "oauth" || item["transport"] != "http" {
@@ -427,13 +439,14 @@ impl Mcps {
                 ),
             )
             .await?;
+            let expires = now() + 600000;
             s.store
                 .set(
                     &format!("mcp-oauth:{}", hex_digest(&nonce)),
                     json!({
-                    "connectionId":id,"revision":item["revision"],"session":hex_digest(session),"nonce":nonce}
+                    "connectionId":id,"revision":item["revision"],"session":hex_digest(session),"nonce":nonce,"native":native,"expiresAt":expires}
                     ),
-                    Some(now() + 600000),
+                    Some(expires),
                 )
                 .await?;
             Ok(json!({
@@ -445,6 +458,72 @@ impl Mcps {
             self.failure(s, item, error).await?;
         }
         result
+    }
+    /// The browser may return a code, but only the initiating authenticated native
+    /// session can exchange it. No session cookie or token is transferred to the browser.
+    pub async fn capture_native_callback(
+        &self,
+        s: &Service,
+        parameters: &HashMap<String, String>,
+    ) -> Result<bool> {
+        let Some(state) = parameters.get("state").filter(|v| v.len() <= 1000) else {
+            return Ok(false);
+        };
+        let key = format!("mcp-oauth:{}", hex_digest(state));
+        let values: HashMap<String, String> = parameters
+            .iter()
+            .filter(|(key, _)| ["state", "code", "iss", "error"].contains(&key.as_str()))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        if values.values().any(|v| v.len() > 10000) {
+            return Err(Error::bad("Invalid OAuth callback."));
+        }
+        s.store
+            .transaction(move |db| {
+                let Some(mut pending) = db.kv(&key)? else {
+                    return Ok(false);
+                };
+                if pending["native"] != true {
+                    return Ok(false);
+                }
+                // First response wins; a replay cannot replace the captured code or extend its TTL.
+                if pending["callback"].is_null() {
+                    let expires = pending["expiresAt"]
+                        .as_i64()
+                        .ok_or_else(|| Error::bad("Authorization session expired."))?;
+                    pending["callback"] = serde_json::to_value(values)?;
+                    db.set(&key, &pending, Some(expires))?;
+                }
+                Ok(true)
+            })
+            .await
+    }
+    pub async fn finish_native_callback(
+        &self,
+        s: &Service,
+        id: &str,
+        session: &str,
+    ) -> Result<Value> {
+        let pending = s
+            .store
+            .keys("mcp-oauth:")
+            .await?
+            .into_iter()
+            .map(|(_, v)| v)
+            .find(|v| {
+                v["native"] == true
+                    && v["connectionId"] == id
+                    && v["session"] == hex_digest(session)
+            });
+        let Some(pending) = pending else {
+            return Ok(json!({"pending":false,"result":"expired"}));
+        };
+        if pending["callback"].is_null() {
+            return Ok(json!({"pending":true}));
+        }
+        let parameters = serde_json::from_value(pending["callback"].clone())?;
+        let result = self.callback(s, &parameters, session).await?;
+        Ok(json!({"pending":false,"result":result}))
     }
     pub async fn callback(
         &self,

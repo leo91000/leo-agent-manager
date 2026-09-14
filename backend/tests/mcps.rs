@@ -282,6 +282,7 @@ async fn oauth_consent_pkce_callback_replay_and_refresh_use_the_existing_provide
         .query_pairs()
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect::<std::collections::HashMap<_, _>>();
+    assert!(!s.mcps.capture_native_callback(&s, &params).await.unwrap());
     assert!(s.mcps.callback(&s, &params, "wrong-session").await.is_err());
     assert_eq!(
         s.mcps
@@ -304,6 +305,62 @@ async fn oauth_consent_pkce_callback_replay_and_refresh_use_the_existing_provide
     let stats: serde_json::Value =
         serde_json::from_str(&output.next_line().await.unwrap().unwrap()).unwrap();
     assert_eq!(stats, json!({"refreshes":1,"exchanges":1}));
+    // A native session can complete OAuth despite an unrelated (or absent) browser cookie.
+    let native = s
+        .mcps
+        .connect_native(&s, id, "native-session")
+        .await
+        .unwrap();
+    assert_eq!(
+        s.mcps
+            .finish_native_callback(&s, id, "native-session")
+            .await
+            .unwrap(),
+        json!({"pending":true})
+    );
+    let response = http
+        .get(native["url"].as_str().unwrap())
+        .send()
+        .await
+        .unwrap();
+    let callback = url::Url::parse(response.headers()["location"].to_str().unwrap()).unwrap();
+    let params = callback
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect::<std::collections::HashMap<_, _>>();
+    assert!(s.mcps.capture_native_callback(&s, &params).await.unwrap());
+    let mut replay = params.clone();
+    replay.insert("code".into(), "attacker-replacement".into());
+    assert!(s.mcps.capture_native_callback(&s, &replay).await.unwrap());
+    assert_eq!(
+        s.mcps
+            .finish_native_callback(&s, id, "browser-session")
+            .await
+            .unwrap(),
+        json!({"pending":false,"result":"expired"})
+    );
+    stdin.write_all(b"stats\n").await.unwrap();
+    let stats: serde_json::Value =
+        serde_json::from_str(&output.next_line().await.unwrap().unwrap()).unwrap();
+    assert_eq!(
+        stats["exchanges"], 1,
+        "Capturing a callback must not exchange credentials"
+    );
+    assert_eq!(
+        s.mcps
+            .finish_native_callback(&s, id, "native-session")
+            .await
+            .unwrap(),
+        json!({"pending":false,"result":"connected"})
+    );
+    assert!(!s.mcps.capture_native_callback(&s, &params).await.unwrap());
+    assert_eq!(
+        s.mcps
+            .finish_native_callback(&s, id, "native-session")
+            .await
+            .unwrap()["result"],
+        "expired"
+    );
     stdin.write_all(b"stop\n").await.unwrap();
     drop(stdin);
     if tokio::time::timeout(std::time::Duration::from_secs(2), provider.wait())

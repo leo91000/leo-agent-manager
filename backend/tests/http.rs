@@ -446,3 +446,109 @@ async fn attachments_are_private_scoped_bounded_and_durable() {
             .contains("sandbox")
     );
 }
+
+#[tokio::test]
+async fn native_mcp_callback_requires_the_initiating_session_and_csrf_to_finish() {
+    use leo_agent_manager::{auth::hex_digest, config::now};
+    let (_root, app, service) = app().await;
+    let session = service.auth.session().await.unwrap();
+    let other = service.auth.session().await.unwrap();
+    let id = "00000000-0000-4000-8000-000000000099";
+    let nonce = "native-callback-test-nonce";
+    let key = format!("mcp-oauth:{}", hex_digest(nonce));
+    let expires = now() + 600000;
+    service.store.set(&key, json!({"native":true,"connectionId":id,"session":hex_digest(session["csrf"].as_str().unwrap()),"nonce":nonce,"expiresAt":expires}), Some(expires)).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            request(
+                "GET",
+                &format!("/oauth/mcp/callback?state={nonce}&code=private-code"),
+                Value::Null,
+            )
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["referrer-policy"], "no-referrer");
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 10000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("Revenez dans Leo"));
+    assert!(!html.contains("private-code"));
+    assert!(!html.contains(nonce));
+    let pending = service.store.kv(&key).await.unwrap().unwrap();
+    assert_eq!(pending["callback"]["code"], "private-code");
+    assert_eq!(pending["expiresAt"], expires);
+    for (credentials, csrf, status) in [
+        (Value::Null, false, 401),
+        (session.clone(), false, 403),
+        (other.clone(), true, 200),
+    ] {
+        let mut req = request("POST", &format!("/api/mcps/{id}/callback"), Value::Null);
+        if let Some(cookie) = credentials["value"].as_str() {
+            req = req.header("cookie", format!("leo_session={cookie}"));
+        }
+        if csrf {
+            req = req.header("x-csrf-token", credentials["csrf"].as_str().unwrap());
+        }
+        let response = app
+            .clone()
+            .oneshot(req.body(Body::from("{}")).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        if status == 200 {
+            let body: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap())
+                    .unwrap();
+            assert_eq!(body, json!({"pending":false,"result":"expired"}));
+        }
+        assert!(service.store.kv(&key).await.unwrap().is_some());
+    }
+    service
+        .auth
+        .logout(session["value"].as_str().unwrap())
+        .await
+        .unwrap();
+    let response = app
+        .oneshot(
+            request("POST", &format!("/api/mcps/{id}/callback"), Value::Null)
+                .header(
+                    "cookie",
+                    format!("leo_session={}", session["value"].as_str().unwrap()),
+                )
+                .header("x-csrf-token", session["csrf"].as_str().unwrap())
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    // Expiration is enforced by the store, including capture attempts from the browser.
+    service
+        .store
+        .set(&key, pending, Some(now() - 1))
+        .await
+        .unwrap();
+    assert!(
+        !service
+            .mcps
+            .capture_native_callback(
+                &service,
+                &std::collections::HashMap::from([
+                    ("state".into(), nonce.into()),
+                    ("code".into(), "replacement".into())
+                ])
+            )
+            .await
+            .unwrap()
+    );
+}

@@ -130,3 +130,14 @@ commit. See the [CI measurements and release paths](docs/CI-PERFORMANCE.md).
 ## Chats
 
 Start a conversation from **Chats**, an agent, or a project. Project chats use Main agent by default. Steer a live response, queue and edit follow-ups, and resume conversations after a restart. See [chat behavior and architecture](docs/chats.md).
+
+## Native Android client
+
+The Kotlin / Jetpack Compose client lives in [`android/`](android/README.md).
+It uses native Material 3 controls with the web theme’s current light/dark colors
+and saved appearance preference. Open `android/` in Android Studio.
+It includes chats, streaming activity, attachments and artifacts, MCP management,
+multiple Codex accounts and optional periodic notifications without Firebase.
+[Android coverage](android/README.md#coverage) and [validation](android/VALIDATION.md)
+document the implemented workflows and device/deployment gates. Android builds
+run in their own CI workflow. Native MCP OAuth uses the accompanying server bridge.

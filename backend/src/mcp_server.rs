@@ -502,7 +502,22 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
                 .read(&crate::http::cookie(&input.headers))
                 .await?
                 .ok_or_else(|| Error::new(401, "Please sign in."))?;
-            s.mcps.connect(s, id, text(&session, "csrf")).await
+            if input.body["native"] == true {
+                s.mcps.connect_native(s, id, text(&session, "csrf")).await
+            } else {
+                s.mcps.connect(s, id, text(&session, "csrf")).await
+            }
+        }
+        ("POST", ["mcps", id, "callback"]) => {
+            crate::validation::uuid(id)?;
+            let session = s
+                .auth
+                .read(&crate::http::cookie(&input.headers))
+                .await?
+                .ok_or_else(|| Error::new(401, "Please sign in."))?;
+            s.mcps
+                .finish_native_callback(s, id, text(&session, "csrf"))
+                .await
         }
         ("POST", ["mcps", id, "disconnect"]) => {
             crate::validation::uuid(id)?;
