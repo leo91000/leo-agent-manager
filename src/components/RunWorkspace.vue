@@ -26,6 +26,7 @@ const deliverables = computed(() => live.snapshot.value?.artifacts ?? [])
 const artifactViewer = ref<string | null>(null)
 const error = ref('')
 const tab = ref(props.embedded ? 'events' : 'result')
+const autoTab = ref(true)
 const confirm = ref(false)
 const confirmCleanup = ref(false)
 const active = computed(
@@ -40,8 +41,15 @@ watch(live.error, (value) => {
   if (value)
     error.value = value
 })
-watch(run, (value, previous) => {
-  if (value && !previous && active.value)
+watch(() => props.runId, () => {
+  autoTab.value = true
+  tab.value = props.embedded ? 'events' : 'result'
+})
+watch([run, live.synced], ([value, synced]) => {
+  if (!value || !synced || !autoTab.value)
+    return
+  autoTab.value = false
+  if (active.value)
     tab.value = 'events'
 })
 async function cancel() {
@@ -142,7 +150,7 @@ async function copy() {
       </UiButton>
       <section class="panel run-panel flex flex-1 min-h-0 flex-col overflow-hidden">
         <header class="run-panel-head flex shrink-0 items-center justify-between border-b border-line p-[7px] phone:p-[5px]">
-          <UiSegments v-model="tab" label="Run view" :options="[{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Task brief' }]" />
+          <UiSegments v-model="tab" label="Run view" :options="[{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Task brief' }]" @update:model-value="autoTab = false" />
         </header>
         <div v-if="tab === 'result' && run.summary" class="run-panel-actions flex items-center justify-end border-b border-line px-5 py-2 phone:px-4 phone:py-1">
           <UiButton

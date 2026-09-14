@@ -13,6 +13,7 @@ export function useLiveRun(path: () => string) {
   const events = ref<RunEvent[]>([])
   const status = ref<LiveStatus>('connecting')
   const catchingUp = ref(true)
+  const synced = ref(false)
   const error = ref('')
   const position = ref<ReadingPosition>()
   let connection: ReturnType<typeof liveConnection> | undefined
@@ -45,6 +46,7 @@ export function useLiveRun(path: () => string) {
     events.value = []
     position.value = undefined
     catchingUp.value = true
+    synced.value = false
     status.value = 'connecting'
     error.value = ''
     if (!enabled) {
@@ -102,6 +104,7 @@ export function useLiveRun(path: () => string) {
         snapshot.value = detail
         events.value = rows.slice()
         catchingUp.value = false
+        synced.value = true
         scheduleSave()
       }
       error.value = ''
@@ -138,6 +141,7 @@ export function useLiveRun(path: () => string) {
     snapshot,
     events,
     catchingUp,
+    synced,
     error,
     position,
     savePosition,

@@ -173,6 +173,30 @@ test('a cached run restores the reading offset while its stream is still connect
       tx.oncomplete = () => db.close()
     }
   }))).toBe(300)
+  // A previous visit may have cached "running" just before the run completed.
+  await page.goto(`${workspace.url}/agents`)
+  await page.evaluate(() => new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open('leo-history-v1', 1)
+    request.onsuccess = () => {
+      const db = request.result
+      const tx = db.transaction('entries', 'readwrite')
+      const store = tx.objectStore('entries')
+      const read = store.getAll()
+      read.onsuccess = () => {
+        for (const entry of read.result) {
+          const value = JSON.parse(entry.text)
+          if (value.state.run)
+            value.state.run.status = 'running'
+          store.put({ ...entry, text: JSON.stringify(value) })
+        }
+      }
+      tx.oncomplete = () => {
+        db.close()
+        resolve()
+      }
+      tx.onerror = () => reject(tx.error)
+    }
+  }))
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
     release = resolve
@@ -189,7 +213,8 @@ test('a cached run restores the reading offset while its stream is still connect
     }
   })
   try {
-    await page.reload()
+    await page.goto(`${workspace.url}/runs/${run.id}`)
+    await expect(page.getByRole('button', { name: 'Result', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await page.getByRole('button', { name: /^Activity/ }).click()
     await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(300)
     await expect(page.getByLabel('Follow output')).not.toBeChecked()
@@ -198,4 +223,6 @@ test('a cached run restores the reading offset while its stream is still connect
     release()
     await page.unrouteAll({ behavior: 'wait' })
   }
+  await expect(page.getByRole('status').filter({ hasText: 'Updating…' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Activity/ })).toHaveAttribute('aria-pressed', 'true')
 })

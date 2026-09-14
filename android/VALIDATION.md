@@ -20,10 +20,12 @@ with server-side history revision validation and incremental stream resume.
 - Android lint: **0 errors, 6 existing warnings**. The development APK builds.
 - **199 web unit tests and 84 Rust tests pass**. Web lint, typecheck/build and
   generated backend schema consistency pass.
-- **8 browser journeys pass on Chromium and WebKit**. A deliberately held stream
+- **11 browser journeys pass**, including Chromium and WebKit cache coverage. A deliberately held stream
   proves that IndexedDB supplies a reloaded chat before the network responds.
   A cached run restores its reading offset while connecting. Logout clears the
-  persisted records. Streaming, offline recovery and server restart still pass.
+  persisted records. A stale cached run status cannot select the wrong tab or
+  override the reader's explicit tab choice. The full workspace journey also passes.
+  Streaming, offline recovery and server restart still pass.
 - Backend tests validate unchanged history, mismatched revision and prefix pruning.
   Revision lookups use the existing `(run_id,id)` index without hashing all events.
 - The commit hook runs ESLint/rustfmt, Cargo check and Clippy with warnings denied.

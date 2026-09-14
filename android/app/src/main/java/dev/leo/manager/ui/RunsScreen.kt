@@ -143,6 +143,7 @@ fun RunScreen(
         }
     var menu by remember { mutableStateOf(false) }
     var tab by rememberSaveable(id) { mutableIntStateOf(0) }
+    var autoTab by rememberSaveable(id) { mutableStateOf(true) }
     var follow by rememberSaveable(id) { mutableStateOf(true) }
     var confirm by rememberSaveable(id) { mutableStateOf<String?>(null) }
     val logState = rememberLazyListState()
@@ -158,7 +159,12 @@ fun RunScreen(
         ) {
             follow = it
         }
-    LaunchedEffect(run?.id) { if (run?.active == true) tab = 1 }
+    LaunchedEffect(run?.id, live.status, live.catchingUp) {
+        if (autoTab && run != null && live.status == "En direct" && !live.catchingUp) {
+            autoTab = false
+            if (run.active) tab = 1
+        }
+    }
     LaunchedEffect(logState) {
         logState.interactionSource.interactions.collect {
             if (it is DragInteraction.Start) follow = false
@@ -183,7 +189,10 @@ fun RunScreen(
                     back,
                 ) {
                     if (live.state.artifacts.isNotEmpty())
-                        ActionIcon("Fichiers", LeoIcons.Layers) { tab = 2 }
+                        ActionIcon("Fichiers", LeoIcons.Layers) {
+                            autoTab = false
+                            tab = 2
+                        }
                     Box {
                         ActionIcon("Options de l’exécution", Icons.Default.MoreVert) { menu = true }
                         DropdownMenu(menu, { menu = false }) {
@@ -192,6 +201,7 @@ fun RunScreen(
                                 leadingIcon = { Icon(Icons.Default.Info, null) },
                                 onClick = {
                                     menu = false
+                                    autoTab = false
                                     tab = 3
                                 },
                             )
@@ -263,7 +273,14 @@ fun RunScreen(
                         containerColor = MaterialTheme.colorScheme.background,
                     ) {
                         listOf("Résultat", "Activité").forEachIndexed { index, title ->
-                            Tab(tab == index, { tab = index }, text = { Text(title) })
+                            Tab(
+                                tab == index,
+                                {
+                                    autoTab = false
+                                    tab = index
+                                },
+                                text = { Text(title) },
+                            )
                         }
                     }
                 else
