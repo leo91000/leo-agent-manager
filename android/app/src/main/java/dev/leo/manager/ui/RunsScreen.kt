@@ -2,7 +2,6 @@
 
 package dev.leo.manager.ui
 
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -167,12 +166,8 @@ fun RunScreen(
             if (run.active) tab = 1
         }
     }
-    LaunchedEffect(logState) {
-        logState.interactionSource.interactions.collect {
-            if (it is DragInteraction.Start) follow = false
-        }
-    }
-    FollowHistoryTail(logState, positionReady && follow && tab == 1 && !more, live.cursor, rendering)
+    val followGesture = rememberHistoryFollowGesture(logState) { follow = it }
+    FollowHistoryTail(logState, positionReady && follow && tab == 1 && !more, live.cursor, rendering, followGesture)
     ArtifactLinkHost(vm, live.state?.artifacts.orEmpty()) {
         Column(Modifier.fillMaxSize()) {
             live.error?.let { ErrorNotice(it) {} }
@@ -319,7 +314,7 @@ fun RunScreen(
                             )
                         if (more) LinearProgressIndicator(Modifier.fillMaxWidth())
                         LazyColumn(
-                            Modifier.weight(1f),
+                            Modifier.weight(1f).historyFollowGesture(followGesture),
                             state = logState,
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),

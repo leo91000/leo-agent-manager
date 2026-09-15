@@ -1,0 +1,183 @@
+package dev.leo.manager.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.test.core.app.ApplicationProvider
+import android.content.Context
+import java.io.File
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.dp
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+
+/** Identical finger gestures on Robolectric and an Android device, using the app's Markdown. */
+abstract class HistoryFollowCases {
+    @get:Rule val compose = createComposeRule()
+    private lateinit var list: LazyListState
+    private lateinit var rendering: MarkdownRendering
+    private lateinit var gesture: HistoryFollowGesture
+    private var follow by mutableStateOf(true)
+    private var text by mutableStateOf((1..30).joinToString("\n\n") { "Paragraphe **$it**. Une réponse en cours, qui laisse le lecteur parcourir librement son historique." })
+    private var height by mutableStateOf(620)
+    private var working by mutableStateOf(true)
+    private val history get() = compose.onNodeWithTag("history")
+
+    private fun start() {
+        compose.setContent {
+            list = rememberLazyListState()
+            rendering = remember { MarkdownRendering() }
+            gesture = rememberHistoryFollowGesture(list) { follow = it }
+            FollowHistoryTail(list, follow, text, rendering, gesture)
+            LeoTheme("dark") {
+                Surface(Modifier.fillMaxWidth().height(height.dp)) {
+                    Column {
+                        Text("Conversation", Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge)
+                        CompositionLocalProvider(LocalMarkdownRendering provides rendering) {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f).fillMaxWidth().testTag("history").historyFollowGesture(gesture),
+                                state = list,
+                                contentPadding = PaddingValues(16.dp),
+                            ) {
+                                items(8, key = { "old-$it" }) { Text("Message précédent $it", Modifier.padding(vertical = 16.dp)) }
+                                item("answer") { Markdown(text) }
+                                if (working) item("status") { Text("L’agent travaille…", Modifier.padding(top = 12.dp)) }
+                            }
+                        }
+                        Button(onClick = { follow = true }, modifier = Modifier.testTag("bottom")) {
+                            Text(if (follow) "Suivi actif" else "Derniers messages ↓")
+                        }
+                    }
+                }
+            }
+        }
+        settle()
+        compose.waitUntil(20000) { list.canScrollBackward && !list.canScrollForward }
+    }
+
+    private fun settle() {
+        compose.waitForIdle()
+        compose.waitUntil(20000) { rendering.pending == 0 }
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+    }
+
+    private fun append() {
+        val revision = rendering.revision
+        compose.runOnIdle { text += "\n\n" + "Nouveau texte du stream. ".repeat(18) }
+        // Drive recomposition and the renderer's pacing delay before awaiting its revision.
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        try {
+            compose.waitUntil(20000) { rendering.revision > revision }
+        } catch (failure: Throwable) {
+            throw AssertionError("Markdown revision $revision -> ${rendering.revision}, pending=${rendering.pending}, position=${position()}, visible=${list.layoutInfo.visibleItemsInfo.map { it.key }}, chars=${text.length}", failure)
+        }
+        settle()
+    }
+
+    private fun position() = compose.runOnIdle { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
+
+    @Test fun oversizedFinalMessageStillReachesTheBottomAfterStreamingAndResize() {
+        working = false
+        start()
+        append()
+        compose.runOnIdle { height = 480 }
+        settle()
+        compose.runOnIdle { assertTrue(follow); assertFalse(list.canScrollForward) }
+        history.performTouchInput { swipeDown() }
+        settle()
+        compose.onNodeWithTag("bottom").performClick()
+        settle()
+        compose.runOnIdle { assertFalse(list.canScrollForward) }
+        val directory = File(ApplicationProvider.getApplicationContext<Context>().filesDir, "scroll-validation")
+        directory.mkdirs()
+        compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+            File(directory, "pinned-stream.png").outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+    }
+
+    @Test fun arrowAndDownwardOverscrollKeepTheActualBottomPinned() {
+        start()
+        history.performTouchInput { swipeDown() }
+        settle()
+        compose.runOnIdle { assertFalse("Reading older text must unpin", follow) }
+        compose.onNodeWithTag("bottom").performClick()
+        settle()
+        compose.runOnIdle { assertFalse("Arrow must include bottom padding", list.canScrollForward) }
+        history.performTouchInput { swipeUp() }
+        settle()
+        compose.runOnIdle { assertTrue("An overscroll at the end must preserve follow", follow) }
+        append()
+        compose.runOnIdle { assertTrue(follow); assertFalse(list.canScrollForward) }
+    }
+
+    @Test fun touchPausesStreamingAndSmallGestureTowardOlderTextUnpins() {
+        start()
+        history.performTouchInput { down(center) }
+        compose.runOnIdle { assertTrue(gesture.touching) }
+        val held = position()
+        append()
+        assertEquals("A finger on the screen pauses follow", held, position())
+        history.performTouchInput { moveBy(Offset(0f, 64f), delayMillis = 160) }
+        compose.runOnIdle { assertFalse("One deliberate small move must unpin during streaming", follow) }
+        append()
+        history.performTouchInput { advanceEventTime(200); up() }
+        settle()
+        val reading = position()
+        append()
+        compose.runOnIdle { assertFalse(follow); assertTrue(list.canScrollForward) }
+        assertEquals("New text must not pull a reader back down", reading, position())
+    }
+
+    @Test fun manualReturnToBottomRepinsAndDirectionReversalUnpinsAgain() {
+        start()
+        // Slow drag avoids a long fling, leaving the end within one swipe.
+        history.performTouchInput {
+            down(center); moveBy(Offset(0f, 100f), delayMillis = 300); advanceEventTime(200); up()
+        }
+        settle()
+        compose.runOnIdle { assertFalse(follow) }
+        history.performTouchInput { swipeUp() }
+        settle()
+        compose.runOnIdle { assertFalse(list.canScrollForward); assertTrue("Returning manually to the end repins", follow) }
+        append()
+        compose.runOnIdle { assertFalse(list.canScrollForward) }
+        history.performTouchInput {
+            down(center); moveBy(Offset(0f, -80f), delayMillis = 200)
+            moveBy(Offset(0f, 140f), delayMillis = 300); advanceEventTime(200); up()
+        }
+        settle()
+        compose.runOnIdle { assertFalse("Changing one's mind within a gesture must work", follow) }
+        val reading = position()
+        append()
+        assertEquals(reading, position())
+    }
+
+    @Test fun holdingWithoutMovingResumesFollowOnReleaseButNeverRepinsAReader() {
+        start()
+        history.performTouchInput { down(center) }
+        append()
+        history.performTouchInput { up() }
+        settle()
+        compose.runOnIdle { assertTrue(follow); assertFalse(list.canScrollForward) }
+        history.performTouchInput { swipeDown() }
+        settle()
+        history.performTouchInput { click(center) }
+        compose.runOnIdle { height = 480 }
+        append()
+        compose.runOnIdle { assertFalse("A tap, resize or stream is not an instruction to follow", follow) }
+    }
+}

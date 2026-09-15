@@ -1,4 +1,14 @@
-# Leo Android 0.4.1 — stable conversation resume
+# Leo Android 0.5.3 — predictable conversation following
+
+- The down arrow reaches the actual bottom, including the final spacing.
+- Touch pauses automatic scrolling immediately. Moving toward older text exits
+  follow, including while the assistant is streaming.
+- Scrolling toward the end keeps follow enabled; reaching the end manually enables
+  it again. Overscroll at the bottom no longer disables follow.
+- A tap, incoming text or keyboard resize never pulls a reader back down.
+- Chats and run activity use the same gesture handling.
+
+## Previous revision: Leo Android 0.4.1 — stable conversation resume
 
 - Open conversations retain their stream cursor and accumulated messages while the
   screen is stopped. Returning to the foreground resumes from the accepted cursor.

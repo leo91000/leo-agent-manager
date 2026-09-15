@@ -1,7 +1,7 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
-Version 0.4.1 resumes conversations without replaying historical scroll.
+Version 0.5.3 gives touch gestures priority over streaming auto-follow.
 Tool activity has native views: commands, reads, searches, diffs,
 plans, MCP results and session notices. Structured results and JSON artifacts are
 readable without opening the raw JSON. Chats retain the compact 0.3 composer.
@@ -45,8 +45,9 @@ store distribution. Never commit a signing key or local SDK paths.
 
 - Compose Material 3 components, system back navigation, edge-to-edge insets,
   keyboard handling, bottom navigation in the main phone sections and a rail from 700 dp.
-  Chat/run details use their own compact header and system back navigation. Dragging
-  the activity stops automatic following; the down arrow returns to the latest item.
+  Chat/run details use their own compact header and system back navigation. Touching
+  the activity pauses following; scrolling toward older text disables it. Scrolling
+  to the end or tapping the down arrow resumes following, including bottom padding.
 - Semantic colors match `src/styles/theme.css` at `207ca4f`: blue-violet accent
   `#4545ef`, ink `#28283c`, canvas `#fdfcfe`; dark accent `#b8b2ff`, canvas `#1b1b20`,
   surface `#222228`. Material roles also map borders, muted text and error colors.
@@ -229,3 +230,19 @@ Selection works within a rendered group. Its selection toolbar also offers
 paragraph, code block or table is deliberately not split across views, preserving
 its formatting; such a block can still cost more to lay out. These changes do not
 alter the backend or web client.
+
+## Following a conversation (Android 0.5.3)
+
+The down arrow reaches the measured end of the list, including its content padding.
+Touching the conversation immediately suspends automatic scrolling. A deliberate
+movement toward older text disables follow; a downward-to-end gesture, including
+overscroll at the bottom, preserves it. Reaching the end manually resumes follow.
+A stationary touch resumes the previous mode on release. Stream updates and viewport
+resizing never re-enable follow themselves. Chat and run activity share this behavior.
+
+The same Compose gesture regression cases run as JVM tests and device instrumentation:
+
+```sh
+./gradlew testDebugUnitTest --tests '*HistoryFollowTest'
+./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.leo.manager.ui.HistoryFollowDeviceTest
+```

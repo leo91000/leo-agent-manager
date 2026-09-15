@@ -4,7 +4,6 @@ package dev.leo.manager.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -247,12 +246,8 @@ fun ChatScreen(
         reasoning = message.reasoning
         attachments = message.attachments.map { DraftAttachment(it) }
     }
-    LaunchedEffect(listState) {
-        listState.interactionSource.interactions.collect {
-            if (it is DragInteraction.Start) follow = false
-        }
-    }
-    FollowHistoryTail(listState, positionReady && follow && !gallery && !live.catchingUp, live.cursor, rendering)
+    val followGesture = rememberHistoryFollowGesture(listState) { follow = it }
+    FollowHistoryTail(listState, positionReady && follow && !gallery && !live.catchingUp, live.cursor, rendering, followGesture)
     ArtifactLinkHost(vm, live.state?.artifacts.orEmpty()) {
         Column(Modifier.fillMaxSize()) {
             DetailHeader(
@@ -409,7 +404,7 @@ fun ChatScreen(
                     }
                 } else
                     LazyColumn(
-                        Modifier.weight(1f),
+                        Modifier.weight(1f).historyFollowGesture(followGesture),
                         state = listState,
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),

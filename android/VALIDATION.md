@@ -1,6 +1,26 @@
-# Android 0.5.2 validation
+# Android 0.5.3 validation
 
-## Streaming optimization
+## Touch and follow behavior
+
+Chat and run activity use `HistoryFollowGesture` and `FollowHistoryTail`. The list's
+normal touch slop determines when a movement starts; no extra unpin threshold is
+added. Pointer contact pauses following before the first scroll delta. Only real
+user scrolling toward older content disables following. Reaching the end through
+user scrolling enables it; layout growth and programmatic scrolling cannot.
+
+The shared `HistoryFollowCases` runs with Robolectric and Android instrumentation.
+It checks actual Compose pointer input with native Markdown, not just calls into
+the gesture state machine: bottom padding, downward overscroll, a held finger while
+text grows, small upward-history movement during growth, manual return with a fling,
+direction reversal, stationary contact, viewport resizing and an oversized final
+message. The local suite passed all 63 tests (including the five gesture cases); lint
+reported zero errors, and debug, test and optimized release APKs built successfully.
+The local Android 16 software emulator exceeded its ten-minute boot timeout before
+application installation. The same gesture cases can be run on a connected Android device with
+`connectedDebugAndroidTest`; the instrumentation test also saves a screenshot in
+`files/scroll-validation/pinned-stream.png` within the app's private test data.
+
+## Retained streaming optimization (0.5.2)
 
 - Assistant presentation IDs remain stable across delta updates, cache serialization
   and reconnects. New turns isolate reused provider item IDs. Wire IDs/cursors still
@@ -66,7 +86,7 @@ release builds on the published commit. See that commit's checks for final CI
 results. Local screenshots, when enabled with `-PleoScreenshotsDir=...`, use
 Robolectric native graphics. They are not emulator or physical-device evidence.
 
-Package `dev.leo.manager`; minSdk 26; targetSdk 37; version **0.5.2 / code 9**.
+Package `dev.leo.manager`; minSdk 26; targetSdk 37; version **0.5.3 / code 10**.
 The development certificate is the same as the preceding APKs, permitting an
 in-place update. Certificate SHA-256:
 `b56038aa26883922efdf917ff45300b9d5a6f59cc7901c5e4097664a2abbbf99`.

@@ -501,24 +501,6 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
     } else ActivityCard(event)
 }
 
-/** Follow actual measured growth, including Markdown renders that finish after an SSE update. */
-@Composable
-internal fun FollowHistoryTail(list: LazyListState, enabled: Boolean, content: Any?, rendering: MarkdownRendering) {
-    LaunchedEffect(list, enabled, content, rendering) {
-        if (enabled) snapshotFlow {
-            val info = list.layoutInfo
-            Triple(info.totalItemsCount, info.viewportSize.height, rendering.revision)
-        }.collectLatest { (count, _, _) ->
-            // Layout notifications must not trigger a synchronous nested measurement.
-            withFrameNanos { }
-            if (count > 0) {
-                val last = list.layoutInfo.visibleItemsInfo.lastOrNull { it.index == count - 1 }
-                list.scrollToItem(count - 1, last?.size ?: 0)
-            }
-        }
-    }
-}
-
 internal suspend fun restoreHistoryPosition(list: LazyListState, saved: ReadingPosition, rendering: MarkdownRendering?) {
     snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > 0 }
     val index = saved.index.coerceIn(0, list.layoutInfo.totalItemsCount - 1)

@@ -11,8 +11,8 @@ android {
         applicationId = "dev.leo.manager"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.5.2"
+        versionCode = 10
+        versionName = "0.5.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures {
@@ -20,6 +20,10 @@ android {
         buildConfig = true
     }
     testOptions { unitTests.isIncludeAndroidResources = true }
+    sourceSets {
+        getByName("test").kotlin.directories.add("src/scrollTest/java")
+        getByName("androidTest").kotlin.directories.add("src/scrollTest/java")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
