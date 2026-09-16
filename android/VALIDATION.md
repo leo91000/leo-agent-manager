@@ -1,4 +1,17 @@
-# Android 0.5.3 validation
+# Android 0.5.4 — message links
+
+Targeted checks pass for a first tap opening exactly once, long-press selection,
+dragging without opening a link, and authenticated metadata/file loading for an
+artifact absent from the current conversation. The gesture case is shared with
+the Android 16 instrumentation suite. Robolectric stubs only the selection
+magnifier surface, which it cannot render; the device test uses the real magnifier.
+
+The web deliverables journey passes on Chromium and WebKit: relative and absolute
+artifact links, Markdown/image previews, external browser navigation, a missing
+file, and links in both chats and run activity. Shared origin validation tests pass.
+No backend change or database migration is required.
+
+## Previous validation: Android 0.5.3
 
 ## Touch and follow behavior
 

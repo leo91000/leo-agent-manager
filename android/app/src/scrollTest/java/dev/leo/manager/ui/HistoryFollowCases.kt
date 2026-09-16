@@ -32,6 +32,46 @@ abstract class HistoryFollowCases {
     private var working by mutableStateOf(true)
     private val history get() = compose.onNodeWithTag("history")
 
+    @Test
+    fun markdownLinksOpenOnTapButNotOnLongPressOrDrag() {
+        val opened = mutableListOf<String>()
+        compose.setContent {
+            LeoTheme("dark") {
+                CompositionLocalProvider(LocalArtifactLinks provides { opened.add(it); true }) {
+                    Surface(Modifier.fillMaxSize().testTag("links")) {
+                        Column { Markdown("[Documentation](https://example.com) et du texte sélectionnable.") }
+                    }
+                }
+            }
+        }
+        fun views(view: android.view.View): List<MarkdownTextView> = when (view) {
+            is MarkdownTextView -> listOf(view)
+            is android.view.ViewGroup -> (0 until view.childCount).flatMap { views(view.getChildAt(it)) }
+            else -> emptyList()
+        }
+        fun textView() = android.view.inspector.WindowInspector.getGlobalWindowViews()
+            .flatMap { views(it) }.firstOrNull { it.text.startsWith("Documentation") }
+        compose.waitUntil(20000) { textView()?.layout != null }
+        val node = compose.onNodeWithTag("links")
+        val origin = node.fetchSemanticsNode().positionOnScreen
+        val point = compose.runOnIdle {
+            val view = textView()!!
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            Offset(location[0] + view.layout.getPrimaryHorizontal(3) - origin.x,
+                location[1] + view.layout.getLineBottom(0) / 2f - origin.y)
+        }
+        node.performTouchInput { click(point) }
+        compose.runOnIdle { assertEquals(listOf("https://example.com"), opened); opened.clear() }
+        node.performTouchInput { longClick(point, 1000) }
+        compose.runOnIdle {
+            assertTrue("Long press must select, not open a link", opened.isEmpty())
+            assertTrue(textView()!!.hasSelection())
+        }
+        node.performTouchInput { swipe(point, point + Offset(0f, 180f), 300) }
+        compose.runOnIdle { assertTrue("Dragging a link must not open it", opened.isEmpty()) }
+    }
+
     private fun start() {
         compose.setContent {
             list = rememberLazyListState()

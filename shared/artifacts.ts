@@ -24,6 +24,20 @@ export function artifactUrl(item: Deliverable, action?: 'preview' | 'download') 
   return `/api/runs/${encodeURIComponent(item.runId)}/artifacts/${encodeURIComponent(item.id)}${action ? `?${action}=1` : ''}`
 }
 
+/** Resolve only artifact endpoints on the application's own origin. */
+export function artifactLink(link: string, origin: string) {
+  try {
+    const url = new URL(link, origin)
+    if (url.origin !== new URL(origin).origin || url.username || url.password)
+      return null
+    const match = /^\/api\/runs\/([\w-]+)\/artifacts\/([\w-]+)$/.exec(url.pathname)
+    return match ? { runId: match[1]!, id: match[2]! } : null
+  }
+  catch {
+    return null
+  }
+}
+
 export function latestArtifacts(items: Deliverable[]) {
   const latest = new Map<string, Deliverable>()
   for (const item of items) {

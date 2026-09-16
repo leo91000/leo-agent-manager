@@ -1,7 +1,7 @@
 import type { Deliverable } from '../shared/artifacts'
 import type { ActivityEntry } from '../src/activity'
 import { describe, expect, it } from 'vitest'
-import { artifactUrl, latestArtifacts } from '../shared/artifacts'
+import { artifactLink, artifactUrl, latestArtifacts } from '../shared/artifacts'
 import { deliveryEntries } from '../src/deliverables'
 
 const image = (id: string, version: number, createdAt: number, messageId = 'turn1'): Deliverable => ({ id, runId: 'run', messageId, key: 'mobile', version, title: 'Mobile', name: 'mobile.png', kind: 'image', mediaType: 'image/png', size: 12, createdAt, url: 'javascript:alert(1)', group: '', previewStatus: 'none' })
@@ -19,4 +19,12 @@ describe('published deliverables', () => {
     expect(deliveryEntries([], [image('file', 1, 3)])[0].kind).toBe('deliverables')
     expect(artifactUrl(image('file', 1, 3))).toBe('/api/runs/run/artifacts/file')
   })
+})
+
+it('resolves artifact message links only against the connected origin', () => {
+  const origin = 'https://leo.example'
+  for (const link of ['/api/runs/run/artifacts/file', 'https://leo.example/api/runs/run/artifacts/file?download=1#top'])
+    expect(artifactLink(link, origin)).toEqual({ runId: 'run', id: 'file' })
+  for (const link of ['https://other.example/api/runs/run/artifacts/file', '//other.example/api/runs/run/artifacts/file', 'https://user@leo.example/api/runs/run/artifacts/file', 'https://leo.example:444/api/runs/run/artifacts/file', '/api/runs/run/artifacts', '/api/runs/run/artifacts/file/preview', 'javascript:alert(1)', 'file:///api/runs/run/artifacts/file'])
+    expect(artifactLink(link, origin)).toBeNull()
 })

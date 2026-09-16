@@ -254,6 +254,12 @@ fun artifactForLink(
     origin: okhttp3.HttpUrl,
     artifacts: List<Deliverable>,
 ): Deliverable? {
+    val path = artifactPathForLink(link, origin) ?: return null
+    return artifacts.find { path == it.path().substringBefore('?') }
+}
+
+/** Only canonical artifact endpoints on our authenticated server may use the session. */
+fun artifactPathForLink(link: String, origin: okhttp3.HttpUrl): String? {
     val url = origin.resolve(link) ?: return null
     if (
         url.scheme != origin.scheme ||
@@ -263,5 +269,7 @@ fun artifactForLink(
             url.password.isNotEmpty()
     )
         return null
-    return artifacts.find { url.encodedPath == "/api" + it.path().substringBefore('?') }
+    return url.encodedPath.takeIf {
+        Regex("/api/runs/[A-Za-z0-9_-]+/artifacts/[A-Za-z0-9_-]+").matches(it)
+    }?.removePrefix("/api")
 }

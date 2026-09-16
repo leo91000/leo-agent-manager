@@ -265,4 +265,13 @@ class LeoApiTest {
                 assertNull(artifactForLink(link, origin, listOf(file)))
             }
     }
+    @Test
+    fun `artifact links can locate an older run without trusting external URLs`() {
+        val origin = "https://leo.example/".toHttpUrl()
+        assertEquals("/runs/older/artifacts/file", artifactPathForLink("/api/runs/older/artifacts/file?download=1#top", origin))
+        for (link in listOf("//other.example/api/runs/run/artifacts/file", "https://user@leo.example/api/runs/run/artifacts/file", "/api/runs/run/artifacts/file/preview", "javascript:alert(1)", "file:///api/runs/run/artifacts/file")) {
+            assertNull(artifactPathForLink(link, origin))
+        }
+    }
+
 }

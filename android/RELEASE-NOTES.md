@@ -1,4 +1,13 @@
-# Leo Android 0.5.3 — predictable conversation following
+# Leo Android 0.5.4 — message links and artifact previews
+
+- Markdown links open from the conversation while keeping text selectable.
+- Artifact links open the authenticated native viewer, including files from older
+  runs that are no longer in the loaded history. Relative and same-server absolute
+  links are supported; external links use the browser.
+- Missing files and browser-opening failures produce a visible message.
+- The web client also opens artifact message links in its integrated viewer.
+
+## Previous revision: Leo Android 0.5.3 — predictable conversation following
 
 - The down arrow reaches the actual bottom, including the final spacing.
 - Touch pauses automatic scrolling immediately. Moving toward older text exits

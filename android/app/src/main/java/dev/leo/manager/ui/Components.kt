@@ -319,6 +319,12 @@ fun Markdown(content: String) {
                                         CustomTabsIntent.Builder()
                                             .build()
                                             .launchUrl(view.context, uri)
+                                    }.onFailure {
+                                        android.widget.Toast.makeText(
+                                            view.context,
+                                            "Aucune application disponible pour ouvrir ce lien.",
+                                            android.widget.Toast.LENGTH_LONG,
+                                        ).show()
                                     }
                                 }
                             }

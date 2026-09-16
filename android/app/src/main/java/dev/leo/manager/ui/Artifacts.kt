@@ -599,18 +599,45 @@ internal fun ArtifactLinkHost(
     content: @Composable () -> Unit,
 ) {
     var opening by remember { mutableStateOf<Deliverable?>(null) }
+    var pending by remember { mutableStateOf<String?>(null) }
+    var failure by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pending) {
+        val path = pending ?: return@LaunchedEffect
+        try {
+            val files = vm.api.get<List<Deliverable>>(path.substringBeforeLast('/'))
+            opening = files.find { it.path().substringBefore('?') == path }
+                ?: error("Ce fichier n’est plus disponible.")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            failure = e.message ?: "Impossible d’ouvrir ce fichier."
+        } finally {
+            if (pending == path) pending = null
+        }
+    }
     CompositionLocalProvider(
         LocalArtifactLinks provides
             { link ->
                 val item = artifactForLink(link, vm.api.origin, artifacts)
-                if (item == null) false
+                val path = artifactPathForLink(link, vm.api.origin)
+                if (path == null) false
                 else {
-                    opening = item
+                    failure = null
+                    if (item != null) { pending = null; opening = item }
+                    else { opening = null; pending = path }
                     true
                 }
             }
     ) {
         content()
+        if (pending != null || failure != null) {
+            AlertDialog(
+                onDismissRequest = { pending = null; failure = null },
+                title = { Text(if (failure == null) "Ouverture du fichier…" else "Fichier indisponible") },
+                text = { if (failure != null) Text(failure!!) else LinearProgressIndicator(Modifier.fillMaxWidth()) },
+                confirmButton = { TextButton(onClick = { pending = null; failure = null }) { Text("Fermer") } },
+            )
+        }
         opening?.let { item ->
             key(item.id) {
                 FilePreview(

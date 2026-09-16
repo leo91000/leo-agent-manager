@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.text.Spanned
+import android.text.method.LinkMovementMethod
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
@@ -64,6 +65,9 @@ internal class MarkdownTextView(context: Context, copyText: (() -> String)? = nu
         setLineSpacing(0f, 1.2f)
         includeFontPadding = false
         setTextIsSelectable(true)
+        // Selectable text installs ArrowKeyMovementMethod, so Markwon's default
+        // (only installed when movementMethod is null) never handles link taps.
+        movementMethod = LinkMovementMethod.getInstance()
         if (copyText != null) customSelectionActionModeCallback = object : ActionMode.Callback {
             private val copyAll = View.generateViewId()
             override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
