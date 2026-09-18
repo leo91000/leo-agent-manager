@@ -158,8 +158,15 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
             assertEquals("New history must not replace the text under the held finger", before, offset())
         }
         history.performTouchInput { moveBy(Offset(0f, 48f), delayMillis = 160) }
+        // Device input is dispatched asynchronously; await the existing MOVE's
+        // resulting layout without injecting another gesture or lifting the finger.
+        try {
+            compose.waitUntil(5000) { (offset() ?: Int.MIN_VALUE) > before }
+        } catch (failure: Throwable) {
+            throw AssertionError("The held MOVE was not applied: before=$before, after=${offset()}, " +
+                "scrolling=${list.isScrollInProgress}, visible=${list.layoutInfo.visibleItemsInfo.map { it.key to it.offset }}", failure)
+        }
         val moved = compose.runOnIdle { offset()!! }
-        assertTrue("The same finger must remain able to scroll after the page arrives", moved > before)
         history.performTouchInput { advanceEventTime(200); up() }
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(1, requests); assertEquals(moved, offset()) }
