@@ -131,6 +131,7 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
     val current by rememberUpdatedState(live)
     var headerAnchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
     var settling by remember(list) { mutableStateOf(false) }
+    var requested by remember(list) { mutableStateOf<Pair<String?, Long>?>(null) }
     LaunchedEffect(list, live.loadingOlder) {
         val before = live.oldest
         if (live.loadingOlder) snapshotFlow { list.layoutInfo.visibleItemsInfo }.collect { visible ->
@@ -143,7 +144,10 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
         }
     }
     LaunchedEffect(live.loadingOlder, live.oldest, keys) {
-        if (!live.loadingOlder && settling) {
+        // A loading request can start before this effect from the previous frame runs.
+        // Do not consume its anchor until a response (or an error) is actually present.
+        val responseArrived = requested != (live.history to live.oldest) || live.olderError != null || !live.hasOlder
+        if (!live.loadingOlder && settling && responseArrived) {
             val saved = headerAnchor
             headerAnchor = null
             if (saved != null) {
@@ -155,16 +159,16 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
                     // Discarding it leaves the persistent header pinned at index zero.
                     list.requestScrollToItem(target, saved.second)
                     rendering?.awaitLayout()
-                    // Request the layout offset without competing for the active
-                    // gesture's scroll mutation (scrollToItem is cancelled by it).
-                    list.requestScrollToItem(target, saved.second)
+                    // An idle list can measure the final position immediately. While a
+                    // finger owns scrolling, request its next layout without taking the gesture.
+                    if (list.isScrollInProgress) list.requestScrollToItem(target, saved.second)
+                    else list.scrollToItem(target, saved.second)
                 }
             }
             rendering?.awaitLayout()
             settling = false
         }
     }
-    var requested by remember(list) { mutableStateOf<Pair<String?, Long>?>(null) }
     val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 640.dp.toPx() }
     val load = {
         if (current.hasOlder && !current.loadingOlder) {

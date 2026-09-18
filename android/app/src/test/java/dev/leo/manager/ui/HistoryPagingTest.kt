@@ -6,6 +6,6 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36], qualifiers = "w412dp-h915dp-mdpi")
+@Config(sdk = [36], qualifiers = "w412dp-h915dp-420dpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class HistoryPagingTest : HistoryPagingCases()
