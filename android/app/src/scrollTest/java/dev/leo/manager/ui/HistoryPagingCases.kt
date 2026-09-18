@@ -130,6 +130,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
         compose.runOnIdle { numbers = (16..40).toList(); loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(500)
+        compose.waitUntil(20000) { rendering.pending == 0 && offset() == before }
         compose.waitForIdle()
         compose.runOnIdle {
             assertEquals("A response must not automatically request another page", 1, requests)
@@ -152,6 +153,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
         compose.runOnIdle { numbers = (16..40).toList(); loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(500)
+        compose.waitUntil(20000) { rendering.pending == 0 && offset() == before }
         compose.waitForIdle()
         compose.runOnIdle {
             assertEquals("Holding a finger must not trigger cascading requests", 1, requests)

@@ -128,6 +128,9 @@ abstract class HistoryFollowCases {
 
     private fun position() = compose.runOnIdle { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
 
+    protected open fun capturePinnedImage(): android.graphics.Bitmap =
+        compose.onRoot().captureToImage().asAndroidBitmap()
+
     @Test fun oversizedFinalMessageStillReachesTheBottomAfterStreamingAndResize() {
         working = false
         start()
@@ -142,7 +145,7 @@ abstract class HistoryFollowCases {
         compose.runOnIdle { assertFalse(list.canScrollForward) }
         val directory = File(ApplicationProvider.getApplicationContext<Context>().filesDir, "scroll-validation")
         directory.mkdirs()
-        compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
+        capturePinnedImage().let { bitmap ->
             File(directory, "pinned-stream.png").outputStream().use {
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
             }
