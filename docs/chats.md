@@ -8,6 +8,8 @@ When an agent reports completion, **Task completed** appears beneath the reply i
 
 Routine session updates (connecting, starting, finishing and success) are hidden from chat, including inside tool groups. The working indicator and completion footer provide that status. Failures and unresolved interruptions appear as inline notices; recovered connection retries disappear. Raw lifecycle events remain in run activity for troubleshooting.
 
+The **Conversations** button opens a searchable conversation selector, grouped by Today, Yesterday and Earlier. It floats below the button on desktop and opens as a bottom sheet on phones. Selecting a conversation keeps each chat’s draft; Escape or the close button returns to the current chat. The title, agent and project stay above the centered conversation.
+
 Open **Chats**, or **Start chat** on an agent or project. Project chats select Main agent by default. Choose another agent before the first message; its project, skill, MCP, GitHub and sandbox restrictions still apply. A chat owns one persistent conversation and workspace. It does not create a scheduled task.
 
 Send starts a reply. During a reply, **Queue** saves a follow-up for the next turn, while **Steer now** sends instructions into the active turn. Queued messages can be edited or removed until dispatch begins. Pause queue holds follow-ups without stopping the current reply. Stop response stops execution and pauses the queue; Resume continues the saved conversation. On desktop, Enter sends or queues, Shift+Enter adds a line, and Alt+Enter steers. Touch keyboards use Enter for a line break.

@@ -1,0 +1,133 @@
+<script setup lang="ts">
+import type { ChatView } from '../../shared/chats'
+import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue'
+import { Clock, MessageCircle, Plus, Search, X } from '../icons'
+import { iconButton } from '../ui'
+import Icon from './Icon.vue'
+
+const props = defineProps<{ chats: ChatView[], selected?: string, anchor?: HTMLElement }>()
+const emit = defineEmits<{ close: [], create: [] }>()
+const dialog = ref<HTMLDialogElement>()
+const query = ref('')
+const titleId = useId()
+const previous = document.activeElement as HTMLElement | null
+const groups = computed(() => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  const filtered = props.chats.filter(chat => `${chat.title} ${chat.agentName} ${chat.projectName ?? ''}`.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase()))
+  return [
+    { title: 'Today', chats: filtered.filter(chat => chat.updatedAt >= +today) },
+    { title: 'Yesterday', chats: filtered.filter(chat => chat.updatedAt >= +yesterday && chat.updatedAt < +today) },
+    { title: 'Earlier', chats: filtered.filter(chat => chat.updatedAt < +yesterday) },
+  ].map(group => ({ ...group, chats: group.chats.toSorted((a, b) => b.updatedAt - a.updatedAt) })).filter(group => group.chats.length)
+})
+function position() {
+  const bounds = props.anchor?.getBoundingClientRect()
+  if (!dialog.value || !bounds)
+    return
+  dialog.value.style.setProperty('--switcher-left', `${Math.max(14, Math.min(bounds.left, window.innerWidth - 394))}px`)
+  dialog.value.style.setProperty('--switcher-top', `${bounds.bottom + 12}px`)
+}
+onMounted(() => {
+  position()
+  dialog.value?.showModal()
+  window.addEventListener('resize', position)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', position)
+  dialog.value?.close()
+  const target = props.anchor ?? previous
+  target?.focus()
+})
+function time(timestamp: number) {
+  const date = new Date(timestamp)
+  return date.toLocaleDateString() === new Date().toLocaleDateString()
+    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+</script>
+
+<template>
+  <Teleport to="body">
+    <dialog ref="dialog" class="chat-switcher" :aria-labelledby="titleId" @cancel.prevent="emit('close')" @click="event => { if (event.target === dialog) emit('close') }">
+      <div class="switcher-content flex min-h-0 flex-col p-5 phone:p-4">
+        <div aria-hidden="true" class="mx-auto mb-4 hidden h-1 w-9 shrink-0 rounded-full bg-muted/40 phone:block" />
+        <header class="mb-4 flex shrink-0 items-center justify-between gap-3">
+          <h2 :id="titleId" class="flex items-center gap-2">
+            Conversations <span class="text-xs font-normal text-muted">{{ chats.length }}</span>
+          </h2>
+          <button :class="iconButton" aria-label="Close conversations" @click="emit('close')">
+            <Icon :name="X" :size="19" />
+          </button>
+        </header>
+        <button class="mb-4 flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-canvas" @click="emit('create')">
+          <Icon :name="Plus" :size="17" />New conversation
+        </button>
+        <label class="relative mb-4 block shrink-0">
+          <Icon :name="Search" :size="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <input v-model="query" type="search" autofocus aria-label="Search conversations" placeholder="Search conversations…" class="pl-10! text-sm! phone:text-base!">
+        </label>
+        <nav aria-label="Recent conversations" class="min-h-0 flex-1 overflow-auto overscroll-contain px-1 [scrollbar-width:thin]">
+          <p v-if="!chats.length" class="px-2 py-6 text-center text-xs text-muted">
+            Your conversations will appear here.
+          </p>
+          <p v-else-if="!groups.length" role="status" class="px-2 py-6 text-center text-xs text-muted">
+            No conversations match your search.
+          </p>
+          <section v-for="group in groups" :key="group.title" class="mb-4">
+            <h3 class="mb-2 px-2 text-[11px]! font-normal text-muted">
+              {{ group.title }}
+            </h3>
+            <RouterLink v-for="chat in group.chats" :key="chat.id" :to="`/chats/${chat.id}`" :aria-current="chat.id === selected ? 'page' : undefined" class="conversation-choice mb-1 flex gap-3 rounded-lg border border-transparent px-3 py-3 hover:bg-hover" :class="chat.id === selected ? 'border-accent/25! bg-accent/10' : ''" @click="emit('close')">
+              <div class="min-w-0 flex-1">
+                <span class="line-clamp-2 text-xs font-semibold leading-relaxed wrap-anywhere">{{ chat.title }}</span>
+                <span class="mt-1.5 block text-[11px] leading-relaxed text-muted wrap-anywhere">{{ chat.agentName }}<template v-if="chat.projectName"> · {{ chat.projectName }}</template></span>
+                <span v-if="chat.pendingQuestions" class="mt-2 inline-block rounded-md bg-warning-surface px-2 py-1 text-[10px] text-warning">{{ chat.pendingQuestions }} awaiting answer</span>
+                <span v-else-if="chat.status === 'running' || chat.status === 'queued'" class="mt-2 flex items-center gap-1.5 text-[10px] text-accent"><Icon :name="Clock" :size="12" />{{ chat.status === 'queued' ? 'Waiting' : 'Working' }}</span>
+                <span v-else-if="chat.status === 'failed' || chat.status === 'interrupted'" class="mt-2 block text-[10px] text-danger">{{ chat.status === 'failed' ? 'Response failed' : 'Interrupted' }}</span>
+              </div>
+              <time :datetime="new Date(chat.updatedAt).toISOString()" class="shrink-0 pt-1 text-[10px] text-muted">{{ time(chat.updatedAt) }}</time>
+            </RouterLink>
+          </section>
+        </nav>
+        <p class="mt-3 flex shrink-0 items-center gap-2 border-t border-line px-1 pt-3 text-[10px] text-muted">
+          <Icon :name="MessageCircle" :size="13" />Switch conversations without losing your draft.
+        </p>
+      </div>
+    </dialog>
+  </Teleport>
+</template>
+
+<style scoped>
+.chat-switcher {
+  position: fixed;
+  inset: var(--switcher-top, 100px) auto auto var(--switcher-left, 24px);
+  margin: 0;
+  padding: 0;
+  width: 380px;
+  max-width: calc(100vw - 28px);
+  max-height: min(720px, calc(100dvh - var(--switcher-top, 100px) - 20px));
+  border: 1px solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-raised);
+  color: var(--color-ink);
+  box-shadow: 0 24px 80px #0003;
+  overflow: hidden;
+}
+.switcher-content { max-height: inherit; }
+.chat-switcher::backdrop { background: #0002; }
+@media (max-width: 640px) {
+  .chat-switcher {
+    inset: auto 0 0;
+    width: 100%;
+    max-width: none;
+    max-height: min(82dvh, calc(100dvh - env(safe-area-inset-top) - 16px));
+    border-radius: 22px 22px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .switcher-content { max-height: calc(min(82dvh, 100dvh - env(safe-area-inset-top) - 16px) - env(safe-area-inset-bottom)); }
+  .chat-switcher::backdrop { background: #0a091080; backdrop-filter: blur(3px); }
+}
+</style>

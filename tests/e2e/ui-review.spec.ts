@@ -32,9 +32,9 @@ test('reviews the open workspace layout and compact chat controls across themes 
   await project.press('Enter')
   await expect(project).toHaveValue('Design system')
   await expectSingleScroll(page)
-  await page.getByRole('button', { name: 'Chat history', exact: true }).click()
-  await expect(page.getByRole('complementary', { name: 'Chat history' })).toBeVisible()
-  await page.getByRole('button', { name: 'Close chat history' }).click()
+  await page.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Conversations' })).toBeVisible()
+  await page.getByRole('button', { name: 'Close conversations' }).click()
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Review our component architecture. fixture:chat-hang')
@@ -51,11 +51,12 @@ test('reviews the open workspace layout and compact chat controls across themes 
     await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`chat-conversation-dark-${viewport.width}.png`) })
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.getByRole('button', { name: 'Chat history', exact: true }).click()
-  await expect(page.getByRole('complementary', { name: 'Chat history' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Activity output' })).toBeVisible()
+  await page.getByRole('button', { name: 'Conversations', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Conversations' })).toBeVisible()
+  await expect(page.locator('.activity-scroll')).toBeVisible()
   await expectSingleScroll(page)
   await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('chat-history-dark.png') })
+  await page.getByRole('button', { name: 'Close conversations' }).click()
   await page.getByRole('button', { name: 'Stop response' }).click()
 
   for (const route of ['/tasks', '/agents', '/projects', '/skills', '/runs', '/mcps', '/connections', '/settings']) {

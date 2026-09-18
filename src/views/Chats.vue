@@ -7,6 +7,7 @@ import { api, state } from '../api'
 import ActivityFeed from '../components/ActivityFeed.vue'
 import ChatAttachments from '../components/ChatAttachments.vue'
 import ChatQuestions from '../components/ChatQuestions.vue'
+import ChatSwitcher from '../components/ChatSwitcher.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import ModelSettings from '../components/ModelSettings.vue'
@@ -31,6 +32,8 @@ const reasoning = ref('')
 const options = ref(false)
 const notifications = ref(false)
 const history = ref(false)
+const historyButton = ref<HTMLButtonElement>()
+
 const queueOpen = ref(true)
 const error = ref('')
 const dismissedError = ref(false)
@@ -126,6 +129,16 @@ watch(live.error, (value) => {
 onBeforeUnmount(clearAttachments)
 let submission: { id: string, text: string, mode: 'queue' | 'steer', model: string, reasoning: string, attachmentIds: string[] } | undefined
 let createdChat: Chat | undefined
+function newConversation() {
+  history.value = false
+  draft.value = ''
+  clearAttachments()
+  agentId.value = MAIN_AGENT_ID
+  projectId.value = ''
+  createdChat = undefined
+  editing.value = null
+  void router.push('/chats')
+}
 async function send(mode: 'queue' | 'steer' = 'queue') {
   const originalDraft = draft.value
   const text = originalDraft.trim()
@@ -217,52 +230,40 @@ function key(event: KeyboardEvent) {
     </div>
   </Modal>
   <div class="chat-page flex h-full min-h-0 flex-col gap-3 phone:gap-2">
-    <header class="flex shrink-0 items-center justify-between gap-3">
-      <div class="flex min-w-0 items-center gap-3">
-        <button :class="iconButton" aria-label="Chat history" title="Show or hide chat history" :aria-expanded="history" @click="history = !history">
-          <Icon :name="MessageCircle" :size="21" />
-        </button>
-        <h1 v-if="!detail" class="text-xs! font-normal! tracking-normal! text-muted">
-          Chats
-        </h1>
-        <div v-else class="min-w-0">
-          <h1 class="truncate text-sm! tracking-normal!">
-            {{ detail.agentName }}
-          </h1>
-          <p class="m-0! flex items-center gap-2 text-[11px] text-muted">
-            <span class="truncate phone:max-w-22">{{ detail.projectName || 'Agent workspace' }}</span>
-            <span class="size-1 shrink-0 rounded-full" :class="active ? 'bg-accent' : 'bg-muted'" />
-            <span>{{ detail.paused ? 'Paused' : active ? detail.run?.status === 'queued' ? 'Waiting' : 'Working' : 'Ready' }}</span>
-          </p>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
+    <ChatSwitcher v-if="history" :chats="chats" :selected="detail?.id" :anchor="historyButton" @close="history = false" @create="newConversation" />
+    <header class="flex shrink-0 items-center justify-between gap-2 border-b border-line/70 pb-3 phone:pb-2">
+      <button ref="historyButton" class="flex min-h-10 items-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-semibold text-accent phone:px-2" aria-label="Conversations" aria-haspopup="dialog" :aria-expanded="history" @click="history = true">
+        <Icon :name="MessageCircle" :size="18" />Conversations
+        <span class="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] phone:hidden">{{ chats.length }}</span>
+        <Icon :name="ChevronDown" :size="14" />
+      </button>
+      <div class="flex items-center gap-1">
         <button :class="iconButton" aria-label="Question notifications" @click="notifications = true">
-          <Icon :name="Bell" :size="20" />
+          <Icon :name="Bell" :size="19" />
         </button>
-        <RouterLink to="/chats" class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium text-muted hover:bg-hover hover:text-ink" @click="draft = ''; clearAttachments(); agentId = MAIN_AGENT_ID; projectId = ''; createdChat = undefined; editing = null">
+        <RouterLink to="/chats" class="flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line px-3 py-2 text-xs font-medium text-muted hover:bg-hover hover:text-ink phone:border-transparent phone:px-2" @click.prevent="newConversation">
           <Icon :name="Plus" :size="16" />New chat
         </RouterLink>
       </div>
     </header>
-    <div class="grid min-h-0 flex-1 gap-8 phone:gap-0" :class="history ? 'grid-cols-[210px_minmax(0,1fr)] tablet:grid-cols-1' : 'grid-cols-1'">
-      <aside v-if="history" class="flex min-h-0 flex-col overflow-hidden" aria-label="Chat history">
-        <div class="flex items-center justify-between p-4 text-xs font-semibold text-muted">
-          Recent chats <button class="hidden! tablet:inline-flex!" :class="iconButton" aria-label="Close chat history" @click="history = false">
-            <Icon :name="X" :size="16" />
-          </button>
-        </div>
-        <div class="min-h-0 flex-1 overflow-auto p-2">
-          <p v-if="!chats.length" class="px-3 py-5 text-xs text-muted">
-            Your conversations live here.
-          </p>
-          <RouterLink v-for="chat in chats" :key="chat.id" :to="`/chats/${chat.id}`" class="mb-1 block rounded-lg px-3 py-3 hover:bg-hover" :class="chat.id === detail?.id ? 'bg-hover text-ink' : ''" @click="history = false">
-            <span class="mb-1 block truncate text-xs font-semibold">{{ chat.title }}</span><span v-if="chat.pendingQuestions" class="mb-1 inline-block rounded-full bg-accent/12 px-2 py-0.5 text-[10px] font-semibold text-accent">{{ chat.pendingQuestions }} awaiting answer</span>
-            <span class="flex items-center gap-1.5 truncate text-[10px] text-muted"><span v-if="chat.status === 'running'" class="size-1.5 shrink-0 rounded-full bg-accent" />{{ chat.agentName }}<span v-if="chat.projectName"> · {{ chat.projectName }}</span></span>
-          </RouterLink>
-        </div>
-      </aside>
-      <section class="flex min-h-0 min-w-0 flex-col overflow-hidden" :class="{ 'tablet:hidden': history }" aria-label="Chat workspace">
+    <div v-if="detail" class="mx-auto w-full max-w-205 shrink-0 px-9 pb-1 pt-3 phone:px-4 phone:pt-1">
+      <h1 class="line-clamp-2 text-xl! leading-snug! tracking-tight! phone:text-base! wrap-anywhere">
+        {{ detail.title }}
+      </h1>
+      <p class="m-0! mt-2! flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted phone:mt-1! phone:text-[10px]">
+        <span class="flex min-w-0 items-center gap-1.5"><Icon :name="Bot" :size="13" /><span class="truncate max-w-40">{{ detail.agentName }}</span></span>
+        <template v-if="detail.projectName">
+          <span aria-hidden="true" class="text-muted/40">/</span>
+          <span class="flex min-w-0 items-center gap-1.5"><Icon :name="FolderGit2" :size="13" /><span class="truncate max-w-48 phone:max-w-32">{{ detail.projectName }}</span></span>
+        </template>
+        <span class="flex items-center gap-1.5"><span class="size-1 shrink-0 rounded-full" :class="active ? 'bg-accent' : 'bg-muted'" />{{ detail.paused ? 'Paused' : active ? detail.run?.status === 'queued' ? 'Waiting' : 'Working' : 'Ready' }}</span>
+      </p>
+    </div>
+    <h1 v-else class="sr-only">
+      Chats
+    </h1>
+    <div class="flex min-h-0 flex-1 flex-col">
+      <section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label="Chat workspace">
         <div v-if="route.params.id && !detail" role="status" class="flex flex-1 items-center justify-center text-sm text-muted">
           Loading conversation…
         </div>
