@@ -7,7 +7,7 @@ import { artifactLink } from '../../shared/artifacts'
 import { api } from '../api'
 import { highlight } from '../highlight'
 
-const props = defineProps<{ content: string }>()
+const props = defineProps<{ content: string, compactLinks?: boolean }>()
 const ArtifactViewer = defineAsyncComponent(() => import('./ArtifactViewer.vue'))
 const opening = ref<{ items: Deliverable[], id: string }>()
 const loading = ref(false)
@@ -50,9 +50,54 @@ const html = computed(() => {
     const language = [...code.classList].find(name => name.startsWith('language-'))?.slice(9)
     code.innerHTML = highlight(code.textContent || '', language)
   }
+  if (props.compactLinks) {
+    // Reports often contain bare artifact paths. Link only this known route,
+    // leaving existing links and code untouched, and retain the viewer handler.
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+    const nodes: Text[] = []
+    while (walker.nextNode()) {
+      if (!walker.currentNode.parentElement?.closest('a, code, pre'))
+        nodes.push(walker.currentNode as Text)
+    }
+    for (const node of nodes) {
+      const matches = [...node.data.matchAll(/(?<![\w/])\/api\/runs\/[\w-]+\/artifacts\/[\w-]+/g)]
+      if (!matches.length)
+        continue
+      const fragment = document.createDocumentFragment()
+      let offset = 0
+      for (const match of matches) {
+        fragment.append(node.data.slice(offset, match.index))
+        const link = document.createElement('a')
+        link.setAttribute('href', match[0])
+        link.textContent = match[0]
+        fragment.append(link)
+        offset = match.index + match[0].length
+      }
+      fragment.append(node.data.slice(offset))
+      node.replaceWith(fragment)
+    }
+  }
   for (const link of container.querySelectorAll('a[href]')) {
     link.setAttribute('target', '_blank')
     link.setAttribute('rel', 'noopener noreferrer')
+    const href = link.getAttribute('href')!
+    if (props.compactLinks && link.textContent === href) {
+      try {
+        const url = new URL(href, window.location.href)
+        if (!['https:', 'http:'].includes(url.protocol))
+          continue
+        const github = url.hostname === 'github.com'
+        link.textContent = artifactLink(href, window.location.origin)
+          ? 'View file'
+          : github && /^\/[^/]+\/[^/]+\/actions\/runs\/\d+/.test(url.pathname)
+            ? 'View workflow'
+            : github && /^\/[^/]+\/[^/]+\/commit\//.test(url.pathname)
+              ? 'View commit'
+              : url.hostname
+        link.setAttribute('title', href)
+      }
+      catch { /* Keep the original label for malformed URLs. */ }
+    }
   }
   return container.innerHTML
 })
