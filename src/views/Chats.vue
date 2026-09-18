@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { Chat, ChatAttachment, ChatDetail, ChatMessage, ChatView } from '../../shared/chats'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { latestArtifacts } from '../../shared/artifacts'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, state } from '../api'
 import ActivityFeed from '../components/ActivityFeed.vue'
@@ -12,12 +13,14 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import ModelSettings from '../components/ModelSettings.vue'
 import NotificationSettings from '../components/NotificationSettings.vue'
+import ThemeControl from '../components/ThemeControl.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import { Bell, Bot, ChevronDown, Clock, FolderGit2, MessageCircle, Paperclip, Pause, Pencil, Play, Plus, Send, Settings, Square, Trash2, X, Zap } from '../icons'
+import { ArrowDown, Bell, Bot, ChevronDown, Clock, FileText, FolderGit2, Maximize2, Menu, MessageCircle, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Search, Send, Settings, Square, Trash2, X, Zap } from '../icons'
 import { iconButton } from '../ui'
 import { useLiveRun } from '../use-live-run'
+import { workspaceActionsKey } from '../workspace-actions'
 
 const router = useRouter()
 const route = useRoute()
@@ -32,6 +35,17 @@ const reasoning = ref('')
 const options = ref(false)
 const notifications = ref(false)
 const history = ref(false)
+const detailsOpen = ref(false)
+const detailsButton = ref<HTMLButtonElement>()
+const activity = ref<InstanceType<typeof ActivityFeed>>()
+const workspaceActions = inject(workspaceActionsKey)
+const fileCount = computed(() => latestArtifacts(deliverables.value).length)
+async function detailAction(action: () => void) {
+  detailsOpen.value = false
+  // Restore focus to the toolbar before opening another modal or navigation.
+  await nextTick()
+  action()
+}
 const historyButton = ref<HTMLButtonElement>()
 
 const queueOpen = ref(true)
@@ -107,6 +121,7 @@ function pasteFiles(event: ClipboardEvent) {
   addFiles(pasted)
 }
 const active = computed(() => !!detail.value?.run && ['queued', 'running'].includes(detail.value.run.status))
+const chatStatus = computed(() => detail.value?.paused ? 'Paused' : active.value ? detail.value?.run?.status === 'queued' ? 'Waiting' : 'Working' : detail.value?.run?.status === 'failed' ? 'Failed' : detail.value?.run?.status === 'interrupted' ? 'Interrupted' : 'Ready')
 const pending = computed(() => detail.value?.messages.filter(message => message.status !== 'delivered') ?? [])
 const selectedAgent = computed(() => state.agents.find(agent => agent.id === (detail.value?.agentId || agentId.value)))
 const agents = computed(() => state.agents.map(agent => ({ value: agent.id, label: agent.name, icon: Bot, description: agent.id === MAIN_AGENT_ID ? 'Full access' : agent.description })))
@@ -131,6 +146,7 @@ let submission: { id: string, text: string, mode: 'queue' | 'steer', model: stri
 let createdChat: Chat | undefined
 function newConversation() {
   history.value = false
+  detailsOpen.value = false
   draft.value = ''
   clearAttachments()
   agentId.value = MAIN_AGENT_ID
@@ -229,24 +245,86 @@ function key(event: KeyboardEvent) {
       <NotificationSettings />
     </div>
   </Modal>
-  <div class="chat-page flex h-full min-h-0 flex-col gap-3 phone:gap-2">
+  <Modal v-if="detailsOpen" title="Chat details" sheet :return-focus="detailsButton" @close="detailsOpen = false">
+    <div class="px-5 pb-5">
+      <p class="mt-1! mb-5! text-sm leading-relaxed wrap-anywhere">
+        {{ detail?.title || 'New conversation' }}
+      </p>
+      <dl class="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-3 border-y border-line py-4 text-xs">
+        <dt class="text-muted">
+          Agent
+        </dt><dd class="m-0 wrap-anywhere">
+          {{ detail?.agentName || selectedAgent?.name || 'Main agent' }}
+        </dd>
+        <dt class="text-muted">
+          Project
+        </dt><dd class="m-0 wrap-anywhere">
+          {{ detail?.projectName || state.projects.find(project => project.id === projectId)?.name || 'No project' }}
+        </dd>
+        <dt class="text-muted">
+          Status
+        </dt><dd class="m-0 flex items-center gap-2">
+          <span class="size-1.5 rounded-full bg-accent" />{{ chatStatus }}
+        </dd>
+      </dl>
+      <button v-if="detail?.run" class="chat-detail-action" :disabled="!fileCount" @click="detailAction(() => activity?.openFiles())">
+        <Icon :name="FileText" :size="18" />Files <span class="ml-auto text-muted">{{ fileCount }}</span>
+      </button>
+      <button class="chat-detail-action" @click="detailAction(() => { history = true })">
+        <Icon :name="Search" :size="18" />Search conversations
+      </button>
+      <button class="chat-detail-action" @click="detailAction(() => { notifications = true })">
+        <Icon :name="Bell" :size="18" />Question notifications
+      </button>
+      <template v-if="detail?.run">
+        <button class="chat-detail-action" @click="detailAction(() => activity?.followLatest())">
+          <Icon :name="ArrowDown" :size="18" />Follow latest output
+        </button>
+        <button class="chat-detail-action" @click="detailAction(() => activity?.enterFullscreen())">
+          <Icon :name="Maximize2" :size="18" />Open activity fullscreen
+        </button>
+      </template>
+      <div class="border-t border-line pt-1">
+        <button class="chat-detail-action" @click="detailAction(() => workspaceActions?.search())">
+          <Icon :name="Search" :size="18" />Search workspace
+        </button>
+        <button class="chat-detail-action" @click="detailAction(() => workspaceActions?.navigation())">
+          <Icon :name="Menu" :size="18" />Workspace navigation
+        </button>
+        <div class="flex min-h-12 items-center justify-between text-xs">
+          <span>Appearance</span><ThemeControl compact />
+        </div>
+      </div>
+    </div>
+  </Modal>
+  <div class="chat-page flex h-full min-h-0 flex-col gap-3 phone:gap-0">
     <ChatSwitcher v-if="history" :chats="chats" :selected="detail?.id" :anchor="historyButton" @close="history = false" @create="newConversation" />
-    <header class="flex shrink-0 items-center justify-between gap-2 border-b border-line/70 pb-3 phone:pb-2">
-      <button ref="historyButton" class="flex min-h-10 items-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-semibold text-accent phone:px-2" aria-label="Conversations" aria-haspopup="dialog" :aria-expanded="history" @click="history = true">
-        <Icon :name="MessageCircle" :size="18" />Conversations
-        <span class="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] phone:hidden">{{ chats.length }}</span>
-        <Icon :name="ChevronDown" :size="14" />
+    <header class="chat-header flex shrink-0 items-center justify-between gap-2 border-b border-line/70 pb-3 phone:h-15 phone:pb-0">
+      <h1 v-if="detail" class="sr-only hidden phone:block">
+        {{ detail.title }}
+      </h1>
+      <button ref="historyButton" class="flex min-h-10 items-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-semibold text-accent phone:min-w-0 phone:flex-1 phone:justify-start phone:border-0 phone:bg-transparent phone:px-1 phone:py-1" aria-label="Conversations" aria-haspopup="dialog" :aria-expanded="history" @click="history = true">
+        <span class="min-w-0">
+          <span class="flex items-center gap-2"><Icon :name="MessageCircle" :size="18" />Conversations
+            <span class="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] phone:hidden">{{ chats.length }}</span>
+            <Icon :name="ChevronDown" :size="14" />
+          </span>
+          <span class="mt-0.5 hidden truncate text-left text-[11px] font-normal text-muted phone:block">{{ detail?.title || 'New conversation' }}</span>
+        </span>
       </button>
       <div class="flex items-center gap-1">
-        <button :class="iconButton" aria-label="Question notifications" @click="notifications = true">
+        <button :class="iconButton" class="phone:hidden!" aria-label="Question notifications" @click="notifications = true">
           <Icon :name="Bell" :size="19" />
         </button>
-        <RouterLink to="/chats" class="flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line px-3 py-2 text-xs font-medium text-muted hover:bg-hover hover:text-ink phone:border-transparent phone:px-2" @click.prevent="newConversation">
-          <Icon :name="Plus" :size="16" />New chat
+        <RouterLink to="/chats" aria-label="New chat" class="flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line px-3 py-2 text-xs font-medium text-muted hover:bg-hover hover:text-ink phone:min-h-11 phone:min-w-11 phone:justify-center phone:border-transparent phone:px-2" @click.prevent="newConversation">
+          <Icon :name="Plus" :size="18" /><span class="phone:hidden">New chat</span>
         </RouterLink>
+        <button ref="detailsButton" :class="iconButton" class="hidden! phone:inline-flex!" aria-label="Chat details" aria-haspopup="dialog" :aria-expanded="detailsOpen" @click="detailsOpen = true">
+          <Icon :name="MoreHorizontal" :size="20" />
+        </button>
       </div>
     </header>
-    <div v-if="detail" class="mx-auto w-full max-w-205 shrink-0 px-9 pb-1 pt-3 phone:px-4 phone:pt-1">
+    <div v-if="detail" class="phone:hidden mx-auto w-full max-w-205 shrink-0 px-9 pb-1 pt-3 phone:px-4 phone:pt-1">
       <h1 class="line-clamp-2 text-xl! leading-snug! tracking-tight! phone:text-base! wrap-anywhere">
         {{ detail.title }}
       </h1>
@@ -256,7 +334,7 @@ function key(event: KeyboardEvent) {
           <span aria-hidden="true" class="text-muted/40">/</span>
           <span class="flex min-w-0 items-center gap-1.5"><Icon :name="FolderGit2" :size="13" /><span class="truncate max-w-48 phone:max-w-32">{{ detail.projectName }}</span></span>
         </template>
-        <span class="flex items-center gap-1.5"><span class="size-1 shrink-0 rounded-full" :class="active ? 'bg-accent' : 'bg-muted'" />{{ detail.paused ? 'Paused' : active ? detail.run?.status === 'queued' ? 'Waiting' : 'Working' : 'Ready' }}</span>
+        <span class="flex items-center gap-1.5"><span class="size-1 shrink-0 rounded-full" :class="active ? 'bg-accent' : 'bg-muted'" />{{ chatStatus }}</span>
       </p>
     </div>
     <h1 v-else class="sr-only">
@@ -277,7 +355,7 @@ function key(event: KeyboardEvent) {
             </button>
           </div>
         </div>
-        <ActivityFeed v-else :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail.run.status === 'succeeded' ? detail.run.outcome : null" :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" chat @load="live.loadOlder" @position="live.savePosition" />
+        <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail.run.status === 'succeeded' ? detail.run.outcome : null" :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" chat @load="live.loadOlder" @position="live.savePosition" />
         <div class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
           <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" />
           <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
@@ -369,3 +447,18 @@ function key(event: KeyboardEvent) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.chat-detail-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  width: 100%;
+  padding: 8px 0;
+  text-align: left;
+  font-size: 12px;
+}
+.chat-detail-action:hover { color: var(--color-accent); }
+.chat-detail-action:disabled { opacity: .5; cursor: default; }
+</style>

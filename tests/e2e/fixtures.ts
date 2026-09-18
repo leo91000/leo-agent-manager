@@ -144,3 +144,15 @@ export function initializeRepository(projectPath: string) {
   execFileSync('git', ['init', '-b', 'main', projectPath])
   execFileSync('git', ['-C', projectPath, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '--allow-empty', '-m', 'Initial'])
 }
+
+// Mobile keeps status in Chat details instead of a permanent metadata row.
+export async function expectChatReady(page: Page) {
+  const details = page.getByRole('button', { name: 'Chat details', exact: true })
+  const mobile = await details.isVisible()
+  if (mobile)
+    await details.click()
+  const context = mobile ? page.getByRole('dialog', { name: 'Chat details', exact: true }) : page
+  await expect(context.getByText('Ready', { exact: true })).toBeVisible()
+  if (mobile)
+    await page.getByRole('button', { name: 'Close dialog', exact: true }).click()
+}

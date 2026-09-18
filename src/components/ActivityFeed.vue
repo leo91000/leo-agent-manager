@@ -129,7 +129,9 @@ watch([entries, () => props.outcome?.reportedAt, () => props.loading], async () 
   await nextTick()
   jump()
 })
+let fullscreenReturnFocus: HTMLElement | null = null
 async function enterFullscreen() {
+  fullscreenReturnFocus = document.activeElement as HTMLElement | null
   viewer.value?.showModal()
   fullscreen.value = true
   await nextTick()
@@ -143,9 +145,20 @@ async function exitFullscreen() {
   viewer.value?.close()
   // WebKit releases the dialog's inert state on the next rendering frame.
   await new Promise(requestAnimationFrame)
-  fullscreenButton.value?.focus()
+  if (fullscreenButton.value?.getClientRects().length)
+    fullscreenButton.value.focus()
+  else
+    fullscreenReturnFocus?.focus()
 }
 onBeforeUnmount(() => viewer.value?.close())
+defineExpose({
+  openFiles: () => { artifactViewer.value = '' },
+  enterFullscreen,
+  followLatest: () => {
+    follow.value = true
+    followChanged()
+  },
+})
 </script>
 
 <template>
@@ -157,7 +170,7 @@ onBeforeUnmount(() => viewer.value?.close())
     </Teleport>
     <Teleport :to="fullscreenHost || 'body'" :disabled="!fullscreen">
       <section class="activity-feed flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden bg-transparent" :class="{ 'is-fullscreen': fullscreen }" aria-label="Run conversation">
-        <header :class="chat ? 'py-0! phone:py-0!' : ''" class="activity-toolbar flex justify-between items-center gap-4.5 bg-transparent shrink-0 phone:gap-2.5 phone:flex-wrap px-6 py-[17px] phone:px-[15px] phone:py-[13px]">
+        <header :class="chat ? ['py-0! phone:py-0!', { 'phone:hidden!': !fullscreen }] : ''" class="activity-toolbar flex justify-between items-center gap-4.5 bg-transparent shrink-0 phone:gap-2.5 phone:flex-wrap px-6 py-[17px] phone:px-[15px] phone:py-[13px]">
           <div v-if="!chat" class="activity-toolbar-title flex items-center gap-[11px] font-semibold text-sm min-w-0 phone:[flex:1_1_160px]">
             <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0" :class="{ live: active }" /><span>{{ fullscreen ? task : chat ? (active ? 'Working' : 'Conversation') : 'Agent activity' }}</span>
           </div>

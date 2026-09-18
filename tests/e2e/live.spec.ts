@@ -1,6 +1,6 @@
 import type { BrowserContext, Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import { expect, expectSingleScroll, initializeRepository, test } from './fixtures'
+import { expect, expectChatReady, expectSingleScroll, initializeRepository, test } from './fixtures'
 
 test('signing out closes live subscriptions before the session is revoked', async ({ page, workspace }) => {
   await page.goto(workspace.url)
@@ -68,7 +68,7 @@ test('two independent clients follow deltas, recover offline, refresh mid-answer
     await expect(message(page)).toHaveCount(1)
     await expect(message(other)).toHaveCount(1)
     expect(await message(page).textContent()).toBe(await message(other).textContent())
-    await expect(page.getByText('Ready', { exact: true })).toBeVisible()
+    await expectChatReady(page)
     // No event/metadata polling is required while watching the conversation.
     expect(requests.some(url => /\/events\?|\/artifacts$/.test(url))).toBe(false)
     await workspace.restart()

@@ -8,7 +8,7 @@ When an agent reports completion, **Task completed** appears beneath the reply i
 
 Routine session updates (connecting, starting, finishing and success) are hidden from chat, including inside tool groups. The working indicator and completion footer provide that status. Failures and unresolved interruptions appear as inline notices; recovered connection retries disappear. Raw lifecycle events remain in run activity for troubleshooting.
 
-The **Conversations** button opens a searchable conversation selector, grouped by Today, Yesterday and Earlier. It floats below the button on desktop and opens as a bottom sheet on phones. Selecting a conversation keeps each chat’s draft; Escape or the close button returns to the current chat. The title, agent and project stay above the centered conversation.
+The **Conversations** button opens a searchable conversation selector, grouped by Today, Yesterday and Earlier. It floats below the button on desktop and opens as a bottom sheet on phones. Selecting a conversation keeps each chat’s draft; Escape or the close button returns to the current chat. On desktop, the title, agent and project stay above the centered conversation. On phones, one compact toolbar contains **Conversations**, the truncated chat title, **New chat** and **Chat details** (the ellipsis). Chat details opens a bottom sheet with the full title, agent, project, status, Files, notification settings, follow/fullscreen controls, workspace search and navigation, and appearance. The global top bar and separate activity toolbar are hidden only in mobile chat; bottom navigation remains available.
 
 Open **Chats**, or **Start chat** on an agent or project. Project chats select Main agent by default. Choose another agent before the first message; its project, skill, MCP, GitHub and sandbox restrictions still apply. A chat owns one persistent conversation and workspace. It does not create a scheduled task.
 
@@ -38,7 +38,7 @@ The adapter enables Codex's `default_mode_request_user_input` feature for chats.
 
 ## Notifications
 
-Open the bell in **Chats**, or **Settings → Question notifications**, then choose **Enable on this device**. Permission is requested only after that click. Web Push can deliver while the app is closed; clicking a notification opens the relevant chat and question. Each device can opt out independently. The notification contains no question or answer text.
+Open the bell in **Chats** (on phones, **Chat details → Question notifications**), or **Settings → Question notifications**, then choose **Enable on this device**. Permission is requested only after that click. Web Push can deliver while the app is closed; clicking a notification opens the relevant chat and question. Each device can opt out independently. The notification contains no question or answer text.
 
 On iPhone and iPad, install Leo using Safari's **Share → Add to Home Screen**, then enable notifications from that installed app. This requires iOS/iPadOS 16.4 or newer ([WebKit guidance](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)). Delivery depends on the browser, OS notification settings, and network availability.
 

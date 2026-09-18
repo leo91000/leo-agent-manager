@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { readFileSync } from 'node:fs'
-import { expect, expectSingleScroll, initializeRepository, test } from './fixtures'
+import { expect, expectChatReady, expectSingleScroll, initializeRepository, test } from './fixtures'
 
 test('uploads images and files, previews them and preserves attachments while editing the queue', async ({ page, workspace }) => {
   initializeRepository(workspace.projectPath)
@@ -67,14 +67,14 @@ test('uploads images and files, previews them and preserves attachments while ed
   await expect(page.locator('.activity-message').getByRole('button', { name: 'Preview design.png', exact: true })).toBeVisible()
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('finish now')
   await page.getByRole('button', { name: 'Steer now', exact: true }).click()
-  await expect(page.getByText('Ready', { exact: true })).toBeVisible()
+  await expectChatReady(page)
   await expect.poll(async () => (await workspace.api(`/api/chats/${chatId}`)).messages.every((m: { status: string }) => m.status === 'delivered')).toBe(true)
   await expect(page.getByLabel('Attach files', { exact: true })).toBeEnabled()
   await page.getByLabel('Attach files', { exact: true }).setInputFiles([{ ...image, name: 'image-only.png' }])
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.locator('.activity-message').getByRole('button', { name: 'Preview image-only.png', exact: true })).toBeVisible()
-  await expect(page.getByText('Ready', { exact: true })).toBeVisible()
+  await expectChatReady(page)
   await page.getByLabel('Attach files', { exact: true }).setInputFiles([{ name: 'large.dat', mimeType: 'application/octet-stream', buffer: Buffer.alloc(10 * 1024 * 1024 + 1) }])
   await expect(page.getByText('Files must be 10 MB or smaller.', { exact: true })).toBeVisible()
 })
