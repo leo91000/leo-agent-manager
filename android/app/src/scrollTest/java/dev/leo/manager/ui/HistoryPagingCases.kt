@@ -1,0 +1,163 @@
+package dev.leo.manager.ui
+
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
+import java.io.File
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.dp
+import dev.leo.manager.data.LiveSnapshot
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+
+/** Pagination uses the real lazy list, async Markdown renderer and production paging hook. */
+abstract class HistoryPagingCases {
+    @get:Rule val compose = createComposeRule()
+    private lateinit var list: LazyListState
+    private lateinit var rendering: MarkdownRendering
+    private lateinit var scope: CoroutineScope
+    private var numbers by mutableStateOf((21..40).toList())
+    private var loading by mutableStateOf(false)
+    private var hasOlder by mutableStateOf(true)
+    private var ready by mutableStateOf(false)
+    private var requests = 0
+
+    private fun start(atHeader: Boolean = false, initialOffset: Int = 420, expectLoading: Boolean = true) {
+        compose.setContent {
+            list = rememberLazyListState()
+            rendering = remember { MarkdownRendering() }
+            scope = rememberCoroutineScope()
+            val live = LiveSnapshot(oldest = numbers.first().toLong(), hasOlder = hasOlder,
+                loadingOlder = loading, loadOlder = { requests++; loading = true })
+            val load = rememberHistoryPaging(live, list, ready, false, numbers.map { "message:$it" }, rendering) {}
+            LeoTheme("dark") {
+                Surface(Modifier.fillMaxWidth().height(620.dp)) {
+                    CompositionLocalProvider(LocalMarkdownRendering provides rendering) {
+                        LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            historyHeader(live, load)
+                            items(numbers, key = { "message:$it" }) { number ->
+                                Markdown((1..35).joinToString("\n\n") { "Message $number, paragraphe $it. Le lecteur doit garder exactement le même texte devant les yeux." })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitUntil(20000) { rendering.revision > 0 && rendering.pending == 0 }
+        var positioned = false
+        compose.runOnIdle { scope.launch { list.scrollToItem(if (atHeader) 0 else 1, if (atHeader) 0 else initialOffset); rendering.awaitLayout(); list.scrollToItem(if (atHeader) 0 else 1, if (atHeader) 0 else initialOffset); positioned = true } }
+        compose.waitUntil(20000) { positioned }
+        compose.runOnIdle { ready = true }
+        if (expectLoading) compose.waitUntil(10000) { loading }
+        else compose.waitForIdle()
+    }
+
+    private fun positionAt(index: Int, offset: Int) {
+        // Distant rows render asynchronously when a test jumps directly to them.
+        repeat(3) {
+            var done = false
+            compose.runOnIdle { scope.launch { list.scrollToItem(index, offset); done = true } }
+            compose.waitUntil(20000) { done }
+            compose.waitForIdle()
+            compose.mainClock.advanceTimeBy(200)
+            compose.waitForIdle()
+        }
+    }
+
+    private fun capture(name: String) {
+        val directory = System.getProperty("leo.screenshots.dir") ?: return
+        File(directory).mkdirs()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        File(directory, "$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    private fun offset() = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "message:21" }?.offset
+
+    @Test fun olderMarkdownPageKeepsTheSameTextAtTheSamePixel() {
+        start()
+        val before = compose.runOnIdle { offset()!! }
+        capture("before-page")
+        compose.runOnIdle { numbers = (16..40).toList(); hasOlder = false; loading = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        assertEquals("The older page must be attached", 25, list.layoutInfo.totalItemsCount)
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals("Prepending must preserve the visible paragraph, not jump to a different message", before, offset())
+            assertEquals(1, requests)
+        }
+        capture("after-page")
+    }
+
+    @Test fun scrollingWhilePageLoadsKeepsTheLatestReadingPosition() {
+        start()
+        var moved = false
+        compose.runOnIdle { scope.launch { list.scrollBy(-170f); moved = true } }
+        compose.waitUntil(10000) { moved }
+        val before = compose.runOnIdle { offset()!! }
+        compose.runOnIdle { numbers = (16..40).toList(); hasOlder = false; loading = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        assertEquals("The older page must be attached", 25, list.layoutInfo.totalItemsCount)
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals("Loading must not undo scrolling performed while waiting", before, offset()) }
+    }
+    @Test fun visibleLoaderDisappearsWithoutMovingTheFirstParagraph() {
+        start(atHeader = true)
+        val before = compose.runOnIdle { offset()!! }
+        compose.runOnIdle { numbers = (16..40).toList(); hasOlder = false; loading = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals("Removing the visible history header must preserve the first paragraph", before, offset()) }
+    }
+
+    @Test fun readingDeepInsideALongFirstMessageDoesNotLoadOlderPages() {
+        start(initialOffset = 1800, expectLoading = false)
+        compose.mainClock.advanceTimeBy(300)
+        compose.runOnIdle { assertEquals("A long message is not near the top just because its index is small", 0, requests) }
+    }
+
+    @Test fun consecutivePagesKeepTheCurrentParagraphWithoutDuplicateRequests() {
+        start()
+        val before = compose.runOnIdle { offset()!! }
+        compose.runOnIdle { numbers = (16..40).toList(); loading = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(before, offset()); assertEquals(1, requests) }
+        positionAt(1, 300)
+        compose.waitUntil(20000) { loading }
+        val nextBefore = compose.runOnIdle { list.layoutInfo.visibleItemsInfo.first { it.key == "message:16" }.offset }
+        compose.runOnIdle { numbers = (11..40).toList(); loading = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals(nextBefore, list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "message:16" }?.offset)
+            assertEquals("Only one request per page", 2, requests)
+        }
+    }
+
+    @Test fun returningToTheLatestMessageWhileLoadingIsNotUndone() {
+        start()
+        positionAt(20, 300)
+        val before = compose.runOnIdle { list.layoutInfo.visibleItemsInfo.first { it.key == "message:40" }.offset }
+        compose.runOnIdle { numbers = (16..40).toList(); loading = false; hasOlder = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(before, list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "message:40" }?.offset) }
+    }
+
+}

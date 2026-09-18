@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -359,6 +360,15 @@ fun Markdown(content: String) {
     }
     val copyText = remember { { currentContent } }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (blocks.isEmpty() && content.isNotBlank()) {
+            // A zero-height lazy row can be skipped and disposed before its async
+            // renderer finishes, making older messages impossible to scroll into.
+            // Reserve bounded space until the first real measurement is available.
+            val sample = content.take(2048)
+            val lines = (sample.length / 48 + sample.count { it == '\n' } + 1).coerceIn(2, 32)
+            val lineHeight = with(androidx.compose.ui.platform.LocalDensity.current) { 24.sp.toDp() }
+            Spacer(Modifier.fillMaxWidth().height(lineHeight * lines))
+        }
         blocks.forEachIndexed { index, block ->
             key(index) { MarkdownBlockView(markwon, block, color, linkColor, copyText) }
         }

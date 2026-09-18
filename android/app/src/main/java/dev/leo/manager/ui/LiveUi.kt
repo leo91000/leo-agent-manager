@@ -1,6 +1,7 @@
 package dev.leo.manager.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -124,37 +125,67 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
     })
 }
 
-/** Load near the top only after the reader leaves follow mode. Stable LazyColumn keys anchor the viewport. */
+/** Keep Compose's key-based anchor: requesting an index here overrides the reader's
+ * current position and may target a layout measured before the page was inserted. */
 @Composable
-internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, ready: Boolean, follow: Boolean, keys: List<String>, stopFollowing: () -> Unit): () -> Unit {
+internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, ready: Boolean, follow: Boolean, keys: List<String>, rendering: MarkdownRendering? = null, stopFollowing: () -> Unit): () -> Unit {
     val current by rememberUpdatedState(live)
-    var anchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
-    var requestedBefore by remember(list) { mutableLongStateOf(0L) }
+    var headerAnchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
+    val dragged by list.interactionSource.collectIsDraggedAsState()
+    LaunchedEffect(list, live.loadingOlder) {
+        val before = live.oldest
+        if (live.loadingOlder) snapshotFlow { list.layoutInfo.visibleItemsInfo }.collect { visible ->
+            // Ignore the new page's layout if it arrives before this collector is cancelled.
+            if (current.oldest != before) return@collect
+            // Follow the reader during the request; never restore its initial position.
+            headerAnchor = if (visible.firstOrNull()?.key == "history:older") {
+                visible.firstOrNull { it.key != "history:older" }?.let { it.key.toString() to -it.offset }
+            } else null
+        }
+    }
+    LaunchedEffect(live.loadingOlder, live.oldest, keys, dragged) {
+        val saved = headerAnchor
+        if (!live.loadingOlder && saved != null) {
+            headerAnchor = null
+            if (!dragged) {
+                val index = keys.indexOf(saved.first)
+                if (index >= 0) {
+                    val header = live.hasOlder || live.olderError != null
+                    val target = index + if (header) 1 else 0
+                    list.requestScrollToItem(target, saved.second)
+                    rendering?.awaitLayout()
+                    // The new row just above the anchor may initially be a placeholder.
+                    // Its final height must be known before preserving a positive top inset.
+                    list.scrollToItem(target, saved.second)
+                }
+            }
+        }
+    }
+    var requested by remember(list) { mutableStateOf<Pair<String?, Long>?>(null) }
+    val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 640.dp.toPx() }
     val load = {
         if (current.hasOlder && !current.loadingOlder) {
-            val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key != "history:older" }
-            anchor = item?.let { it.key.toString() to -it.offset }
-            requestedBefore = current.oldest
+            // Fast cached/local responses may finish before a loading frame exists.
+            // Capture here as well; the observer refreshes this if the reader moves.
+            val visible = list.layoutInfo.visibleItemsInfo
+            headerAnchor = if (visible.firstOrNull()?.key == "history:older") {
+                visible.firstOrNull { it.key != "history:older" }?.let { it.key.toString() to -it.offset }
+            } else null
+            requested = current.history to current.oldest
             stopFollowing()
             current.loadOlder()
         }
     }
     val currentLoad by rememberUpdatedState(load)
-    LaunchedEffect(list, ready, follow) {
-        if (ready && !follow) snapshotFlow { list.firstVisibleItemIndex }.collect {
-            if (it <= 2 && current.olderError == null) currentLoad()
-        }
-    }
-    LaunchedEffect(live.loadingOlder, live.oldest, keys) {
-        val saved = anchor
-        if (saved != null && !live.loadingOlder && live.oldest != requestedBefore) {
-            val index = keys.indexOf(saved.first)
-            if (index >= 0) {
-                val target = index + if (live.hasOlder || live.olderError != null) 1 else 0
-                snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > target }
-                list.scrollToItem(target, saved.second)
-            }
-            anchor = null
+    LaunchedEffect(list, ready, follow, threshold) {
+        if (ready && !follow) snapshotFlow {
+            val snapshot = current
+            val nearStart = list.layoutInfo.visibleItemsInfo.isNotEmpty() &&
+                list.firstVisibleItemIndex <= 1 && list.firstVisibleItemScrollOffset < threshold
+            nearStart && snapshot.hasOlder && !snapshot.loadingOlder && snapshot.olderError == null &&
+                requested != (snapshot.history to snapshot.oldest)
+        }.collect { shouldLoad ->
+            if (shouldLoad) currentLoad()
         }
     }
     return load
@@ -163,8 +194,10 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
 internal fun androidx.compose.foundation.lazy.LazyListScope.historyHeader(live: LiveSnapshot, load: () -> Unit) {
     if (live.hasOlder || live.loadingOlder || live.olderError != null) item(key = "history:older") {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (live.loadingOlder) CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp))
-            else TextButton(onClick = load) { Text("Messages précédents") }
+            Box(Modifier.height(48.dp), contentAlignment = Alignment.Center) {
+                if (live.loadingOlder) CircularProgressIndicator(Modifier.size(20.dp))
+                else TextButton(onClick = load) { Text("Messages précédents") }
+            }
             live.olderError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         }
     }

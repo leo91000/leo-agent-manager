@@ -1,4 +1,18 @@
-# Android 0.5.4 — message links
+# Android 0.5.5 — older-history reading position
+
+The local JVM/Robolectric suite passes 73 tests. Six new paging cases use the
+production lazy list, asynchronous Markdown renderer and paging hook: stable text
+position, movement during loading, removal of the visible loading control, long
+first messages, consecutive pages, and returning to the latest message while a
+page is pending. The existing cache pagination test also covers a fast response
+through a simulated HTTP server. Before/after captures of the stable-position
+case are byte-identical. Lint reports zero errors and seven warnings.
+
+These paging checks simulate list movement through its scroll APIs; they are not
+physical-device gesture evidence. The tactile feel of this correction on a phone
+remains to be confirmed.
+
+## Previous validation: Android 0.5.4 — message links
 
 Targeted checks pass for a first tap opening exactly once, long-press selection,
 dragging without opening a link, and authenticated metadata/file loading for an

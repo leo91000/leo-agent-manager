@@ -1,4 +1,14 @@
-# Leo Android 0.5.4 — message links and artifact previews
+# Leo Android 0.5.5 — stable older-history loading
+
+- Loading older messages preserves the current reading position, including movement
+  made while the request is pending, in both chats and runs.
+- Long Markdown messages reserve space during their initial asynchronous render so
+  the list does not skip them before their text appears.
+- The older-history control keeps a stable height. Automatic paging uses distance
+  from the top and requests each cursor once; explicit error retry remains available.
+- No backend change or database migration is required.
+
+## Previous revision: Leo Android 0.5.4 — message links and artifact previews
 
 - Markdown links open from the conversation while keeping text selectable.
 - Artifact links open the authenticated native viewer, including files from older

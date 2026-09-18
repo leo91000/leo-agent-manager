@@ -1,7 +1,7 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
-Version 0.5.4 opens message links and resolves older artifact links in the native viewer.
+Version 0.5.5 preserves the reading position while loading older chat and run history.
 Tool activity has native views: commands, reads, searches, diffs,
 plans, MCP results and session notices. Structured results and JSON artifacts are
 readable without opening the raw JSON. Chats retain the compact 0.3 composer.

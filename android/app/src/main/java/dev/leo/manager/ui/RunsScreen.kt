@@ -159,7 +159,7 @@ fun RunScreen(
         ) {
             follow = it
         }
-    val loadOlder = rememberHistoryPaging(live, logState, positionReady && tab == 1, follow, timeline.map { it.key }) { follow = false }
+    val loadOlder = rememberHistoryPaging(live, logState, positionReady && tab == 1, follow, timeline.map { it.key }, rendering) { follow = false }
     LaunchedEffect(run?.id, live.synced) {
         if (autoTab && run != null && live.synced) {
             autoTab = false

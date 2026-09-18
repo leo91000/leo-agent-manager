@@ -139,7 +139,7 @@ fun ChatScreen(
         ) {
             follow = it
         }
-    val loadOlder = rememberHistoryPaging(live, listState, positionReady && !gallery, follow, timeline.map { it.key }) { follow = false }
+    val loadOlder = rememberHistoryPaging(live, listState, positionReady && !gallery, follow, timeline.map { it.key }, rendering) { follow = false }
     val active = chat?.run?.active == true
     val selectedAgent = state.agents.find { it.id == (chat?.agentId ?: agent) }
     val projects =
