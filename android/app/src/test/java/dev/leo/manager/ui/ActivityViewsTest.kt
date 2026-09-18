@@ -34,6 +34,31 @@ class ActivityViewsTest {
         )
 
     @Test
+    fun `chat problems expose details without expanding a session group`() {
+        val events = listOf(
+            RunEvent(1, 1000, "turn.started", ""),
+            RunEvent(2, 2000, "error", "Permission denied"),
+            RunEvent(3, 3000, "status", "interrupted"),
+            RunEvent(4, 4000, "status", "succeeded"),
+        )
+        compose.setContent {
+            ActivityFixture {
+                Page {
+                    timelineEntries(events, chat = true).forEach { entry ->
+                        ChatNotice(presentActivity(entry.events.single()))
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Permission denied").assertIsDisplayed()
+        compose.onNodeWithText("Exécution interrompue").assertIsDisplayed()
+        compose.onNodeWithText("Travail commencé").assertDoesNotExist()
+        compose.onNodeWithText("Exécution réussie").assertDoesNotExist()
+        compose.onNodeWithText("Suivi de l’exécution").assertDoesNotExist()
+        compose.onNodeWithText("Terminé").assertDoesNotExist()
+    }
+
+    @Test
     fun `session notices are readable and JSON is only shown on request`() {
         val events =
             listOf(

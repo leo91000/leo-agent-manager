@@ -324,10 +324,11 @@ internal data class TimelineEntry(
     val events: List<RunEvent>,
     val message: Boolean,
     val files: List<Deliverable> = emptyList(),
+    val notice: Boolean = false,
 )
 
 /** Fold updates in place within a turn; keep messages and errors in chronological order. */
-internal fun timelineEntries(events: List<RunEvent>): List<TimelineEntry> {
+internal fun timelineEntries(events: List<RunEvent>, chat: Boolean = false): List<TimelineEntry> {
     val folded = mutableListOf<RunEvent>()
     val positions = mutableMapOf<String, Int>()
     var legacyTool: Int? = null
@@ -377,11 +378,26 @@ internal fun timelineEntries(events: List<RunEvent>): List<TimelineEntry> {
             activity = mutableListOf()
         }
     }
+    val recovered =
+        if (chat)
+            recoveredChatConnections(events, folded.filter { it.isMessage() }.map { it.id }.toSet())
+        else emptySet()
     for (event in folded) {
         if (event.isMessage()) {
             flushActivity()
             result.add(TimelineEntry("message:${event.displayId ?: event.id}", listOf(event), true))
-        } else activity.add(event)
+        } else {
+            val presentation = if (chat) presentActivity(event) else null
+            if (presentation?.kind == ActivityKind.NOTICE) {
+                val interrupted =
+                    event.type == "status" && event.text.lowercase() in listOf("cancelled", "interrupted")
+                if (event.id !in recovered &&
+                    (presentation.failed || interrupted || presentation.connectionInterrupted())) {
+                    flushActivity()
+                    result.add(TimelineEntry("notice:${event.id}", listOf(event), false, notice = true))
+                }
+            } else activity.add(event)
+        }
     }
     flushActivity()
     return result
@@ -440,6 +456,7 @@ internal fun deliveryTimeline(
 internal fun TimelineRow(vm: LeoViewModel, entry: TimelineEntry, agent: String, rendering: MarkdownRendering? = null) {
     if (entry.files.isNotEmpty()) ArtifactStrip(vm, entry.files)
     else if (entry.message) CompositionLocalProvider(LocalMarkdownRendering provides rendering) { EventRow(vm, entry.events.single(), agent) }
+    else if (entry.notice) ChatNotice(presentActivity(entry.events.single()))
     else {
         var expanded by rememberSaveable(entry.key) { mutableStateOf(false) }
         val presentations = remember(entry.events) { entry.events.map(::presentActivity) }

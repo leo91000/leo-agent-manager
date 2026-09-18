@@ -119,7 +119,7 @@ fun ChatScreen(
     var menu by remember { mutableStateOf(false) }
     val timeline =
         remember(live.events, live.state?.artifacts) {
-            deliveryTimeline(timelineEntries(live.events), live.state?.artifacts.orEmpty())
+            deliveryTimeline(timelineEntries(live.events, chat = true), live.state?.artifacts.orEmpty())
         }
     var asking by remember { mutableStateOf<ChatQuestion?>(null) }
     var stopping by remember { mutableStateOf(false) }

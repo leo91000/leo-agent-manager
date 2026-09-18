@@ -69,6 +69,9 @@ store distribution. Never commit a signing key or local SDK paths.
   Reconnection resumes from the accepted cursor, folds compressed assistant deltas,
   resets on run changes and replays malformed batches without skipping events.
   Logout cancels open streams before revoking the session. Other lists poll while visible.
+- Chat hides routine session lifecycle notices and recovered connection retries.
+  Failures and unresolved interruptions appear inline without an expandable session
+  group. Run activity retains the full diagnostic history.
 - Documents use the Android picker, bounded streaming uploads, authenticated file
   downloads and scoped FileProvider sharing. Image, PDF, Markdown, code and media
   previews use native Android components; no arbitrary artifact URL is fetched.
