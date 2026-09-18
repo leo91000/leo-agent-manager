@@ -6,6 +6,46 @@ import { redactPayload } from './legacy/server/worker.ts'
 
 const events: RunEvent[] = sample.map((payload, index) => ({ id: index + 1, runId: 'test', createdAt: index, type: payload.type, text: '', payload }))
 describe('conversation activity', () => {
+  it('hides routine session updates in chat while preserving the raw activity and tool steps', () => {
+    const input: RunEvent[] = [
+      { id: 1, runId: 'chat', createdAt: 1, type: 'turn.started', text: '' },
+      { id: 2, runId: 'chat', createdAt: 2, type: 'item.completed', text: '', payload: { item: { id: 'tool', type: 'command_execution', command: 'pnpm test', exit_code: 0 } } },
+      { id: 3, runId: 'chat', createdAt: 3, type: 'diagnostic', text: 'Worker ready' },
+      { id: 4, runId: 'chat', createdAt: 4, type: 'item.completed', text: 'The checks passed.' },
+      { id: 5, runId: 'chat', createdAt: 5, type: 'turn.completed', text: '' },
+      { id: 6, runId: 'chat', createdAt: 6, type: 'status', text: 'succeeded' },
+    ]
+    const raw = activityEntries(input)
+    const chat = activityEntries(input, true)
+    expect(chat.map(entry => entry.kind)).toEqual(['group', 'message'])
+    expect(chat[0]).toMatchObject({ artifacts: [{ kind: 'command', command: 'pnpm test' }] })
+    expect(chat[0].kind === 'group' && chat[0].artifacts).toHaveLength(1)
+    expect(raw.flatMap(entry => entry.kind === 'group' ? entry.artifacts : []).filter(item => item.kind === 'notice')).toHaveLength(4)
+    expect(activityEntries(input)).toEqual(raw)
+  })
+  it('keeps failures and interruptions inline in chat, in order with real tool steps', () => {
+    const input: RunEvent[] = [
+      { id: 1, runId: 'chat', createdAt: 1, type: 'status', text: 'running' },
+      { id: 2, runId: 'chat', createdAt: 2, type: 'item.completed', text: '', payload: { item: { id: 'a', type: 'command_execution', command: 'pnpm test', exit_code: 1 } } },
+      { id: 3, runId: 'chat', createdAt: 3, type: 'error', text: '', payload: { message: 'Validation failed' } },
+      { id: 4, runId: 'chat', createdAt: 4, type: 'item.started', text: '', payload: { item: { id: 'b', type: 'command_execution', command: 'pnpm build', status: 'in_progress' } } },
+      { id: 5, runId: 'chat', createdAt: 5, type: 'status', text: 'interrupted' },
+    ]
+    const chat = activityEntries(input, true)
+    expect(chat.map(entry => entry.kind)).toEqual(['group', 'notice', 'group', 'notice'])
+    expect(chat[0]).toMatchObject({ artifacts: [{ status: 'error' }] })
+    expect(chat[1]).toMatchObject({ artifact: { blocks: [{ code: 'Validation failed' }] } })
+    expect(chat[2]).toMatchObject({ artifacts: [{ status: 'running' }] })
+    expect(chat[3]).toMatchObject({ artifact: { title: 'Interrupted' } })
+    for (const text of ['failed', 'cancelled', 'interrupted'])
+      expect(activityEntries([{ ...input[4], text }], true)).toHaveLength(1)
+  })
+  it('hides recovered connection retries but keeps unresolved ones visible in chat', () => {
+    const connection: RunEvent = { id: 1, runId: 'chat', createdAt: 1, type: 'diagnostic', text: 'Reconnecting... 2/5' }
+    expect(activityEntries([connection], true)[0]).toMatchObject({ kind: 'notice', artifact: { title: 'Connection interrupted' } })
+    expect(activityEntries([connection, { id: 2, runId: 'chat', createdAt: 2, type: 'turn.completed', text: '' }], true)).toEqual([])
+    expect(activityEntries([{ ...connection, type: 'thread.started', text: '' }], true)).toEqual([])
+  })
   it('shows the message submission time with a fallback for older events', () => {
     const message = { id: 1, runId: 'test', createdAt: 60000, type: 'chat.user', text: 'Hello' }
     expect(activityEntries([{ ...message, payload: { createdAt: 1000 } }])[0]).toMatchObject({ time: 1000, role: 'user' })

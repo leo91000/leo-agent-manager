@@ -15,13 +15,14 @@ import ActivityContent from './ActivityContent.vue'
 import ArtifactGallery from './ArtifactGallery.vue'
 import ArtifactViewer from './ArtifactViewer.vue'
 import ChatAttachments from './ChatAttachments.vue'
+import ChatNotice from './ChatNotice.vue'
 import ChatOutcome from './ChatOutcome.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 
 const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string }>()
 const emit = defineEmits<{ load: [], position: [value: ReadingPosition, key?: string] }>()
-const entries = computed(() => deliveryEntries(activityEntries(props.events), props.deliverables ?? []))
+const entries = computed(() => deliveryEntries(activityEntries(props.events, props.chat), props.deliverables ?? []))
 const visibleOutcome = computed(() => props.chat && !props.active && !props.loading ? props.outcome : null)
 const outcomeEntryId = computed(() => {
   const items = entries.value
@@ -199,6 +200,7 @@ onBeforeUnmount(() => viewer.value?.close())
                 <ActivityContent v-else :content="entry.text" />
                 <ChatAttachments v-if="entry.attachments?.length" :attachments="entry.attachments" class="mt-3!" />
               </article>
+              <ChatNotice v-else-if="entry.kind === 'notice'" :notice="entry.artifact" />
               <section v-else class="activity-group border-line/70 border rounded-xl bg-transparent overflow-hidden mx-0 my-4.5" :class="{ 'expanded': opened.has(entry.id), 'notice-only': entry.artifacts.every(item => item.kind === 'notice') }">
                 <button class="activity-group-toggle bg-transparent flex items-center gap-[11px] w-full text-left border-0 text-ink cursor-pointer phone:gap-[9px] px-[17px] py-[15px] phone:px-3 phone:py-[13px]" :aria-expanded="opened.has(entry.id)" :aria-controls="`activity-${entry.id}`" @click="toggle(opened, entry.id)">
                   <span class="activity-group-icon w-8 h-8 grid place-items-center bg-transparent rounded-lg shrink-0"><Icon v-if="active && entry.artifacts.some(item => item.status === 'running')" :name="LoaderCircle" class="activity-spinning [animation:activity-spin_1.5s_linear_infinite] [@media(prefers-reduced-motion:_reduce)]:[animation:none]" :size="17" /><Icon v-else :name="Layers" :size="17" /></span>

@@ -6,6 +6,8 @@ Chats and task activity use [resumable live streams](STREAMING.md). Multiple bro
 
 When an agent reports completion, **Task completed** appears beneath the reply in the conversation. **View evidence** expands the report and supporting details, including clickable commit and workflow links; **Hide evidence** collapses it. Reports without evidence use **View details**. **Blocked** and **Your input needed** show their reason immediately. These are agent-reported outcomes, and a new reply clears the previous report. The composer remains available while reading the evidence.
 
+Routine session updates (connecting, starting, finishing and success) are hidden from chat, including inside tool groups. The working indicator and completion footer provide that status. Failures and unresolved interruptions appear as inline notices; recovered connection retries disappear. Raw lifecycle events remain in run activity for troubleshooting.
+
 Open **Chats**, or **Start chat** on an agent or project. Project chats select Main agent by default. Choose another agent before the first message; its project, skill, MCP, GitHub and sandbox restrictions still apply. A chat owns one persistent conversation and workspace. It does not create a scheduled task.
 
 Send starts a reply. During a reply, **Queue** saves a follow-up for the next turn, while **Steer now** sends instructions into the active turn. Queued messages can be edited or removed until dispatch begins. Pause queue holds follow-ups without stopping the current reply. Stop response stops execution and pauses the queue; Resume continues the saved conversation. On desktop, Enter sends or queues, Shift+Enter adds a line, and Alt+Enter steers. Touch keyboards use Enter for a line break.

@@ -24,10 +24,12 @@ export interface ActivityArtifact {
   durationMs?: number
   historical?: boolean
   statusLabel?: string
+  attention?: boolean
 }
 export type ActivityEntry
   = | { kind: 'message', role?: 'user', id: string, time: number, text: string, attachments?: import('../shared/chats').ChatAttachment[] }
     | { kind: 'group', id: string, artifacts: ActivityArtifact[] }
+    | { kind: 'notice', id: string, artifact: ActivityArtifact }
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -54,7 +56,7 @@ function readable(value: string) {
 }
 
 /** Keep tool updates in their original position and fold actions between messages. */
-export function activityEntries(events: RunEvent[]): ActivityEntry[] {
+export function activityEntries(events: RunEvent[], chat = false): ActivityEntry[] {
   const entries: ActivityEntry[] = []
   const artifacts = new Map<string, ActivityArtifact>()
   const messages = new Map<string, Extract<ActivityEntry, { kind: 'message' }>>()
@@ -64,6 +66,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
       notice.status = 'info'
       notice.statusLabel = 'Recovered'
       notice.subtitle = 'Connection restored; work continued'
+      notice.attention = false
     }
     connectionNotices = []
   }
@@ -117,7 +120,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
       continue
     }
     const status = text(item.status)
-    const failed = status === 'failed' || event.type.includes('failed') || event.type === 'error' || type === 'error' || (typeof item.exit_code === 'number' && item.exit_code !== 0)
+    const failed = status === 'failed' || event.type.includes('failed') || event.type === 'error' || type === 'error' || (event.type === 'status' && event.text === 'failed') || (typeof item.exit_code === 'number' && item.exit_code !== 0)
     const running = !failed && (status === 'in_progress' || event.type.endsWith('.started')) && event.type.startsWith('item.')
     const artifact: ActivityArtifact = {
       id,
@@ -130,6 +133,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
       files: [],
       tasks: [],
       raw: Object.keys(data).length ? pretty(data) : event.text,
+      attention: failed || (event.type === 'status' && ['cancelled', 'interrupted'].includes(event.text)),
     }
     const block = (label: string, value: unknown, language = 'plaintext') => {
       if (value !== undefined && value !== null && value !== '')
@@ -216,6 +220,7 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
     }
     if (artifact.kind === 'notice' && ['error', 'diagnostic', 'item.completed'].includes(event.type) && /websocket|reconnecting\.\.\.|reconnecting\s+\d+\//i.test(artifact.raw) && /503|reconnect|falling back|connection.*(?:closed|failed)/i.test(artifact.raw)) {
       artifact.title = 'Connection interrupted'
+      artifact.attention = true
       connectionNotices.push(artifact)
     }
     const previous = artifacts.get(id)
@@ -232,5 +237,32 @@ export function activityEntries(events: RunEvent[]): ActivityEntry[] {
     if (legacy && event.type === 'item.started')
       legacyTool = Object.assign(artifact, { kind: 'output' as const, title: 'Recorded step', historical: true })
   }
-  return entries
+  return chat ? chatEntries(entries) : entries
+}
+
+/** Hide lifecycle bookkeeping in chat without removing persisted diagnostics. */
+function chatEntries(entries: ActivityEntry[]): ActivityEntry[] {
+  const result: ActivityEntry[] = []
+  for (const entry of entries) {
+    if (entry.kind !== 'group') {
+      result.push(entry)
+      continue
+    }
+    let group: Extract<ActivityEntry, { kind: 'group' }> | undefined
+    for (const artifact of entry.artifacts) {
+      if (artifact.kind === 'notice') {
+        if (artifact.attention) {
+          result.push({ kind: 'notice', id: `notice:${artifact.id}`, artifact })
+          group = undefined
+        }
+        continue
+      }
+      if (!group) {
+        group = { kind: 'group', id: `group:${artifact.id}`, artifacts: [] }
+        result.push(group)
+      }
+      group.artifacts.push(artifact)
+    }
+  }
+  return result
 }
