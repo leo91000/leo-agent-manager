@@ -139,6 +139,8 @@ test('compact mobile toolbar keeps details and workspace controls accessible', a
   await expect(panel.getByRole('button', { name: 'Open activity fullscreen' })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expectSingleScroll(page)
+  // This standalone journey must not consume later chats' request budget.
+  await workspace.restart()
 })
 
 test('task outcomes stay with the reply and expose evidence without crowding the composer', async ({ page, workspace }) => {
