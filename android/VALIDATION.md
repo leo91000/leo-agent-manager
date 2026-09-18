@@ -1,4 +1,16 @@
-# Android 0.5.5 — older-history reading position
+# Android 0.5.6 — cascading history loads and held gestures
+
+Two regression cases reproduce the 0.5.5 failure with the older-history control
+visible and more pages available: with an idle reader and with a finger still
+held in a drag. Both originally requested two pages instead of one. The corrected
+cases assert one request and an unchanged visible text offset; the held-finger
+case also continues the same gesture after the page arrives.
+
+The tests run under Robolectric and are included in the Android 16 CI
+instrumentation selection through `HistoryFollowDeviceTest`. Physical-phone
+validation remains separate from these automated checks.
+
+## Previous validation: Android 0.5.5 — older-history reading position
 
 The local JVM/Robolectric suite passes 73 tests. Six new paging cases use the
 production lazy list, asynchronous Markdown renderer and paging hook: stable text

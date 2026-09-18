@@ -5,10 +5,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import java.io.File
 import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import dev.leo.manager.data.LiveSnapshot
@@ -19,8 +22,7 @@ import org.junit.Rule
 import org.junit.Test
 
 /** Pagination uses the real lazy list, async Markdown renderer and production paging hook. */
-abstract class HistoryPagingCases {
-    @get:Rule val compose = createComposeRule()
+abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule = createComposeRule()) {
     private lateinit var list: LazyListState
     private lateinit var rendering: MarkdownRendering
     private lateinit var scope: CoroutineScope
@@ -41,7 +43,7 @@ abstract class HistoryPagingCases {
             LeoTheme("dark") {
                 Surface(Modifier.fillMaxWidth().height(620.dp)) {
                     CompositionLocalProvider(LocalMarkdownRendering provides rendering) {
-                        LazyColumn(state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyColumn(modifier = Modifier.testTag("paged-history"), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             historyHeader(live, load)
                             items(numbers, key = { "message:$it" }) { number ->
                                 Markdown((1..35).joinToString("\n\n") { "Message $number, paragraphe $it. Le lecteur doit garder exactement le même texte devant les yeux." })
@@ -120,6 +122,47 @@ abstract class HistoryPagingCases {
         compose.mainClock.advanceTimeBy(200)
         compose.waitForIdle()
         compose.runOnIdle { assertEquals("Removing the visible history header must preserve the first paragraph", before, offset()) }
+    }
+
+    @Test fun visibleHeaderWithMorePagesDoesNotLoadTheEntireHistory() {
+        start(atHeader = true)
+        val before = compose.runOnIdle { offset()!! }
+        compose.runOnIdle { numbers = (16..40).toList(); loading = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals("A response must not automatically request another page", 1, requests)
+            assertEquals("The reader must remain on the old first paragraph", before, offset())
+        }
+    }
+
+    @Test fun pageArrivingDuringAHeldDragPreservesTextAndDoesNotCascade() {
+        start(initialOffset = 100)
+        val history = compose.onNodeWithTag("paged-history")
+        history.performTouchInput {
+            down(Offset(2f, 180f))
+            moveBy(Offset(0f, 250f), delayMillis = 160)
+        }
+        compose.runOnIdle {
+            assertTrue("The finger must still be dragging", list.isScrollInProgress)
+            assertEquals("The drag must reach the history control", "history:older", list.layoutInfo.visibleItemsInfo.first().key)
+        }
+        val before = compose.runOnIdle { offset()!! }
+        compose.runOnIdle { numbers = (16..40).toList(); loading = false }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals("Holding a finger must not trigger cascading requests", 1, requests)
+            assertEquals("New history must not replace the text under the held finger", before, offset())
+        }
+        history.performTouchInput { moveBy(Offset(0f, 48f), delayMillis = 160) }
+        val moved = compose.runOnIdle { offset()!! }
+        assertTrue("The same finger must remain able to scroll after the page arrives", moved > before)
+        history.performTouchInput { advanceEventTime(200); up() }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(1, requests); assertEquals(moved, offset()) }
     }
 
     @Test fun readingDeepInsideALongFirstMessageDoesNotLoadOlderPages() {

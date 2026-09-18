@@ -1,7 +1,6 @@
 package dev.leo.manager.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -131,7 +130,7 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
 internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, ready: Boolean, follow: Boolean, keys: List<String>, rendering: MarkdownRendering? = null, stopFollowing: () -> Unit): () -> Unit {
     val current by rememberUpdatedState(live)
     var headerAnchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
-    val dragged by list.interactionSource.collectIsDraggedAsState()
+    var settling by remember(list) { mutableStateOf(false) }
     LaunchedEffect(list, live.loadingOlder) {
         val before = live.oldest
         if (live.loadingOlder) snapshotFlow { list.layoutInfo.visibleItemsInfo }.collect { visible ->
@@ -143,22 +142,26 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
             } else null
         }
     }
-    LaunchedEffect(live.loadingOlder, live.oldest, keys, dragged) {
-        val saved = headerAnchor
-        if (!live.loadingOlder && saved != null) {
+    LaunchedEffect(live.loadingOlder, live.oldest, keys) {
+        if (!live.loadingOlder && settling) {
+            val saved = headerAnchor
             headerAnchor = null
-            if (!dragged) {
+            if (saved != null) {
                 val index = keys.indexOf(saved.first)
                 if (index >= 0) {
                     val header = live.hasOlder || live.olderError != null
                     val target = index + if (header) 1 else 0
+                    // Keep the content anchor even when a finger is still dragging.
+                    // Discarding it leaves the persistent header pinned at index zero.
                     list.requestScrollToItem(target, saved.second)
                     rendering?.awaitLayout()
-                    // The new row just above the anchor may initially be a placeholder.
-                    // Its final height must be known before preserving a positive top inset.
-                    list.scrollToItem(target, saved.second)
+                    // Request the layout offset without competing for the active
+                    // gesture's scroll mutation (scrollToItem is cancelled by it).
+                    list.requestScrollToItem(target, saved.second)
                 }
             }
+            rendering?.awaitLayout()
+            settling = false
         }
     }
     var requested by remember(list) { mutableStateOf<Pair<String?, Long>?>(null) }
@@ -171,6 +174,7 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
             headerAnchor = if (visible.firstOrNull()?.key == "history:older") {
                 visible.firstOrNull { it.key != "history:older" }?.let { it.key.toString() to -it.offset }
             } else null
+            settling = true
             requested = current.history to current.oldest
             stopFollowing()
             current.loadOlder()
@@ -178,14 +182,24 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
     }
     val currentLoad by rememberUpdatedState(load)
     LaunchedEffect(list, ready, follow, threshold) {
+        // Re-arm only after leaving the top zone, never just because a response
+        // changed the cursor. The old layout can still show index zero then.
+        var armed = true
         if (ready && !follow) snapshotFlow {
             val snapshot = current
             val nearStart = list.layoutInfo.visibleItemsInfo.isNotEmpty() &&
                 list.firstVisibleItemIndex <= 1 && list.firstVisibleItemScrollOffset < threshold
-            nearStart && snapshot.hasOlder && !snapshot.loadingOlder && snapshot.olderError == null &&
-                requested != (snapshot.history to snapshot.oldest)
-        }.collect { shouldLoad ->
-            if (shouldLoad) currentLoad()
+            val available = !settling && !snapshot.loadingOlder
+            Triple(nearStart, available, snapshot.hasOlder && snapshot.olderError == null &&
+                requested != (snapshot.history to snapshot.oldest))
+        }.collect { (nearStart, available, canLoad) ->
+            if (available) {
+                if (!nearStart) armed = true
+                else if (armed && canLoad) {
+                    armed = false
+                    currentLoad()
+                }
+            }
         }
     }
     return load

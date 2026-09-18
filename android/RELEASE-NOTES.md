@@ -1,4 +1,13 @@
-# Leo Android 0.5.5 — stable older-history loading
+# Leo Android 0.5.6 — stop cascading history loads
+
+- Loading an older page waits for the viewport to settle before automatic paging
+  can re-arm. A response alone no longer triggers the next page.
+- The visible text anchor is retained when a page arrives during an active drag;
+  the same finger can continue scrolling without lifting.
+- Includes the latest chat improvements hiding routine session notices.
+- No server change or database migration is required.
+
+## Previous revision: Leo Android 0.5.5 — stable older-history loading
 
 - Loading older messages preserves the current reading position, including movement
   made while the request is pending, in both chats and runs.
