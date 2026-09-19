@@ -488,3 +488,53 @@ test('opts into device notifications and can revoke that device', async ({ page,
   await expect(page.getByRole('button', { name: 'Enable on this device' })).toBeEnabled()
   expect(workspace.service.store.keys('push-device:')).toHaveLength(0)
 })
+
+test('long words and URLs wrap inside messages without widening the conversation', async ({ page, workspace }) => {
+  test.setTimeout(60000)
+  await workspace.restart()
+  const chat = await workspace.api('/api/chats', 'POST', {})
+  const url = `https://example.test/files/${'a1b2c3d4'.repeat(28)}.pdf`
+  const word = 'UnbrokenWord'.repeat(30)
+  const text = `Here is the document:\n${url}\n\nReference: ${word}`
+  await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: randomUUID(), text })
+  await expect.poll(() => workspace.service.chats.detail(chat.id).run?.status).toBe('succeeded')
+  const run = workspace.service.chats.detail(chat.id).run!
+  const reply = `The document is ready: [${url}](${url}).\n\nReference: \`${word}\`.\n\n\`\`\`text\n${word}\n\`\`\``
+  workspace.service.store.event(run.id, 'item.completed', reply, { item: { type: 'agent_message', text: reply } })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.goto(`/chats/${chat.id}`)
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  const user = page.locator('.activity-message').filter({ has: page.locator('p', { hasText: 'Here is the document:' }) }).first()
+  await expect(user).toContainText(text)
+  const scroller = page.getByRole('region', { name: 'Activity output' })
+  async function fits() {
+    await expect.poll(() => scroller.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
+    const overflow = await user.locator('p').first().evaluate((el) => {
+      const bounds = el.getBoundingClientRect()
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      return [...range.getClientRects()].some(rect => rect.left < bounds.left - 1 || rect.right > bounds.right + 1)
+    })
+    expect(overflow).toBe(false)
+    await expectSingleScroll(page)
+  }
+  for (const width of [390, 320, 1440]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 960 : 844 })
+    await fits()
+  }
+  await page.setViewportSize({ width: 390, height: 844 })
+  await user.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: test.info().outputPath('long-message-mobile.png'), animations: 'disabled' })
+  await page.getByRole('button', { name: 'Chat details', exact: true }).click()
+  await page.getByRole('button', { name: 'Open activity fullscreen', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Fullscreen activity' })).toBeVisible()
+  await fits()
+  await page.getByRole('button', { name: 'Exit fullscreen', exact: true }).click()
+  await page.reload()
+  await expect(user).toContainText(text)
+  await fits()
+  await workspace.restart()
+})
