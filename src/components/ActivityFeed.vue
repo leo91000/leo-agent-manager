@@ -21,7 +21,7 @@ import ChatOutcome from './ChatOutcome.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], sending?: SendingMessage[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, compactToolbar?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], sending?: SendingMessage[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string }>()
 const emit = defineEmits<{ load: [], position: [value: ReadingPosition, key?: string] }>()
 const entries = computed(() => {
   const entries = activityEntries(props.events, props.chat)
@@ -161,6 +161,11 @@ async function exitFullscreen() {
 }
 onBeforeUnmount(() => viewer.value?.close())
 defineExpose({
+  following: follow,
+  toggleFollow: () => {
+    follow.value = !follow.value
+    followChanged()
+  },
   openFiles: () => { artifactViewer.value = '' },
   enterFullscreen,
   followLatest: () => {
@@ -179,7 +184,7 @@ defineExpose({
     </Teleport>
     <Teleport :to="fullscreenHost || 'body'" :disabled="!fullscreen">
       <section class="activity-feed flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden bg-transparent" :class="{ 'is-fullscreen': fullscreen }" aria-label="Run conversation">
-        <header :class="chat ? ['py-0! phone:py-0!', { 'phone:hidden!': !fullscreen }] : ''" class="activity-toolbar flex justify-between items-center gap-4.5 bg-transparent shrink-0 phone:gap-2.5 phone:flex-wrap px-6 py-[17px] phone:px-[15px] phone:py-[13px]">
+        <header v-if="!compactToolbar || fullscreen" :class="chat ? ['py-0! phone:py-0!', { 'phone:hidden!': !fullscreen }] : ''" class="activity-toolbar flex justify-between items-center gap-4.5 bg-transparent shrink-0 phone:gap-2.5 phone:flex-wrap px-6 py-[17px] phone:px-[15px] phone:py-[13px]">
           <div v-if="!chat" class="activity-toolbar-title flex items-center gap-[11px] font-semibold text-sm min-w-0 phone:[flex:1_1_160px]">
             <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0" :class="{ live: active }" /><span>{{ fullscreen ? task : chat ? (active ? 'Working' : 'Conversation') : 'Agent activity' }}</span>
           </div>

@@ -20,6 +20,8 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
     const menu = page.getByRole('button', { name: 'Open navigation' })
     if (await menu.isVisible())
       await menu.click()
+    else if (await page.getByRole('button', { name: 'More navigation' }).isVisible())
+      await page.getByRole('button', { name: 'More navigation' }).click()
     await page.locator(`.sidebar a[href="${destination}"]`).last().click()
     const headings: Record<string, string> = { '/tasks': 'Tasks', '/runs': 'Run history', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills library', '/connections': 'Connections', '/settings': 'Settings', '/mcps': 'MCPs' }
     if (headings[destination])

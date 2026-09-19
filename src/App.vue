@@ -88,7 +88,7 @@ watch(mobile, async (open) => {
   if (open)
     navigation.value?.querySelector<HTMLButtonElement>('.navigation-close')?.focus()
   else if (narrow.value)
-    (route.path.startsWith('/chats') ? moreButton.value : menuButton.value)?.focus()
+    (route.path.startsWith('/chats') || route.path === '/tasks' ? moreButton.value : menuButton.value)?.focus()
 })
 watch(
   () => route.path,
@@ -299,7 +299,7 @@ async function logout() {
       </div>
     </aside>
     <div class="main-area ml-50.5 flex h-full min-h-0 min-w-0 w-[calc(100%_-_202px)] flex-col phone:ml-0 phone:w-full [@media(641px<=width<=1150px)]:ml-45 [@media(641px<=width<=1150px)]:w-[calc(100%_-_180px)]" :inert="narrow && mobile">
-      <header :class="{ 'phone:hidden!': route.path.startsWith('/chats') }" class="topbar short:h-[calc(48px_+_env(safe-area-inset-top))] short:min-h-12 h-15 flex items-center justify-between bg-transparent phone:min-h-[calc(62px_+_env(safe-area-inset-top))] phone:[padding:env(safe-area-inset-top)_max(12px,_env(safe-area-inset-right))_0_max(12px,_env(safe-area-inset-left))] phone:h-[63px] [@media(max-width:_1150px)_and_(min-width:_641px)]:pt-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pr-6 [@media(max-width:_1150px)_and_(min-width:_641px)]:pb-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pl-6 px-9 py-0 phone:px-4.5 phone:py-0 shrink-0">
+      <header :class="{ 'phone:hidden!': route.path.startsWith('/chats') || route.path === '/tasks' }" class="topbar short:h-[calc(48px_+_env(safe-area-inset-top))] short:min-h-12 h-15 flex items-center justify-between bg-transparent phone:min-h-[calc(62px_+_env(safe-area-inset-top))] phone:[padding:env(safe-area-inset-top)_max(12px,_env(safe-area-inset-right))_0_max(12px,_env(safe-area-inset-left))] phone:h-[63px] [@media(max-width:_1150px)_and_(min-width:_641px)]:pt-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pr-6 [@media(max-width:_1150px)_and_(min-width:_641px)]:pb-0 [@media(max-width:_1150px)_and_(min-width:_641px)]:pl-6 px-9 py-0 phone:px-4.5 phone:py-0 shrink-0">
         <div class="breadcrumb flex items-center gap-3 text-2xs text-muted phone:gap-[7px] phone:text-3xs">
           <button
             ref="menuButton"
@@ -345,7 +345,7 @@ async function logout() {
         <RouterLink to="/chats" aria-label="Chats" :class="{ active: route.path.startsWith('/chats') }">
           <Icon :name="MessageCircle" :size="20" />
         </RouterLink>
-        <button ref="moreButton" aria-label="More navigation" @click="mobile = true">
+        <button ref="moreButton" :aria-label="route.path === '/tasks' ? 'Open navigation' : 'More navigation'" @click="mobile = true">
           <Icon :name="Menu" :size="20" />
         </button>
       </nav>

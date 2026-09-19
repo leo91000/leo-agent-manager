@@ -15,7 +15,7 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.locator('.activity-message').first()).toBeAttached()
-  await page.getByLabel('Follow output').uncheck()
+  await page.getByRole('button', { name: 'Follow output', exact: true }).click()
   const runs = await page.request.get('/api/runs').then(response => response.json())
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
@@ -29,11 +29,20 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
           await page.locator('.sidebar a[href="/tasks"]').click()
         }
         else if (route !== '/tasks') {
-          await page.getByRole('link', { name: 'Open run', exact: true }).click()
+          if (viewport.width <= 640)
+            await page.getByLabel('Task actions', { exact: true }).click()
+          await page.getByRole('link', { name: 'Open run', exact: true }).filter({ visible: true }).click()
         }
-        await page.getByRole('button', { name: /^Activity/ }).click()
+        await page.getByRole('button', { name: route === '/tasks' ? 'Conversation' : /^Activity/ }).click()
         await expect(page.locator('.activity-message').first()).toBeAttached()
-        await page.getByLabel('Follow output').uncheck()
+        if (route === '/tasks') {
+          const follow = page.getByRole('button', { name: 'Follow output', exact: true })
+          if (await follow.getAttribute('aria-pressed') === 'true')
+            await follow.click()
+        }
+        else {
+          await page.getByLabel('Follow output').uncheck()
+        }
         if (route === '/tasks') {
           await page.getByLabel('Task actions', { exact: true }).click()
           await expect(page.locator('.task-action-menu button').last()).toBeInViewport({ ratio: 1 })
@@ -57,7 +66,7 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
         await page.keyboard.press('PageDown')
         await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
         await expectSingleScroll(page)
-        const tab = page.getByRole('button', { name: /^Activity/ })
+        const tab = page.getByRole('button', { name: route === '/tasks' ? 'Conversation' : /^Activity/ })
         const spacing = await tab.evaluate(element => ({ left: Number.parseFloat(getComputedStyle(element).paddingLeft), right: Number.parseFloat(getComputedStyle(element).paddingRight) }))
         expect(spacing.left).toBeGreaterThanOrEqual(10)
         expect(spacing.right).toBeGreaterThanOrEqual(10)
@@ -67,7 +76,14 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
             element.blur()
         })
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${viewport.width}${route === '/tasks' ? '-tasks.png' : '-run.png'}`), animations: 'disabled' })
-        await page.getByRole('button', { name: 'Task brief', exact: true }).click()
+        if (route === '/tasks') {
+          await page.getByRole('button', { name: 'Details', exact: true }).click()
+          await expect(page.getByRole('dialog', { name: 'Task details' })).toBeVisible()
+          await page.getByRole('button', { name: 'Close dialog' }).click()
+        }
+        else {
+          await page.getByRole('button', { name: 'Task brief', exact: true }).click()
+        }
         await expectSingleScroll(page)
         await page.getByRole('button', { name: 'Result', exact: true }).click()
         await expectSingleScroll(page)

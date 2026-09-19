@@ -30,6 +30,7 @@ export default defineConfig({
     { name: 'journeys-mcps', testMatch: 'mcps.spec.ts' },
     { name: 'layout-webkit-mcps', testMatch: 'mcps.spec.ts', use: { browserName: 'webkit', isMobile: true, hasTouch: true } },
     { name: 'journeys-task-focus', testMatch: 'task-focus.spec.ts' },
+    { name: 'layout-webkit-task-focus', testMatch: 'task-focus.spec.ts', use: { browserName: 'webkit' } },
     { name: 'journeys-agent-access', testMatch: 'agent-access.spec.ts' },
     ...(['chromium', 'webkit'] as const).flatMap(browserName =>
       (['light', 'dark'] as const).map(colorScheme => ({
