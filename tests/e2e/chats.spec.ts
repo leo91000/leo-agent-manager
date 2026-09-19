@@ -143,6 +143,81 @@ test('compact mobile toolbar keeps details and workspace controls accessible', a
   await workspace.restart()
 })
 
+test('ordinary sends and steering stay in the transcript while only follow-ups queue', async ({ page, workspace }) => {
+  test.setTimeout(90000)
+  await workspace.restart()
+  const chat = await workspace.api('/api/chats', 'POST', {})
+  await page.goto(`/chats/${chat.id}`)
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+  const userMessages = page.locator('.activity-message').filter({ has: page.getByText('You', { exact: true }) })
+  const first = 'Review the navigation. fixture:slow-delivery fixture:chat-hang'
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(`**/api/chats/${chat.id}/messages`, async (route) => {
+    await gate
+    await route.continue()
+  })
+  await composer.fill(first)
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  try {
+    await expect(userMessages.filter({ hasText: first }).getByRole('status')).toHaveText('Sending…')
+    await expect(page.getByRole('button', { name: /queued/ })).toHaveCount(0)
+    await expectSingleScroll(page)
+    await page.screenshot({ path: test.info().outputPath('normal-send-mobile.png'), animations: 'disabled' })
+  }
+  finally { release() }
+  await expect(userMessages.filter({ hasText: first }).getByRole('status')).toHaveText('Starting agent…')
+  await expect(composer).toHaveValue('')
+  await page.reload()
+  await expect(userMessages.filter({ hasText: first }).getByRole('status')).toHaveText('Starting agent…')
+  await expect(page.getByRole('button', { name: /queued/ })).toHaveCount(0)
+  await page.screenshot({ path: test.info().outputPath('agent-starting-mobile.png'), animations: 'disabled' })
+  await expect(userMessages.filter({ hasText: first }).getByRole('status')).toHaveCount(0, { timeout: 15000 })
+  await expect(userMessages.filter({ hasText: first })).toHaveCount(1)
+  await composer.fill('A follow-up for the next reply')
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  await expect(page.getByRole('button', { name: '1 queued', exact: true })).toBeVisible()
+  await expect(userMessages.filter({ hasText: 'A follow-up for the next reply' })).toHaveCount(0)
+  const steer = 'Focus on accessibility. fixture:slow-delivery'
+  await composer.fill(steer)
+  await page.getByRole('button', { name: 'Steer now', exact: true }).click()
+  await expect(userMessages.filter({ hasText: steer }).getByRole('status')).toHaveText('Sending to agent…')
+  await expect(page.getByRole('button', { name: '1 queued', exact: true })).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('steer-and-real-queue-mobile.png'), animations: 'disabled' })
+  await expect(userMessages.filter({ hasText: steer }).getByRole('status')).toHaveCount(0, { timeout: 15000 })
+  await expect(userMessages.filter({ hasText: steer })).toHaveCount(1)
+  await page.getByRole('button', { name: 'Stop response', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeVisible()
+  await composer.fill('Wait until I resume')
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Queue paused · 2 queued', exact: true })).toBeVisible()
+  await expect(userMessages.filter({ hasText: 'Wait until I resume' })).toHaveCount(0)
+  await page.screenshot({ path: test.info().outputPath('paused-queue-mobile.png'), animations: 'disabled' })
+  await workspace.restart()
+})
+
+test('a rejected ordinary send preserves its draft and removes the optimistic message', async ({ page, workspace }) => {
+  await workspace.restart()
+  const chat = await workspace.api('/api/chats', 'POST', {})
+  await page.goto(`/chats/${chat.id}`)
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.route(`**/api/chats/${chat.id}/messages`, route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Temporarily unavailable' }) }))
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep this draft on failure')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Keep this draft on failure')
+  await expect(page.locator('.activity-message')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
+  await workspace.restart()
+})
+
 test('task outcomes stay with the reply and expose evidence without crowding the composer', async ({ page, workspace }) => {
   test.setTimeout(60000)
   const chat = await workspace.api('/api/chats', 'POST', {})

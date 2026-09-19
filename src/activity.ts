@@ -27,7 +27,7 @@ export interface ActivityArtifact {
   attention?: boolean
 }
 export type ActivityEntry
-  = | { kind: 'message', role?: 'user', id: string, time: number, text: string, attachments?: import('../shared/chats').ChatAttachment[] }
+  = | { kind: 'message', role?: 'user', id: string, time: number, text: string, delivery?: string, attachments?: import('../shared/chats').ChatAttachment[] }
     | { kind: 'group', id: string, artifacts: ActivityArtifact[] }
     | { kind: 'notice', id: string, artifact: ActivityArtifact }
 

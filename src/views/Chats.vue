@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { latestArtifacts } from '../../shared/artifacts'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, state } from '../api'
+import { chatDelivery } from '../chat-delivery'
 import ActivityFeed from '../components/ActivityFeed.vue'
 import ChatAttachments from '../components/ChatAttachments.vue'
 import ChatQuestions from '../components/ChatQuestions.vue'
@@ -56,6 +57,7 @@ watch(() => [visibleError.value, detail.value?.id, detail.value?.run?.finishedAt
   dismissedError.value = false
 })
 const busy = ref(false)
+const submitting = ref(false)
 const editing = ref<string | null>(null)
 const agentId = ref(typeof route.query.agent === 'string' ? route.query.agent : MAIN_AGENT_ID)
 const projectId = ref(typeof route.query.project === 'string' ? route.query.project : '')
@@ -122,7 +124,14 @@ function pasteFiles(event: ClipboardEvent) {
 }
 const active = computed(() => !!detail.value?.run && ['queued', 'running'].includes(detail.value.run.status))
 const chatStatus = computed(() => detail.value?.paused ? 'Paused' : active.value ? detail.value?.run?.status === 'queued' ? 'Waiting' : 'Working' : detail.value?.run?.status === 'failed' ? 'Failed' : detail.value?.run?.status === 'interrupted' ? 'Interrupted' : 'Ready')
-const pending = computed(() => detail.value?.messages.filter(message => message.status !== 'delivered') ?? [])
+const outgoing = ref<ChatMessage | null>(null)
+const delivery = computed(() => chatDelivery(detail.value, events.value, outgoing.value))
+const pending = computed(() => delivery.value.queued)
+const responding = computed(() => active.value || delivery.value.sending.length > 0)
+watch(events, (items) => {
+  if (outgoing.value && items.some(event => event.type === 'chat.user' && event.payload?.messageId === outgoing.value?.id))
+    outgoing.value = null
+})
 const selectedAgent = computed(() => state.agents.find(agent => agent.id === (detail.value?.agentId || agentId.value)))
 const agents = computed(() => state.agents.map(agent => ({ value: agent.id, label: agent.name, icon: Bot, description: agent.id === MAIN_AGENT_ID ? 'Full access' : agent.description })))
 const projects = computed(() => [{ value: '', label: 'No project', description: 'Use the agent’s available workspaces', icon: FolderGit2 }, ...state.projects.filter(project => selectedAgent.value?.access.projects === null || selectedAgent.value?.access.projects.includes(project.id)).map(project => ({ value: project.id, label: project.name, icon: FolderGit2 }))])
@@ -145,6 +154,7 @@ onBeforeUnmount(clearAttachments)
 let submission: { id: string, text: string, mode: 'queue' | 'steer', model: string, reasoning: string, attachmentIds: string[] } | undefined
 let createdChat: Chat | undefined
 function newConversation() {
+  outgoing.value = null
   history.value = false
   detailsOpen.value = false
   draft.value = ''
@@ -160,6 +170,8 @@ async function send(mode: 'queue' | 'steer' = 'queue') {
   const text = originalDraft.trim()
   if (!canSend.value || busy.value)
     return
+  submitting.value = true
+  const direct = !editing.value && ((mode === 'steer' && !detail.value?.paused) || (!responding.value && !detail.value?.paused && !pending.value.length))
   busy.value = true
   error.value = ''
   try {
@@ -179,6 +191,8 @@ async function send(mode: 'queue' | 'steer' = 'queue') {
     // Retain the id after a network failure so retry cannot duplicate a message.
     if (!submission || submission.text !== text || submission.mode !== mode || submission.model !== model.value || submission.reasoning !== reasoning.value || submission.attachmentIds.join() !== attachmentIds.join())
       submission = { id: crypto.randomUUID(), text, mode, model: model.value, reasoning: reasoning.value, attachmentIds }
+    if (direct)
+      outgoing.value = { ...submission, chatId: chat.id, status: 'queued', createdAt: Date.now(), attachments: [...attachments.value] }
     await api(`/chats/${chat.id}/messages${editing.value ? `/${editing.value}` : ''}`, { method: editing.value ? 'PUT' : 'POST', body: JSON.stringify(submission) })
     if (draft.value === originalDraft)
       draft.value = ''
@@ -191,9 +205,13 @@ async function send(mode: 'queue' | 'steer' = 'queue') {
     }
     textarea.value?.focus()
   }
-  catch (e) { error.value = (e as Error).message }
+  catch (e) {
+    outgoing.value = null
+    error.value = (e as Error).message
+  }
   finally {
     busy.value = false
+    submitting.value = false
     uploadProgress.value = ''
   }
 }
@@ -345,7 +363,7 @@ function key(event: KeyboardEvent) {
         <div v-if="route.params.id && !detail" role="status" class="flex flex-1 items-center justify-center text-sm text-muted">
           Loading conversation…
         </div>
-        <div v-else-if="!detail?.run" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 pb-[8vh] pt-8 text-center phone:px-2 phone:py-5">
+        <div v-else-if="!detail?.run && !delivery.sending.length" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 pb-[8vh] pt-8 text-center phone:px-2 phone:py-5">
           <h2 class="mb-7 text-[30px] font-semibold tracking-tight phone:text-2xl">
             What are we building?
           </h2>
@@ -355,7 +373,7 @@ function key(event: KeyboardEvent) {
             </button>
           </div>
         </div>
-        <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail.run.status === 'succeeded' ? detail.run.outcome : null" :events="events" :active="active" :agent="detail.agentName" :task="detail.title" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" chat @load="live.loadOlder" @position="live.savePosition" />
+        <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail?.run?.status === 'succeeded' ? detail.run.outcome : null" :sending="delivery.sending" :events="events" :active="active" :agent="detail?.agentName || selectedAgent?.name || 'Main agent'" :task="detail?.title || 'New conversation'" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" chat @load="live.loadOlder" @position="live.savePosition" />
         <div class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
           <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" />
           <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
@@ -372,7 +390,7 @@ function key(event: KeyboardEvent) {
           <div v-if="pending.length || detail?.paused" class="mb-3 overflow-hidden rounded-xl border border-line bg-soft">
             <div class="flex items-center gap-2 px-3 py-2">
               <button class="flex min-w-0 flex-1 items-center gap-2 text-left text-[11px] font-semibold" :aria-expanded="queueOpen" @click="queueOpen = !queueOpen">
-                <Icon :name="Clock" :size="14" />{{ pending.length }} queued<Icon :name="ChevronDown" :size="13" :class="queueOpen ? 'rotate-180' : ''" />
+                <Icon :name="Clock" :size="14" /><span v-if="detail?.paused">Queue paused · </span>{{ pending.length }} queued<Icon :name="ChevronDown" :size="13" :class="queueOpen ? 'rotate-180' : ''" />
               </button>
               <button class="flex items-center gap-1 text-[11px] text-accent" :disabled="busy" @click="action('pause', { paused: !detail?.paused })">
                 <Icon :name="detail?.paused ? Play : Pause" :size="13" />{{ detail?.paused ? 'Resume' : 'Pause queue' }}
@@ -392,7 +410,7 @@ function key(event: KeyboardEvent) {
                     <Icon :name="Trash2" :size="14" />
                   </button>
                 </template>
-                <span v-else class="text-[10px] text-muted">Sending…</span>
+                <span v-else class="text-[10px] text-muted">{{ detail?.paused ? 'Waiting to resume' : 'Waiting for the agent' }}</span>
               </li>
             </ul>
           </div>
@@ -413,7 +431,7 @@ function key(event: KeyboardEvent) {
             <div v-if="uploadProgress" class="mb-2 text-xs text-accent" role="status">
               {{ uploadProgress }}
             </div>
-            <textarea ref="textarea" v-model="draft" aria-label="Message" :placeholder="active ? 'Add a follow-up…' : 'Message your agent…'" rows="2" maxlength="50000" class="block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!" @keydown="key" />
+            <textarea ref="textarea" v-model="draft" aria-label="Message" :placeholder="responding ? 'Add a follow-up…' : 'Message your agent…'" rows="2" maxlength="50000" class="block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!" @keydown="key" />
             <div v-if="options" class="mb-3 border-t border-line pt-3">
               <ModelSettings v-model:model="model" v-model:reasoning="reasoning" inherit :default-model="selectedAgent?.model" :default-reasoning="selectedAgent?.reasoning" :disabled="busy" /><p class="my-1! text-[10px] text-muted">
                 Model and reasoning changes apply to the next turn.
@@ -437,7 +455,7 @@ function key(event: KeyboardEvent) {
                   <Icon :name="Zap" :size="14" /><span class="phone:hidden">Steer now</span><span class="hidden phone:inline">Steer</span>
                 </UiButton>
                 <UiButton type="submit" variant="primary" size="small" :disabled="busy || !canSend">
-                  <Icon :name="editing ? Pencil : active ? Plus : Send" :size="16" />{{ editing ? 'Save' : active || detail?.paused ? 'Queue' : 'Send' }}
+                  <Icon :name="editing ? Pencil : responding ? Plus : Send" :size="16" />{{ submitting ? 'Sending…' : editing ? 'Save' : responding || detail?.paused ? 'Queue' : 'Send' }}
                 </UiButton>
               </div>
             </div>

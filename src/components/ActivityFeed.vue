@@ -2,6 +2,7 @@
 import type { Deliverable } from '../../shared/artifacts'
 import type { RunEvent, TaskOutcome } from '../../shared/contracts'
 import type { ActivityArtifact } from '../activity'
+import type { SendingMessage } from '../chat-delivery'
 import type { ReadingPosition } from '../history-cache'
 import { twMerge } from 'tailwind-merge'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
@@ -20,10 +21,18 @@ import ChatOutcome from './ChatOutcome.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], sending?: SendingMessage[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string }>()
 const emit = defineEmits<{ load: [], position: [value: ReadingPosition, key?: string] }>()
-const entries = computed(() => deliveryEntries(activityEntries(props.events, props.chat), props.deliverables ?? []))
-const visibleOutcome = computed(() => props.chat && !props.active && !props.loading ? props.outcome : null)
+const entries = computed(() => {
+  const entries = activityEntries(props.events, props.chat)
+  const acknowledged = new Set(props.events.filter(event => event.type === 'chat.user').map(event => event.payload?.messageId))
+  for (const { message, label } of props.sending ?? []) {
+    if (!acknowledged.has(message.id))
+      entries.push({ kind: 'message', role: 'user', id: `sending:${message.id}`, time: message.createdAt, text: message.text, attachments: message.attachments, delivery: label })
+  }
+  return deliveryEntries(entries, props.deliverables ?? [])
+})
+const visibleOutcome = computed(() => props.chat && !props.active && !props.sending?.length && !props.loading ? props.outcome : null)
 const outcomeEntryId = computed(() => {
   const items = entries.value
   let index = items.findLastIndex(entry => entry.kind === 'message')
@@ -211,6 +220,9 @@ defineExpose({
                   {{ entry.text }}
                 </p>
                 <ActivityContent v-else :content="entry.text" />
+                <p v-if="entry.delivery" role="status" class="mt-2! mb-0! text-[11px] text-muted">
+                  {{ entry.delivery }}
+                </p>
                 <ChatAttachments v-if="entry.attachments?.length" :attachments="entry.attachments" class="mt-3!" />
               </article>
               <ChatNotice v-else-if="entry.kind === 'notice'" :notice="entry.artifact" />
@@ -229,7 +241,7 @@ defineExpose({
 
             <ChatOutcome v-if="visibleOutcome && !outcomeEntryId" :key="`${visibleOutcome.messageId}:${visibleOutcome.reportedAt}`" :outcome="visibleOutcome" :agent="agent" />
 
-            <div v-if="active" class="activity-working flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
+            <div v-if="active && !sending?.length" class="activity-working flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
               <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0 live" />{{ events.length ? 'Your agent is working…' : 'Waiting for the worker…' }}
             </div>
             <div v-else-if="!chat" class="activity-end flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">

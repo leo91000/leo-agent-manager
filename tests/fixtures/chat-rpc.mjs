@@ -28,7 +28,7 @@ export function chatFixture() {
     notify('turn/completed', { threadId: thread.id, turn: active })
     active = null
   }
-  return (request) => {
+  const handle = (request) => {
     const { method, params } = request
     if (!method && request.id === 'auth-refresh') {
       if (!request.result?.accessToken?.endsWith('-refreshed') || request.result.chatgptAccountId !== globalThis.fixtureAccountId || request.result.refresh_token)
@@ -69,6 +69,10 @@ export function chatFixture() {
       emit({ id: request.id, result: { data: data.slice(start, end), nextCursor: end < data.length ? `${end}` : null } })
     }
     if (method === 'turn/start' || method === 'turn/steer') {
+      if (params.input[0].text.includes('fixture:slow-delivery') && !request.delayed) {
+        setTimeout(handle, 8000, { ...request, delayed: true })
+        return true
+      }
       if (method === 'turn/steer' && (!active || active.id !== params.expectedTurnId)) {
         emit({ id: request.id, error: { code: -32000, message: 'Turn has finished' } })
         return true
@@ -163,4 +167,5 @@ export function chatFixture() {
     }
     return true
   }
+  return handle
 }
