@@ -245,20 +245,14 @@ async function logout() {
       @keydown="navigationKey"
       @click="navigationClick"
     >
-      <div class="sidebar-heading flex items-center justify-between gap-2">
-        <RouterLink to="/" class="wordmark flex items-center gap-[9px] text-[#f0eff7] [font-size:29px] tracking-[-1px] font-bold font-heading tablet:[font-size:25px]">
-          <span class="logo-mark w-8 h-8 grid place-items-center bg-brand rounded-[9px] text-white [transform:rotate(-7deg)] [box-shadow:2px_2px_0_light-dark(#292943,_#0d0d18)]"><Icon :name="Zap" :size="24" /></span>leo<span
-            class="wordmark-tag [font:600_8px/1.5_'DM_Sans_Variable',_sans-serif] tracking-[1.7px] max-w-[65px] whitespace-normal ml-[3px] text-[#a7a5ba] hidden tablet:[font-size:7px]"
-          >AGENT MANAGER</span>
+      <div class="sidebar-heading flex items-center justify-between gap-2 mb-6 px-1.5">
+        <RouterLink to="/" class="flex items-center gap-2 text-ink text-lg font-bold font-heading" aria-label="Leo home">
+          <span class="grid size-7 place-items-center rounded-lg bg-brand text-white"><Icon :name="Zap" :size="18" /></span>Leo
         </RouterLink>
         <button :class="twMerge(iconButton, 'icon-button navigation-close hidden text-muted phone:inline-flex')" aria-label="Close navigation" @click="mobile = false">
           <Icon :name="X" :size="22" />
         </button>
       </div>
-      <div class="workspace-switch flex items-center gap-2.5 text-left mt-9 mb-[25px] border-0 rounded-[9px] text-2xs font-semibold bg-transparent text-ink px-1.5 py-0 mx-0">
-        <span class="workspace-avatar grid place-items-center bg-[light-dark(#eeedff,_#34314c)] border-0 text-accent text-2xs w-7 h-7 rounded-full shrink-0">L</span><span>Personal workspace</span>
-      </div>
-
       <nav>
         <RouterLink
           v-for="item in nav"
@@ -279,7 +273,7 @@ async function logout() {
           >{{ state.tasks.length }}</span>
         </RouterLink>
       </nav>
-      <div class="sidebar-bottom mt-auto pt-6">
+      <div class="sidebar-bottom mt-auto pt-6 pb-5 phone:pb-[max(22px,_env(safe-area-inset-bottom))]">
         <RouterLink
           to="/connections"
           :class="{ active: route.path === '/connections' }"
@@ -293,9 +287,6 @@ async function logout() {
         </RouterLink><button @click="logout">
           <Icon :name="LogOut" :size="18" />Sign out
         </button>
-        <div class="sidebar-user mt-[17px] border-t flex items-center gap-[9px] text-2xs text-ink border-line phone:pb-[max(22px,_env(safe-area-inset-bottom))] px-1 py-5.5">
-          <span class="workspace-avatar grid place-items-center bg-[light-dark(#eeedff,_#34314c)] border-0 text-accent text-2xs w-7 h-7 rounded-full shrink-0">L</span><span>Workspace owner</span><span class="online-dot w-1.5 h-1.5 rounded-full bg-[light-dark(#7772e4,_#b8b2ff)] ml-auto" />
-        </div>
       </div>
     </aside>
     <div class="main-area ml-50.5 flex h-full min-h-0 min-w-0 w-[calc(100%_-_202px)] flex-col phone:ml-0 phone:w-full [@media(641px<=width<=1150px)]:ml-45 [@media(641px<=width<=1150px)]:w-[calc(100%_-_180px)]" :inert="narrow && mobile">
@@ -310,7 +301,7 @@ async function logout() {
             @click="mobile = true"
           >
             <Icon :name="Menu" :size="22" />
-          </button><span>Workspace</span><span class="slash text-subtle">/</span><strong>{{
+          </button><strong>{{
             route.path.startsWith("/chats")
               ? "Chats"
               : route.path.startsWith("/runs/")

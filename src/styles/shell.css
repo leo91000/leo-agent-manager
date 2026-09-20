@@ -15,14 +15,6 @@ body:has(.sidebar.open), body:has(dialog[open]) {
   flex-shrink: 0;
 }
 
-.workspace-switch small, .sidebar-user small {
-  display: block;
-  color: #8987a2;
-  font-size: 11px;
-  margin-top: 4px;
-  font-weight: 400;
-}
-
 .sidebar nav {
   display: flex;
   flex-direction: column;
@@ -334,12 +326,6 @@ body:has(.sidebar.open), body:has(dialog[open]) {
   opacity: 1;
 }
 
-@media (max-width: 640px) {
-  .breadcrumb > span {
-    display: none;
-  }
-}
-
 h1 {
   font-size: 30px;
   font-weight: 700;
@@ -348,12 +334,6 @@ h1 {
 
 h2 {
   font-weight: 700;
-}
-
-.sidebar .wordmark {
-  color: var(--color-ink);
-  font-size: 30px;
-  letter-spacing: -1.4px;
 }
 
 .sidebar nav a, .sidebar-bottom > a, .sidebar-bottom > button {
