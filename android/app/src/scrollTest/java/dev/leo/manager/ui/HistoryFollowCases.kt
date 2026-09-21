@@ -14,6 +14,7 @@ import androidx.test.core.app.ApplicationProvider
 import android.content.Context
 import java.io.File
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -77,7 +78,7 @@ abstract class HistoryFollowCases {
         compose.setContent {
             list = rememberLazyListState()
             rendering = remember { MarkdownRendering() }
-            gesture = rememberHistoryFollowGesture(list) { follow = it }
+            gesture = rememberHistoryFollowGesture(list, follow) { follow = it }
             FollowHistoryTail(list, follow, text, rendering, gesture)
             LeoTheme("dark") {
                 Surface(Modifier.fillMaxWidth().height(height.dp)) {
@@ -208,6 +209,24 @@ abstract class HistoryFollowCases {
         val reading = position()
         append()
         assertEquals(reading, position())
+    }
+
+    @Test fun accessibilityScrollCommandsRespectReadingIntent() {
+        start()
+        history.performSemanticsAction(SemanticsActions.ScrollBy) { assertTrue(it(0f, -120f)) }
+        settle()
+        compose.runOnIdle { assertFalse("Accessibility scrolling toward older text must unpin", follow) }
+        val reading = position()
+        append()
+        assertEquals("Streaming preserves the accessibility reader's position", reading, position())
+        history.performSemanticsAction(SemanticsActions.ScrollToIndex) {
+            assertTrue(it(list.layoutInfo.totalItemsCount - 1))
+        }
+        settle()
+        compose.runOnIdle {
+            assertTrue("Explicitly returning to the end resumes follow", follow)
+            assertFalse(list.canScrollForward)
+        }
     }
 
     @Test fun holdingWithoutMovingResumesFollowOnReleaseButNeverRepinsAReader() {

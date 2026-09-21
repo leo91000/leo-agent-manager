@@ -388,7 +388,7 @@ fun ChatScreen(
         reasoning = message.reasoning
         attachments = message.attachments.map { DraftAttachment(it) }
     }
-    val followGesture = rememberHistoryFollowGesture(listState) { follow = it }
+    val followGesture = rememberHistoryFollowGesture(listState, follow) { follow = it }
     FollowHistoryTail(
         listState,
         positionReady && follow && !gallery && !live.catchingUp,

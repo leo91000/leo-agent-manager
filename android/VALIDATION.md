@@ -2,10 +2,13 @@
 
 The selected Fil design retains the web palette and bundles DM Sans / Manrope,
 with a compact header/composer, flat task rows and a horizontal inline file rail.
-Two additional native UI cases bring the JVM/Robolectric suite to 92 tests. They
+Two additional native UI cases and an accessibility-scroll regression bring the
+JVM/Robolectric suite to 93 tests. The UI cases
 measure the header, composer and file rail on a 360 dp phone at normal and 130%
 font scale, then scroll to the third file and open its native viewer. Existing
 phone/tablet, long-link, keyboard, history and task-management cases remain.
+The shared device suite also verifies explicit accessibility scrolling and
+deferred native text relocation after a stationary touch (13 cases total).
 
 Run `./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` from
 `android/`. Add `-PleoScreenshotsDir=/absolute/path` for native-graphics previews.

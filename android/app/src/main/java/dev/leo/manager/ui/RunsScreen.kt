@@ -190,7 +190,7 @@ fun RunScreen(
             if (run.active) tab = 1
         }
     }
-    val followGesture = rememberHistoryFollowGesture(logState) { follow = it }
+    val followGesture = rememberHistoryFollowGesture(logState, follow) { follow = it }
     FollowHistoryTail(
         logState,
         positionReady && follow && tab == 1 && !more,

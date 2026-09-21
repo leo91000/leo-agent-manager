@@ -5,12 +5,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.test.core.app.ApplicationProvider
 import dev.leo.manager.data.*
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -52,6 +54,8 @@ class CacheMissReproductionTest {
         try {
             MockWebServer().use { server ->
                 val requests = CopyOnWriteArrayList<String>()
+                val olderRequested = CountDownLatch(1)
+                val releaseOlder = CountDownLatch(1)
                 val output = "x".repeat(if (large) 2200 * 1024 else 100)
                 fun message(n: Int) = RunEvent(n.toLong(), n.toLong(), "chat.user", if (n == 40) "Message témoin" else "Message %03d".format(n))
                 val accepted = if (paged) 40 else 2
@@ -96,6 +100,8 @@ class CacheMissReproductionTest {
                         if (request.path.orEmpty().contains("/history?")) {
                             assertEquals("21", request.requestUrl?.queryParameter("before"))
                             assertEquals("v1:fixture:1", request.requestUrl?.queryParameter("history"))
+                            olderRequested.countDown()
+                            check(releaseOlder.await(30, TimeUnit.SECONDS)) { "History response was not released" }
                             return MockResponse().setHeader("Content-Type", "application/json")
                                 .setBody(wireJson.encodeToString(HistoryPage((1..20).map(::message), "v1:fixture:1", 1, false)))
                         }
@@ -148,12 +154,17 @@ class CacheMissReproductionTest {
                     compose.onNodeWithText("Message témoin").assertIsDisplayed()
                     if (large) compose.onNodeWithText("Messages précédents").assertExists()
                     if (paged) {
-                        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Messages précédents"))
+                        // Explicit accessibility scrolling also enables automatic paging.
+                        // Hold the response so the real reading anchor can be measured;
+                        // the transient load button may already have become a spinner.
+                        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Message 021"))
+                        compose.waitUntil(10000) { olderRequested.count == 0L }
                         compose.waitForIdle()
                         val before = compose.onNodeWithText("Message 021").fetchSemanticsNode().boundsInRoot.top
-                        compose.onNodeWithText("Messages précédents").performClick()
+                        releaseOlder.countDown()
                         compose.waitUntil(10000) {
-                            compose.onAllNodesWithText("Messages précédents").fetchSemanticsNodes().isEmpty()
+                            compose.onNodeWithTag("conversation-history").fetchSemanticsNode()
+                                .config[SemanticsProperties.CollectionInfo].rowCount == 40
                         }
                         // Receiving the page removes the loader before the asynchronous
                         // reading-anchor restoration has finished its next layout.
@@ -169,6 +180,7 @@ class CacheMissReproductionTest {
                     }
 
                 } finally {
+                    releaseOlder.countDown()
                     compose.runOnIdle { opened = false }
                     compose.waitForIdle()
                     vm.api.closeStreams()

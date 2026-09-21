@@ -14,21 +14,76 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.scrollBy
+import androidx.compose.ui.semantics.scrollByOffset
+import androidx.compose.ui.semantics.scrollToIndex
 import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.launch
 
 /** Observe gestures without consuming them or deriving intent from streaming layout changes. */
 internal class HistoryFollowGesture(
     private val list: LazyListState,
-    private val changeFollow: (Boolean) -> Unit,
+    private val scope: CoroutineScope,
+    private val emitFollow: (Boolean) -> Unit,
 ) : NestedScrollConnection {
+    // Stop already queued follow work immediately; recomposition can occur
+    // after its next frame callback, especially for semantic scroll actions.
+    var followRequested = true
+        private set
+
+    fun syncFollow(value: Boolean) { followRequested = value }
+
+    private fun changeFollow(value: Boolean) {
+        followRequested = value
+        emitFollow(value)
+    }
+
     var touching by mutableStateOf(false)
         private set
     private var flinging by mutableStateOf(false)
     private var moved = false
     private var pointerMoved = false
     private var nonTouchScroll = false
-    val busy get() = touching || flinging
+    private var semanticScrolls by mutableIntStateOf(0)
+    val busy get() = touching || flinging || semanticScrolls > 0
+
+    // Accessibility actions are explicit reading intent too. Native focus
+    // relocation has no such action and must not silently turn following off.
+    fun semanticScrollBy(y: Float) = semanticScroll { list.scrollBy(y) }
+
+    suspend fun semanticScrollOffset(offset: Offset): Offset {
+        changeFollow(false)
+        semanticScrolls++
+        try {
+            val consumed = list.scrollBy(offset.y)
+            changeFollow(!list.canScrollForward)
+            return Offset(0f, consumed)
+        } finally {
+            semanticScrolls--
+        }
+    }
+
+    fun semanticScrollTo(index: Int): Boolean {
+        require(index in 0 until list.layoutInfo.totalItemsCount) { "Invalid history index: $index" }
+        return semanticScroll { list.scrollToItem(index) }
+    }
+
+    private fun semanticScroll(action: suspend () -> Unit): Boolean {
+        changeFollow(false)
+        semanticScrolls++
+        scope.launch {
+            try {
+                action()
+                changeFollow(!list.canScrollForward)
+            } finally {
+                semanticScrolls--
+            }
+        }
+        return true
+    }
 
     fun contact(down: Boolean) {
         touching = down
@@ -81,13 +136,20 @@ internal class HistoryFollowGesture(
 }
 
 @Composable
-internal fun rememberHistoryFollowGesture(list: LazyListState, changeFollow: (Boolean) -> Unit): HistoryFollowGesture {
+internal fun rememberHistoryFollowGesture(list: LazyListState, follow: Boolean, changeFollow: (Boolean) -> Unit): HistoryFollowGesture {
     val currentChange by rememberUpdatedState(changeFollow)
-    return remember(list) { HistoryFollowGesture(list) { currentChange(it) } }
+    val scope = rememberCoroutineScope()
+    return remember(list, scope) { HistoryFollowGesture(list, scope) { currentChange(it) } }
+        .also { it.syncFollow(follow) }
 }
 
 internal fun Modifier.historyFollowGesture(gesture: HistoryFollowGesture): Modifier =
     nestedScroll(gesture)
+        .semantics {
+            scrollBy { _, y -> gesture.semanticScrollBy(y) }
+            scrollByOffset { gesture.semanticScrollOffset(it) }
+            scrollToIndex { gesture.semanticScrollTo(it) }
+        }
         .onPreviewKeyEvent { event ->
             if (event.type == KeyEventType.KeyDown && event.key in listOf(
                     Key.DirectionUp, Key.DirectionDown, Key.PageUp, Key.PageDown,
@@ -147,7 +209,7 @@ internal fun FollowHistoryTail(
             Triple(geometry, rendering.revision, currentContent)
         }.conflate().collect {
             withFrameNanos { }
-            if (gesture?.busy == true) return@collect
+            if (gesture?.let { it.busy || !it.followRequested } == true) return@collect
             val count = list.layoutInfo.totalItemsCount
             if (count > 0) {
                 // Locate the last item first, then use its measured bottom. Its
@@ -156,7 +218,7 @@ internal fun FollowHistoryTail(
                     list.scrollToItem(count - 1)
                     withFrameNanos { }
                 }
-                if (gesture?.busy == true) return@collect
+                if (gesture?.let { it.busy || !it.followRequested } == true) return@collect
                 val info = list.layoutInfo
                 val last = info.visibleItemsInfo.lastOrNull { it.index == count - 1 }
                 if (last != null) {
