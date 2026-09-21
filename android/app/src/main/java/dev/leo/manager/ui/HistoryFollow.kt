@@ -90,6 +90,9 @@ internal fun Modifier.historyFollowGesture(gesture: HistoryFollowGesture): Modif
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     if (event.changes.any { it.position != it.previousPosition }) gesture.motion()
                 } while (event.changes.any { it.pressed })
+                // Keep the contact active until selectable child views have handled
+                // the release; their focus relocation is still part of this tap.
+                awaitPointerEvent(PointerEventPass.Final)
             } finally {
                 gesture.contact(false)
             }
