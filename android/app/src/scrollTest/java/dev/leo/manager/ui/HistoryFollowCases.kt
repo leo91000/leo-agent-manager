@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.test.core.app.ApplicationProvider
 import android.content.Context
@@ -217,6 +218,11 @@ abstract class HistoryFollowCases {
         append()
         compose.runOnIdle { assertTrue("Streaming under a stationary finger must retain follow intent", follow) }
         history.performTouchInput { up() }
+        // Native text focus can report relocation after the pointer event has
+        // finished. Reproduce that late callback on both JVM and device runners.
+        compose.runOnIdle {
+            gesture.onPostScroll(Offset(0f, 1f), Offset.Zero, NestedScrollSource.UserInput)
+        }
         settle()
         compose.runOnIdle {
             assertFalse("Release clears the active touch", gesture.touching)

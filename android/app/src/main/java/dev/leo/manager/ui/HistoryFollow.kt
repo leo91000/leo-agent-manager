@@ -7,9 +7,11 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Velocity
@@ -25,6 +27,7 @@ internal class HistoryFollowGesture(
     private var flinging by mutableStateOf(false)
     private var moved = false
     private var pointerMoved = false
+    private var nonTouchScroll = false
     val busy get() = touching || flinging
 
     fun contact(down: Boolean) {
@@ -33,6 +36,7 @@ internal class HistoryFollowGesture(
             flinging = false
             moved = false
             pointerMoved = false
+            nonTouchScroll = false
         }
     }
 
@@ -40,13 +44,16 @@ internal class HistoryFollowGesture(
         pointerMoved = true
     }
 
+    fun wheelOrKey() {
+        nonTouchScroll = true
+    }
+
     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-        // Selectable Android text can request a relocation during a held press
-        // when streamed text is rebound. A nested-scroll label alone does not
-        // establish that the reader actually moved their finger.
-        if (touching && !pointerMoved && source == NestedScrollSource.UserInput)
-            return Offset.Zero
-        if (source == NestedScrollSource.UserInput || flinging) {
+        // Native selectable text can relocate after release as well as during
+        // rebinding. Require an observed input, not just a UserInput scroll label.
+        val directInput = source == NestedScrollSource.UserInput &&
+            ((touching && pointerMoved) || nonTouchScroll)
+        if (directInput || flinging) {
             if (consumed.y > 0f) {
                 // Touch slop has already been handled by LazyColumn. Any actual
                 // movement toward older content wins, even during a fast stream.
@@ -80,7 +87,23 @@ internal fun rememberHistoryFollowGesture(list: LazyListState, changeFollow: (Bo
 }
 
 internal fun Modifier.historyFollowGesture(gesture: HistoryFollowGesture): Modifier =
-    nestedScroll(gesture).pointerInput(gesture) {
+    nestedScroll(gesture)
+        .onPreviewKeyEvent { event ->
+            if (event.type == KeyEventType.KeyDown && event.key in listOf(
+                    Key.DirectionUp, Key.DirectionDown, Key.PageUp, Key.PageDown,
+                    Key.MoveHome, Key.MoveEnd, Key.Spacebar,
+                )) gesture.wheelOrKey()
+            false
+        }
+        .pointerInput(gesture) {
+            awaitPointerEventScope {
+                while (true) {
+                    if (awaitPointerEvent(PointerEventPass.Initial).type == PointerEventType.Scroll)
+                        gesture.wheelOrKey()
+                }
+            }
+        }
+        .pointerInput(gesture) {
         awaitEachGesture {
             // Initial pass also observes touches handled by selectable Android text.
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
