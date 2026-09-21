@@ -278,7 +278,9 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
                     .performClick()
                     .performTextInput("Un brouillon sur téléphone")
                 compose.runOnIdle { checkNotNull(keyboard).show() }
-                compose.waitUntil(15000) {
+                // A fresh Android 16 CI image can spend over 15 seconds initializing
+                // Gboard. Still require a genuinely visible IME before checking layout.
+                compose.waitUntil(30000) {
                     compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes()
                     imeVisible
                 }
