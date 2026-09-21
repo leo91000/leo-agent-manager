@@ -138,7 +138,10 @@ class CacheMissReproductionTest {
                     assertNotNull("Both sizes retain recent messages", cached)
                     compose.runOnIdle { opened = true }
                     compose.waitForIdle()
-                    compose.waitUntil(10000) { requests.size >= 2 }
+                    compose.waitUntil(10000) {
+                        // Drain the Android main looper while waiting for the reconnect.
+                        compose.onAllNodesWithText("Diagnostic cache").fetchSemanticsNodes().isNotEmpty() && requests.size >= 2
+                    }
                     compose.waitForIdle()
                     assertEquals("/api/chats/diagnostic/stream?after=$accepted&history=v1%3Afixture%3A1&window=1", requests[1])
                     compose.onNodeWithText("Diagnostic cache").assertIsDisplayed()
