@@ -5,9 +5,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -176,7 +176,7 @@ class NativeParityPreviewTest {
                 )
             lateinit var activity: ComponentActivity
             compose.setContent {
-                activity = LocalContext.current as ComponentActivity
+                activity = LocalActivity.current as ComponentActivity
                 LaunchedEffect(Unit) {
                     vm.state.first { it.ready }
                     vm.connect(server.url("/").toString())
