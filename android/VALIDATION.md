@@ -17,7 +17,8 @@ also passed.
 Two additional native-preview tests cover phone and tablet layouts, long URLs,
 completion evidence, task selection, the tablet chooser and selecting the main
 agent by default when another agent appears first. They bring the complete suite
-to 89 tests. The final commit's PR checks are the authoritative validation of
+to 89 tests. An additional same-frame paging case brings the final suite to
+90; it is also included in the device selection (12 cases). The final commit's PR checks are the authoritative validation of
 these final additions.
 
 Preview images generated with `-PleoScreenshotsDir=...` use Robolectric native
@@ -29,6 +30,11 @@ feel, screen-reader review and frame-time measurement have not been certified.
 A race discovered by the device suite is fixed: the initial asynchronous Markdown
 render can finish only once, including when its view is disposed during layout.
 Two dedicated tests prevent the pending-render count from going negative.
+A later held-finger device run exposed a missed reading anchor when a history
+response overtook the scroll observer. Paging now also captures the visible old
+message during response composition, before newly inserted rows are measured.
+The same-frame case checks the anchor and absence of cascading page requests;
+the existing held-finger case continues checking real pointer input.
 
 Package `dev.leo.manager`; minSdk 26; targetSdk 37; version **0.6.0 / code 15**.
 The downloadable APK is development-signed; the optimized release build is

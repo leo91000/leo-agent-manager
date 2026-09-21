@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -170,6 +171,22 @@ internal fun rememberHistoryPaging(
     var headerAnchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
     var settling by remember(list) { mutableStateOf(false) }
     var requested by remember(list) { mutableStateOf<Pair<String?, Long>?>(null) }
+    var requestedKeys by remember(list) { mutableStateOf(emptySet<String>()) }
+    // Composition sees the old layout before the response's new rows are measured.
+    // A deferred snapshotFlow collector may not have observed the final pointer MOVE
+    // when a response cancels it. Capture that latest old-message anchor directly.
+    // Ignore newly inserted keys and avoid subscribing composition to every scroll.
+    val responseLayout =
+        if (!live.loadingOlder && settling)
+            Snapshot.withoutReadObservation { list.layoutInfo.visibleItemsInfo.toList() }
+        else emptyList()
+    val oldVisibleMessage =
+        responseLayout.firstOrNull { it.key != "history:older" }
+            ?.takeIf { it.key.toString() in requestedKeys }
+    val responseAnchor =
+        if (responseLayout.firstOrNull()?.key == "history:older")
+            oldVisibleMessage?.let { it.key.toString() to -it.offset }
+        else null
     LaunchedEffect(list, live.loadingOlder) {
         val before = live.oldest
         if (live.loadingOlder)
@@ -193,7 +210,9 @@ internal fun rememberHistoryPaging(
         val responseArrived =
             requested != (live.history to live.oldest) || live.olderError != null || !live.hasOlder
         if (!live.loadingOlder && settling && responseArrived) {
-            val saved = headerAnchor
+            // A known old layout away from the header deliberately clears a stale anchor:
+            // ordinary lazy-list key anchoring already preserves that reading position.
+            val saved = if (oldVisibleMessage != null) responseAnchor else headerAnchor
             headerAnchor = null
             if (saved != null) {
                 val index = keys.indexOf(saved.first)
@@ -228,6 +247,7 @@ internal fun rememberHistoryPaging(
                 } else null
             settling = true
             requested = current.history to current.oldest
+            requestedKeys = keys.toSet()
             stopFollowing()
             current.loadOlder()
         }

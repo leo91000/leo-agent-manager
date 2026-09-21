@@ -24,6 +24,12 @@ class HistoryFollowDeviceTest : HistoryFollowCases() {
             .pageArrivingDuringAHeldDragPreservesTextAndDoesNotCascade()
     }
 
+    @Test
+    fun cachedPagePreservesMovementFromTheSameFrame() {
+        object : HistoryPagingCases(compose) {}
+            .responseInTheSameFrameAsReachingTheHeaderKeepsTheLatestText()
+    }
+
     // The existing CI device entry point also exercises the complete native app.
     @Test
     fun compactConversationAndKeyboard() =

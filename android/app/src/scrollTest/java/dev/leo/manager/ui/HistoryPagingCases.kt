@@ -184,6 +184,26 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
         compose.runOnIdle { assertEquals(1, requests); assertEquals(moved, offset()) }
     }
 
+    @Test fun responseInTheSameFrameAsReachingTheHeaderKeepsTheLatestText() {
+        start(initialOffset = 100)
+        var before = 0
+        compose.runOnIdle {
+            // A cached response can arrive before snapshotFlow observes this layout.
+            // Keep movement and response in one main-thread turn to exercise that race.
+            list.dispatchRawDelta(-250f)
+            assertEquals("history:older", list.layoutInfo.visibleItemsInfo.first().key)
+            before = offset()!!
+            numbers = (16..40).toList()
+            loading = false
+        }
+        compose.waitForIdle()
+        compose.waitUntil(20000) { rendering.pending == 0 && offset() == before }
+        compose.runOnIdle {
+            assertEquals("The response must preserve the latest layout, even before its observer runs", before, offset())
+            assertEquals("A cached response must not cascade into another page", 1, requests)
+        }
+    }
+
     @Test fun readingDeepInsideALongFirstMessageDoesNotLoadOlderPages() {
         start(initialOffset = 1800, expectLoading = false)
         compose.mainClock.advanceTimeBy(300)
