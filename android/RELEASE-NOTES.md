@@ -1,4 +1,25 @@
-# Leo Android 0.5.6 — stop cascading history loads
+# Leo Android 0.6.0 — native web parity
+
+- Compact Conversations header with a searchable, dated native conversation sheet.
+  Switching conversations retains message, model and attachment drafts.
+- Ordinary sends appear in the transcript. The waiting queue is collapsible;
+  steering, pause, edit, remove and stop remain available.
+- Agent-reported completion appears below the reply with expandable evidence.
+  Blocked and input-required reasons remain visible. Routine session notices stay hidden.
+- Tasks use a grouped inbox, a compact chooser on phones and a side pane on large
+  windows. Conversation, Result and Files have native tabs. Task and execution
+  details are sheets; management and recovery actions remain available.
+- Fullscreen reading, selectable messages, consistent Markdown font scaling,
+  compact Leo navigation and search across tasks, agents, projects and skills.
+- Project source mode and starting revisions match the web. Agent access editing
+  matches shared GitHub restrictions, dedicated tokens and MCP tool selection.
+- Existing encrypted history, stable scrolling, files, questions, connections and
+  native authentication flows are retained. No backend migration is required.
+
+Validation is recorded separately in [WEB-PARITY.md](docs/WEB-PARITY.md) and
+[VALIDATION.md](VALIDATION.md).
+
+## Previous release: Leo Android 0.5.6 — stop cascading history loads
 
 - Loading an older page waits for the viewport to settle before automatic paging
   can re-arm. A response alone no longer triggers the next page.

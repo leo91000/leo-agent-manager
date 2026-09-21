@@ -37,11 +37,7 @@ class NativeUiTest {
         val restoration = StateRestorationTester(compose)
         restoration.setContent {
             LeoTheme {
-                TaskEditor(
-                    vm,
-                    workspace,
-                    Task(agentId = "agent", projectId = "project"),
-                ) {}
+                TaskEditor(vm, workspace, Task(agentId = "agent", projectId = "project")) {}
             }
         }
         compose.onNodeWithText("Enregistrer").assertIsNotEnabled()
@@ -90,14 +86,16 @@ class NativeUiTest {
                 ) {}
             }
         }
-        compose.onNodeWithText("Revue quotidienne").assertExists()
+        compose.onAllNodesWithText("Revue quotidienne").onFirst().assertExists()
         compose.onNodeWithText("Ancienne mission").assertDoesNotExist()
         screenshot("tasks")
+        compose.onNodeWithText("Tâches").performClick()
         compose.onNodeWithText("Toutes").performClick()
         compose.onNodeWithText("Archivées").performClick()
-        compose.onNodeWithText("Ancienne mission").assertExists()
+        compose.onAllNodesWithText("Ancienne mission").onFirst().assertExists()
         compose.onNodeWithText("Revue quotidienne").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Lancer").assertIsNotEnabled()
+        compose.onAllNodesWithText("Ancienne mission").onLast().performClick()
+        compose.onNodeWithText("Lancer").assertIsNotEnabled()
     }
 
     @Test

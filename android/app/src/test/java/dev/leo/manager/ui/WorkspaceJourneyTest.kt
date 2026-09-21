@@ -36,6 +36,9 @@ class WorkspaceJourneyTest {
 
     @org.junit.Before
     fun initializeWork() {
+        runBlocking {
+            Preferences(ApplicationProvider.getApplicationContext<Application>()).setTheme("system")
+        }
         androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(
             ApplicationProvider.getApplicationContext<Application>(),
             androidx.work.Configuration.Builder()
@@ -54,6 +57,9 @@ class WorkspaceJourneyTest {
         MockWebServer().use { server ->
             val mutations = CopyOnWriteArrayList<Pair<String, String>>()
             var created = false
+            var launched = false
+            val existingTask =
+                """{"id":"older-task","name":"Mission précédente","prompt":"Ancienne mission","agentId":"agent"}"""
             val task =
                 """{"id":"task","name":"Nouvelle mission","prompt":"Vérifier le projet","agentId":"agent","projectId":null,"skills":null}"""
             server.dispatcher =
@@ -71,6 +77,8 @@ class WorkspaceJourneyTest {
                             }
                             mutations += path to request.body.readUtf8()
                         }
+                        if (request.method == "POST" && path == "/api/tasks/task/run")
+                            launched = true
                         val data =
                             when (path) {
                                 "/api/session" ->
@@ -86,10 +94,13 @@ class WorkspaceJourneyTest {
                                 "/api/projects" ->
                                     """[{"id":"project","name":"Leo Agent Manager","path":"/fixtures/leo"}]"""
                                 "/api/mcps",
-                                "/api/tasks/activity",
                                 "/api/skills",
                                 "/api/tokens",
                                 "/api/audit" -> "[]"
+                                "/api/tasks/activity" ->
+                                    if (launched)
+                                        "[{\"id\":\"run\",\"taskId\":\"task\",\"status\":\"running\"}]"
+                                    else "[]"
                                 "/api/codex/models" -> "{\"models\":[]}"
                                 "/api/chats/stream" ->
                                     return MockResponse()
@@ -190,10 +201,11 @@ class WorkspaceJourneyTest {
                                     if (request.method == "POST") {
                                         created = true
                                         task
-                                    } else if (created) "[$task]" else "[]"
+                                    } else if (created) "[$existingTask,$task]"
+                                    else "[$existingTask]"
                                 "/api/tasks/task/run",
                                 "/api/runs/run" ->
-                                    """{"id":"run","status":"running","snapshot":{"task":$task,"agent":{"name":"Reviewer"},"project":null,"projects":[{"name":"Leo Agent Manager"}]}}"""
+                                    """{"id":"run","taskId":"task","status":"running","snapshot":{"task":$task,"agent":{"name":"Reviewer"},"project":null,"projects":[{"name":"Leo Agent Manager"}]}}"""
                                 "/api/runs/run/events" ->
                                     """[{"id":1,"createdAt":1789315200000,"type":"run.started","text":"Le worker démarre la mission"}]"""
                                 else ->
@@ -235,21 +247,20 @@ class WorkspaceJourneyTest {
             compose.onNodeWithText("Tâches").performClick()
             compose.waitUntil(10000) {
                 compose
-                    .onAllNodes(hasText("Créer une tâche") and isEnabled())
+                    .onAllNodes(hasContentDescription("Créer une tâche") and isEnabled())
                     .fetchSemanticsNodes()
                     .isNotEmpty()
             }
-            compose.onNodeWithText("Créer une tâche").performClick()
+            compose.onNodeWithContentDescription("Créer une tâche").performClick()
             compose.onNodeWithText("Nom").performTextInput("Nouvelle mission")
             compose
                 .onNodeWithText("Mission et critères de réussite")
                 .performTextInput("Vérifier le projet")
             compose.onNodeWithText("Enregistrer").performClick()
             compose.waitUntil(10000) {
-                compose
-                    .onAllNodesWithContentDescription("Lancer")
-                    .fetchSemanticsNodes()
-                    .isNotEmpty()
+                compose.onAllNodesWithText("Lancer").fetchSemanticsNodes().isNotEmpty() &&
+                    !vm.state.value.busy &&
+                    vm.state.value.tasks.any { it.id == "task" }
             }
             val saved =
                 wireJson
@@ -263,23 +274,22 @@ class WorkspaceJourneyTest {
             assertTrue(
                 saved["skills"] == null || saved["skills"] == kotlinx.serialization.json.JsonNull
             )
-            compose.onNodeWithContentDescription("Lancer").performScrollTo().performClick()
+            compose.onNodeWithText("Lancer").performScrollTo().performClick()
             compose.waitUntil(10000) {
-                compose
-                    .onAllNodesWithText("En cours", substring = true)
-                    .fetchSemanticsNodes()
-                    .isNotEmpty()
+                compose.onAllNodesWithText("L’agent travaille…").fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithText("En cours", substring = true).assertExists()
+            compose.onNodeWithText("L’agent travaille…").assertExists()
             compose.onNodeWithText("1 action de l’agent").performClick()
             compose.onNodeWithText("Travail commencé").performClick()
             compose.onNodeWithText("Le worker démarre la mission").assertExists()
             compose.onNodeWithText("1 action de l’agent").performClick()
             assertTrue(mutations.any { it.first == "/api/tasks/task/run" })
             screenshot("run")
-            compose.onNodeWithContentDescription("Retour").performClick()
-            compose.onNodeWithText("Espace").performClick()
-            compose.onNodeWithText("Paramètres et accès").performClick()
+            compose.onNodeWithText("Plus").performClick()
+            compose.onNodeWithText("Paramètres et accès").performScrollTo().performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithText("Système").fetchSemanticsNodes().isNotEmpty()
+            }
             compose.onNodeWithText("Système").performClick()
             compose.onNodeWithText("Sombre").performClick()
             val preferences = Preferences(ApplicationProvider.getApplicationContext<Application>())

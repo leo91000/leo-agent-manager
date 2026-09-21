@@ -6,6 +6,7 @@ import android.content.Intent
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -18,6 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -218,12 +220,14 @@ fun Choice(
 @Composable
 fun Toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1f))
-        Switch(checked, onChange)
+        Switch(checked, null)
     }
 }
 
@@ -317,16 +321,18 @@ fun Markdown(content: String) {
                                 val uri = link.toUri()
                                 if (uri.scheme in setOf("https", "http") && uri.host != null) {
                                     runCatching {
-                                        CustomTabsIntent.Builder()
-                                            .build()
-                                            .launchUrl(view.context, uri)
-                                    }.onFailure {
-                                        android.widget.Toast.makeText(
-                                            view.context,
-                                            "Aucune application disponible pour ouvrir ce lien.",
-                                            android.widget.Toast.LENGTH_LONG,
-                                        ).show()
-                                    }
+                                            CustomTabsIntent.Builder()
+                                                .build()
+                                                .launchUrl(view.context, uri)
+                                        }
+                                        .onFailure {
+                                            android.widget.Toast.makeText(
+                                                    view.context,
+                                                    "Aucune application disponible pour ouvrir ce lien.",
+                                                    android.widget.Toast.LENGTH_LONG,
+                                                )
+                                                .show()
+                                        }
                                 }
                             }
                         }
@@ -346,17 +352,19 @@ fun Markdown(content: String) {
         val renderer = MarkdownBlocks(markwon)
         // Keep displaying the last complete render while working. Conflation applies
         // to whole texts, after the stream accumulator has accepted every delta.
-        snapshotFlow { currentContent }.conflate().collect { text ->
-            blocks = withContext(Dispatchers.Default) { renderer.render(text) }
-            withFrameNanos { }
-            withFrameNanos { }
-            if (initial) {
-                initial = false
-                rendering?.end()
+        snapshotFlow { currentContent }
+            .conflate()
+            .collect { text ->
+                blocks = withContext(Dispatchers.Default) { renderer.render(text) }
+                withFrameNanos {}
+                withFrameNanos {}
+                if (initial) {
+                    initial = false
+                    rendering?.end()
+                }
+                rendering?.changed()
+                delay(80)
             }
-            rendering?.changed()
-            delay(80)
-        }
     }
     val copyText = remember { { currentContent } }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -366,7 +374,8 @@ fun Markdown(content: String) {
             // Reserve bounded space until the first real measurement is available.
             val sample = content.take(2048)
             val lines = (sample.length / 48 + sample.count { it == '\n' } + 1).coerceIn(2, 32)
-            val lineHeight = with(androidx.compose.ui.platform.LocalDensity.current) { 24.sp.toDp() }
+            val lineHeight =
+                with(androidx.compose.ui.platform.LocalDensity.current) { 24.sp.toDp() }
             Spacer(Modifier.fillMaxWidth().height(lineHeight * lines))
         }
         blocks.forEachIndexed { index, block ->
@@ -376,11 +385,23 @@ fun Markdown(content: String) {
 }
 
 @Composable
-private fun MarkdownBlockView(markwon: Markwon, block: MarkdownBlock, color: Int, linkColor: Int, copyText: () -> String) {
+private fun MarkdownBlockView(
+    markwon: Markwon,
+    block: MarkdownBlock,
+    color: Int,
+    linkColor: Int,
+    copyText: () -> String,
+) {
+    val textSizePx =
+        with(androidx.compose.ui.platform.LocalDensity.current) {
+            MaterialTheme.typography.bodyLarge.fontSize.toPx()
+        }
     AndroidView(
         factory = { MarkdownTextView(it, copyText) },
         modifier = Modifier.fillMaxWidth(),
         update = {
+            if (it.textSize != textSizePx)
+                it.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, textSizePx)
             it.setTextColor(color)
             it.setLinkTextColor(linkColor)
             it.bind(markwon, block)

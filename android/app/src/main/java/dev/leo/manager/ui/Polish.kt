@@ -110,6 +110,16 @@ internal object LeoIcons {
             moveTo(16f, 5f)
             lineTo(16f, 19f)
         }
+    val Steer =
+        line("Steer") {
+            moveTo(13f, 2f)
+            lineTo(4f, 14f)
+            lineTo(11f, 14f)
+            lineTo(10f, 22f)
+            lineTo(20f, 10f)
+            lineTo(13f, 10f)
+            close()
+        }
     val Stop =
         line("Stop") {
             moveTo(6f, 6f)
@@ -239,8 +249,6 @@ internal fun DetailHeader(
         actions = actions,
         windowInsets = WindowInsets(0, 0, 0, 0),
         colors =
-            TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background
-            ),
+            TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
     )
 }

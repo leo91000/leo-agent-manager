@@ -32,7 +32,7 @@ private val destinations =
         Destination("chats", "Chats", LeoIcons.Chat),
         Destination("tasks", "Tâches", Icons.AutoMirrored.Filled.List),
         Destination("runs", "Activité", LeoIcons.Terminal),
-        Destination("workspace", "Espace", Icons.Default.Menu),
+        Destination("workspace", "Plus", Icons.Default.Menu),
     )
 
 @Composable
@@ -74,8 +74,12 @@ fun LeoApp(
             consumedTarget()
         }
     }
+    var focusedContent by remember(route) { mutableStateOf(false) }
     val focused =
-        route.startsWith("chat/") || route.startsWith("new-chat") || route.startsWith("run/")
+        focusedContent ||
+            route.startsWith("chat/") ||
+            route.startsWith("new-chat") ||
+            route.startsWith("run/")
     val selected =
         if (route.startsWith("chat/") || route.startsWith("new-chat")) "chats"
         else if (route.startsWith("run/")) "runs"
@@ -87,132 +91,144 @@ fun LeoApp(
             restoreState = true
         }
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 700.dp
-        Row {
-            if (wide)
-                NavigationRail(Modifier.fillMaxHeight()) {
-                    Spacer(Modifier.height(24.dp))
-                    destinations.forEach { d ->
-                        NavigationRailItem(
-                            selected == d.route,
-                            { navigate(d.route) },
-                            icon = { Icon(d.icon, d.label) },
-                            label = { Text(d.label) },
-                        )
+    CompositionLocalProvider(LocalFocusMode provides { focusedContent = it }) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val wide = maxWidth >= 700.dp
+            Row {
+                if (wide)
+                    NavigationRail(Modifier.fillMaxHeight()) {
+                        Spacer(Modifier.height(24.dp))
+                        destinations.forEach { d ->
+                            NavigationRailItem(
+                                selected == d.route,
+                                { navigate(d.route) },
+                                icon = { Icon(d.icon, d.label) },
+                                label = { Text(d.label) },
+                            )
+                        }
                     }
-                }
-            Scaffold(
-                modifier = Modifier.weight(1f).imePadding(),
-                snackbarHost = { SnackbarHost(snackbar) },
-                topBar = {
-                    if (!focused && route !in destinations.map { it.route })
-                        TopAppBar(
-                            title = { Text("Leo", style = MaterialTheme.typography.titleLarge) },
-                            navigationIcon = {
-                                if (route !in destinations.map { it.route })
-                                    IconButton(onClick = { nav.popBackStack() }) {
-                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour")
+                Scaffold(
+                    modifier = Modifier.weight(1f).imePadding(),
+                    snackbarHost = { SnackbarHost(snackbar) },
+                    topBar = {
+                        if (!focused && route !in destinations.map { it.route })
+                            TopAppBar(
+                                title = {
+                                    Text("Leo", style = MaterialTheme.typography.titleLarge)
+                                },
+                                navigationIcon = {
+                                    if (route !in destinations.map { it.route })
+                                        IconButton(onClick = { nav.popBackStack() }) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour")
+                                        }
+                                },
+                                actions = {
+                                    IconButton(
+                                        onClick = { vm.perform { refresh() } },
+                                        enabled = !state.busy,
+                                    ) {
+                                        Icon(Icons.Default.Refresh, "Actualiser l’espace")
                                     }
-                            },
-                            actions = {
-                                IconButton(
-                                    onClick = { vm.perform { refresh() } },
-                                    enabled = !state.busy,
-                                ) {
-                                    Icon(Icons.Default.Refresh, "Actualiser l’espace")
+                                },
+                            )
+                    },
+                    bottomBar = {
+                        if (!wide && !focused && !WindowInsets.isImeVisible)
+                            NavigationBar {
+                                destinations.forEach { d ->
+                                    NavigationBarItem(
+                                        selected == d.route,
+                                        { navigate(d.route) },
+                                        icon = { Icon(d.icon, d.label) },
+                                        label = { Text(d.label) },
+                                    )
                                 }
-                            },
-                        )
-                },
-                bottomBar = {
-                    if (!wide && !focused && !WindowInsets.isImeVisible)
-                        NavigationBar {
-                            destinations.forEach { d ->
-                                NavigationBarItem(
-                                    selected == d.route,
-                                    { navigate(d.route) },
-                                    icon = { Icon(d.icon, d.label) },
-                                    label = { Text(d.label) },
+                            }
+                    },
+                ) { padding ->
+                    Column(Modifier.padding(padding)) {
+                        if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        state.error?.let { ErrorNotice(it, vm::clearMessage) }
+                        NavHost(nav, "chats", Modifier.weight(1f)) {
+                            composable("chats") {
+                                ChatsScreen(
+                                    vm,
+                                    state,
+                                    { nav.navigate("chat/$it") },
+                                    { nav.navigate("new-chat") },
                                 )
                             }
-                        }
-                },
-            ) { padding ->
-                Column(Modifier.padding(padding)) {
-                    if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    state.error?.let { ErrorNotice(it, vm::clearMessage) }
-                    NavHost(nav, "chats", Modifier.weight(1f)) {
-                        composable("chats") {
-                            ChatsScreen(
-                                vm,
-                                state,
-                                { nav.navigate("chat/$it") },
-                                { nav.navigate("new-chat") },
-                            )
-                        }
-                        composable("chat/{id}") { entry ->
-                            ChatScreen(
-                                vm,
-                                state,
-                                entry.arguments?.getString("id"),
-                                openChat = { nav.navigate("chat/$it") { popUpTo("chats") } },
-                                openRun = { nav.navigate("run/$it") },
-                                back = { nav.popBackStack() },
-                            )
-                        }
-                        composable("new-chat?agent={agent}&project={project}") { entry ->
-                            ChatScreen(
-                                vm,
-                                state,
-                                null,
-                                initialAgent = entry.arguments?.getString("agent") ?: MAIN_AGENT_ID,
-                                initialProject = entry.arguments?.getString("project").orEmpty(),
-                                openChat = { nav.navigate("chat/$it") { popUpTo("chats") } },
-                                openRun = { nav.navigate("run/$it") },
-                                back = { nav.popBackStack() },
-                            )
-                        }
-                        composable("overview") {
-                            OverviewScreen(
-                                vm,
-                                state,
-                                { nav.navigate("run/$it") },
-                                { nav.navigate("tasks") },
-                            )
-                        }
-                        composable("tasks") { TasksScreen(vm, state) { nav.navigate("run/$it") } }
-                        composable("runs") { RunsScreen(vm, state) { nav.navigate("run/$it") } }
-                        composable("run/{id}") { entry ->
-                            RunScreen(
-                                vm,
-                                state,
-                                entry.arguments?.getString("id").orEmpty(),
-                                openChat = { nav.navigate("chat/$it") },
-                                back = { nav.popBackStack() },
-                            ) {
-                                nav.navigate("run/$it") { popUpTo("runs") }
+                            composable("chat/{id}") { entry ->
+                                ChatScreen(
+                                    vm,
+                                    state,
+                                    entry.arguments?.getString("id"),
+                                    openChat = { nav.navigate("chat/$it") { popUpTo("chats") } },
+                                    openRun = { nav.navigate("run/$it") },
+                                    back = { nav.popBackStack() },
+                                    create = { nav.navigate("new-chat") },
+                                )
                             }
-                        }
-                        composable("workspace") { WorkspaceScreen { nav.navigate(it) } }
-                        composable("agents") {
-                            ResourcesScreen(vm, state, true) { agent, project ->
-                                nav.navigate("new-chat?agent=$agent&project=$project")
+                            composable("new-chat?agent={agent}&project={project}") { entry ->
+                                ChatScreen(
+                                    vm,
+                                    state,
+                                    null,
+                                    initialAgent =
+                                        entry.arguments?.getString("agent") ?: MAIN_AGENT_ID,
+                                    initialProject =
+                                        entry.arguments?.getString("project").orEmpty(),
+                                    openChat = { nav.navigate("chat/$it") { popUpTo("chats") } },
+                                    openRun = { nav.navigate("run/$it") },
+                                    back = { nav.popBackStack() },
+                                    create = { nav.navigate("new-chat") },
+                                )
                             }
-                        }
-                        composable("projects") {
-                            ResourcesScreen(vm, state, false) { agent, project ->
-                                nav.navigate("new-chat?agent=$agent&project=$project")
+                            composable("overview") {
+                                OverviewScreen(
+                                    vm,
+                                    state,
+                                    { nav.navigate("run/$it") },
+                                    { nav.navigate("tasks") },
+                                )
                             }
-                        }
-                        composable("mcps") { McpsScreen(vm, state) }
-                        composable("skills") { SkillsScreen(vm, state) }
-                        composable("connections") {
-                            ConnectionsScreen(vm, state) { nav.navigate("run/$it") }
-                        }
-                        composable("settings") { SettingsScreen(vm, state) }
-                        composable("authorize") {
-                            AuthorizeScreen(vm, state, sharedUrl, consumedShare)
+                            composable("tasks") {
+                                TasksScreen(vm, state) { nav.navigate("run/$it") }
+                            }
+                            composable("runs") { RunsScreen(vm, state) { nav.navigate("run/$it") } }
+                            composable("run/{id}") { entry ->
+                                RunScreen(
+                                    vm,
+                                    state,
+                                    entry.arguments?.getString("id").orEmpty(),
+                                    openChat = { nav.navigate("chat/$it") },
+                                    back = { nav.popBackStack() },
+                                ) {
+                                    nav.navigate("run/$it") { popUpTo("runs") }
+                                }
+                            }
+                            composable("workspace") {
+                                WorkspaceScreen(vm, state) { nav.navigate(it) }
+                            }
+                            composable("agents") {
+                                ResourcesScreen(vm, state, true) { agent, project ->
+                                    nav.navigate("new-chat?agent=$agent&project=$project")
+                                }
+                            }
+                            composable("projects") {
+                                ResourcesScreen(vm, state, false) { agent, project ->
+                                    nav.navigate("new-chat?agent=$agent&project=$project")
+                                }
+                            }
+                            composable("mcps") { McpsScreen(vm, state) }
+                            composable("skills") { SkillsScreen(vm, state) }
+                            composable("connections") {
+                                ConnectionsScreen(vm, state) { nav.navigate("run/$it") }
+                            }
+                            composable("settings") { SettingsScreen(vm, state) }
+                            composable("authorize") {
+                                AuthorizeScreen(vm, state, sharedUrl, consumedShare)
+                            }
                         }
                     }
                 }
@@ -333,9 +349,34 @@ private fun LoginScreen(vm: LeoViewModel, state: Workspace) {
 }
 
 @Composable
-private fun WorkspaceScreen(navigate: (String) -> Unit) {
+private fun WorkspaceScreen(vm: LeoViewModel, state: Workspace, navigate: (String) -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var signingOut by remember { mutableStateOf(false) }
     Page {
-        Heading("Votre espace")
+        Heading("Leo")
+        SearchField("Rechercher dans Leo", query) { query = it }
+        if (query.isNotBlank()) {
+            val results =
+                state.tasks.map { Triple(it.name, "Tâche", "tasks") } +
+                    state.agents.map { Triple(it.name, "Agent", "agents") } +
+                    state.projects.map { Triple(it.name, "Projet", "projects") } +
+                    state.skills.map { Triple(it.name, "Skill", "skills") }
+            val filtered = results.filter { it.first.contains(query.trim(), true) }
+            if (filtered.isEmpty()) Text("Aucun résultat")
+            filtered.forEach { (name, kind, route) ->
+                Surface(
+                    onClick = { navigate(route) },
+                    color = MaterialTheme.colorScheme.background,
+                ) {
+                    ListItem(
+                        headlineContent = { Text(name) },
+                        supportingContent = { Text(kind) },
+                        trailingContent = { Icon(LeoIcons.Right, null) },
+                    )
+                }
+            }
+            HorizontalDivider()
+        }
         listOf(
                 "overview" to "Vue d’ensemble",
                 "agents" to "Agents",
@@ -347,14 +388,32 @@ private fun WorkspaceScreen(navigate: (String) -> Unit) {
                 "authorize" to "Autoriser un assistant",
             )
             .forEach { (route, label) ->
-                ElevatedCard(onClick = { navigate(route) }, modifier = Modifier.fillMaxWidth()) {
+                Surface(
+                    onClick = { navigate(route) },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
                     ListItem(
                         headlineContent = { Text(label) },
                         trailingContent = { Icon(LeoIcons.Right, null, Modifier.size(18.dp)) },
                     )
                 }
             }
+        HorizontalDivider()
+        TextButton(onClick = { signingOut = true }, enabled = !state.busy) {
+            Text("Se déconnecter")
+        }
     }
+    if (signingOut)
+        Confirm(
+            "Se déconnecter ?",
+            "Les tâches continueront sur le serveur.",
+            state.busy,
+            state.error,
+            { signingOut = false },
+        ) {
+            vm.perform { logout() }
+        }
 }
 
 @Composable

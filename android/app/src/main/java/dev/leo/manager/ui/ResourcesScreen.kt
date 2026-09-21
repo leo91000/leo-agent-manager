@@ -80,7 +80,9 @@ fun ResourcesScreen(
                         Text(project.name, style = MaterialTheme.typography.titleMedium)
                         if (project.description.isNotBlank()) Text(project.description)
                         Code(project.path)
-                        Text("Branche : ${project.baseBranch}")
+                        Text(
+                            "${project.baseBranch} · ${if (project.sourceMode == "local") "Branche locale" else "Branche distante"}"
+                        )
                         project.origin?.let { Code(it) }
                         Row {
                             ActionIcon(
@@ -137,6 +139,8 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
     var form by rememberForm(initial)
     var timeout by rememberSaveable { mutableStateOf(initial.timeoutMinutes.toString()) }
     val minutes = timeout.toIntOrNull()
+    var newToken by remember { mutableStateOf("") }
+    var savedId by rememberSaveable { mutableStateOf(initial.id) }
     Editor(
         if (initial.id.isEmpty()) "Créer un agent" else "Modifier l’agent",
         state.busy,
@@ -144,11 +148,21 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
         close,
         save = {
             vm.perform {
-                save(
-                    "agents",
-                    initial.id,
-                    wireJson.encodeToJsonElement(form.copy(timeoutMinutes = minutes!!)),
-                )
+                val saved =
+                    api.send<Agent>(
+                        if (savedId.isBlank()) "POST" else "PUT",
+                        "/agents" + if (savedId.isBlank()) "" else "/${segment(savedId)}",
+                        wireJson.encodeToJsonElement(form.copy(timeoutMinutes = minutes!!)),
+                    )
+                savedId = saved.id
+                if (newToken.isNotBlank() && !form.access.github)
+                    api.request(
+                        "PUT",
+                        "/agents/${segment(savedId)}/github-token",
+                        body("token" to newToken),
+                    )
+                newToken = ""
+                refresh()
                 close()
             }
         },
@@ -182,11 +196,26 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
         ) {
             form = form.copy(access = form.access.copy(sandbox = it))
         }
-        Toggle("Accès GitHub", form.access.github) {
-            form = form.copy(access = form.access.copy(github = it))
-        }
+        if (form.access.projects == null)
+            Toggle("Connexion GitHub partagée", form.access.github) {
+                form = form.copy(access = form.access.copy(github = it))
+            }
+        else
+            Text(
+                "Projets limités : utilisez un jeton GitHub dédié.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        if (initial.id.isBlank() && !form.access.github)
+            SecretField("Jeton GitHub dédié (facultatif)", newToken) { newToken = it }
         Toggle("Tous les projets", form.access.projects == null) {
-            form = form.copy(access = form.access.copy(projects = if (it) null else emptyList()))
+            form =
+                form.copy(
+                    access =
+                        form.access.copy(
+                            projects = if (it) null else emptyList(),
+                            github = if (it) form.access.github else false,
+                        )
+                )
         }
         if (form.access.projects != null)
             state.projects.forEach { project ->
@@ -207,21 +236,35 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
             form = form.copy(access = form.access.copy(skills = if (it) null else emptyList()))
         }
         if (form.access.skills != null)
-            state.skills.forEach { skill ->
-                val key = "${skill.scope}/${skill.name}"
-                Toggle(key, key in form.access.skills.orEmpty()) { enabled ->
-                    val selected = form.access.skills.orEmpty()
-                    form =
-                        form.copy(
-                            access =
-                                form.access.copy(
-                                    skills = if (enabled) selected + key else selected - key
-                                )
-                        )
+            state.skills
+                .filter {
+                    it.valid &&
+                        (it.scope == "global" ||
+                            form.access.projects == null ||
+                            it.scope in form.access.projects.orEmpty())
                 }
-            }
+                .forEach { skill ->
+                    val key = "${skill.scope}/${skill.name}"
+                    Toggle(key, key in form.access.skills.orEmpty()) { enabled ->
+                        val selected = form.access.skills.orEmpty()
+                        form =
+                            form.copy(
+                                access =
+                                    form.access.copy(
+                                        skills = if (enabled) selected + key else selected - key
+                                    )
+                            )
+                    }
+                }
         Toggle("Tous les serveurs MCP", form.access.mcps == null) {
-            form = form.copy(access = form.access.copy(mcps = if (it) null else emptyList()))
+            form =
+                form.copy(
+                    access =
+                        form.access.copy(
+                            mcps = if (it) null else emptyList(),
+                            mcpTools = emptyMap(),
+                        )
+                )
         }
         state.mcps.forEach { mcp ->
             val permitted = form.access.mcps == null || mcp.id in form.access.mcps.orEmpty()
@@ -233,7 +276,10 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
                                 form.access.copy(
                                     mcps =
                                         if (enabled) form.access.mcps.orEmpty() + mcp.id
-                                        else form.access.mcps.orEmpty() - mcp.id
+                                        else form.access.mcps.orEmpty() - mcp.id,
+                                    mcpTools =
+                                        if (enabled) form.access.mcpTools
+                                        else form.access.mcpTools - mcp.id,
                                 )
                         )
                 }
@@ -275,7 +321,7 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
                         }
             }
         }
-        if (initial.id.isNotBlank()) AgentGithubToken(vm, state, initial.id)
+        if (initial.id.isNotBlank() && !form.access.github) AgentGithubToken(vm, state, initial.id)
     }
 }
 
@@ -301,6 +347,22 @@ private fun ProjectEditor(vm: LeoViewModel, state: Workspace, initial: Project, 
     ) {
         Field("Nom", form.name, { form = form.copy(name = it) })
         Field("Description", form.description, { form = form.copy(description = it) }, 3)
+        Choice(
+            "Démarrer depuis",
+            form.sourceMode,
+            listOf(
+                "remote" to "Dernière branche distante",
+                "local" to "Instantané de la branche locale",
+            ),
+        ) {
+            form = form.copy(sourceMode = it)
+        }
+        Text(
+            if (form.sourceMode == "remote")
+                "Une copie fraîche de la branche distante ; les fichiers locaux restent intacts."
+            else "Utilise les fichiers commités de la branche locale.",
+            style = MaterialTheme.typography.bodySmall,
+        )
         Field("Chemin sur le serveur", form.path, { form = form.copy(path = it) })
         Field("Branche de base", form.baseBranch, { form = form.copy(baseBranch = it) })
     }
@@ -319,10 +381,7 @@ private fun AgentGithubToken(vm: LeoViewModel, state: Workspace, id: String) {
         }
     }
     Text("Jeton GitHub de cet agent", style = MaterialTheme.typography.titleMedium)
-    Text(
-        if (configured) "Un jeton spécifique est configuré."
-        else "Le compte GitHub du serveur est utilisé."
-    )
+    Text(if (configured) "Un jeton spécifique est configuré." else "Aucun jeton dédié configuré.")
     SecretField("Nouveau jeton", token) { token = it }
     TextButton(
         enabled = token.isNotBlank() && !state.busy,
@@ -340,7 +399,7 @@ private fun AgentGithubToken(vm: LeoViewModel, state: Workspace, id: String) {
     if (clear)
         Confirm(
             "Retirer ce jeton ?",
-            "L’agent utilisera le compte GitHub du serveur.",
+            "Le jeton dédié sera supprimé. Les autorisations de l’agent restent inchangées.",
             state.busy,
             state.error,
             { clear = false },

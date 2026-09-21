@@ -1,10 +1,12 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
-Version 0.5.6 prevents cascading history loads and preserves reading position during an active drag.
+Version 0.6.0 brings the current web conversation and task experience to native Android.
+It retains stable history loading and reading position during an active drag.
+See the [parity audit](docs/WEB-PARITY.md) for the reference and validation scope.
 Tool activity has native views: commands, reads, searches, diffs,
 plans, MCP results and session notices. Structured results and JSON artifacts are
-readable without opening the raw JSON. Chats retain the compact 0.3 composer.
+readable without opening the raw JSON. Chats use a compact composer and explicit conversation selector.
 See [release notes](RELEASE-NOTES.md). The inventory below distinguishes implemented
 paths from deployment and device validation.
 
@@ -53,7 +55,7 @@ store distribution. Never commit a signing key or local SDK paths.
   surface `#222228`. Material roles also map borders, muted text and error colors.
   Settings → Appearance offers System, Light and Dark, saved on the device.
   Status/navigation bar contrast follows the selected appearance. Native typography,
-  controls and touch targets retain Android behavior. UI text is French.
+  controls and touch targets retain Android behavior. UI text is French. Conversations use native sheets, focus modes and typography.
 - An AndroidViewModel exposes immutable workspace state through StateFlow;
   Compose observes it with lifecycle awareness. Forms save drafts through
   recreation. Passwords, setup tokens and newly issued access tokens are never
@@ -92,12 +94,13 @@ This inventory was rechecked against web/backend commit `207ca4f` (2026-09-13).
 The initial checkout, `1e0d71b`, had an obsolete green theme and fewer features.
 The palette and API contracts follow this baseline. “Implemented” describes the
 client path, not certification against a production deployment.
+The 0.6.0 delta is tracked against v0.21.12 in the [parity audit](docs/WEB-PARITY.md).
 See [validation](VALIDATION.md).
 
 | Web section | Android coverage |
 | --- | --- |
 | Setup / login | Server selection, bootstrap setup, password login, encrypted session restore, expiry handling, logout |
-| Overview (under Espace) | Running/completed/queued counts, agent and schedule counts, recent activity, upcoming tasks |
+| Overview (under Plus) | Running/completed/queued counts, agent and schedule counts, recent activity, upcoming tasks |
 | Tasks | Create/edit/delete, name and tag search, scheduled/paused/one-off/archived filters, latest execution and status, run now, pause/resume, archive/restore, duplicate disabled |
 | Task editor | Agent selection, optional project focus (all authorized projects), instructions, isolated worktree, tags, all authorized or individually selected skills, once/daily/weekly/custom cron, timezone, server schedule preview |
 | Runs | Status and task filters, 30-item pagination, current status, results, sharing/copy through Android selection, duration and metadata |
@@ -119,7 +122,7 @@ same server checks as the web. No live task is launched as part of validation.
 
 Self-hosted domains cannot be automatically verified as Android App Links by a
 generic APK. OAuth requests can be shared from the browser to Leo, or pasted in
-**Espace → Autoriser un assistant**. Domain-specific verified links can be added
+**Plus → Autoriser un assistant**. Domain-specific verified links can be added
 when the deployment domain and signing certificate are fixed.
 
 ## Verification and distribution

@@ -117,7 +117,12 @@ data class LiveBatch(
 )
 
 @Serializable
-data class HistoryPage(val events: List<RunEvent>, val history: String, val oldest: Long, val hasOlder: Boolean)
+data class HistoryPage(
+    val events: List<RunEvent>,
+    val history: String,
+    val oldest: Long,
+    val hasOlder: Boolean,
+)
 
 @Serializable data class ReasoningOption(val reasoningEffort: String, val description: String = "")
 
@@ -244,7 +249,12 @@ data class CodexLogin(
 )
 
 @Serializable
-data class RunWorkspace(val projectId: String, val path: String, val kind: String = "worktree")
+data class RunWorkspace(
+    val projectId: String,
+    val path: String,
+    val kind: String = "worktree",
+    val revision: String? = null,
+)
 
 /**
  * Recognize only a delivered file on the connected origin; tool-provided URLs are never fetched.
@@ -269,7 +279,7 @@ fun artifactPathForLink(link: String, origin: okhttp3.HttpUrl): String? {
             url.password.isNotEmpty()
     )
         return null
-    return url.encodedPath.takeIf {
-        Regex("/api/runs/[A-Za-z0-9_-]+/artifacts/[A-Za-z0-9_-]+").matches(it)
-    }?.removePrefix("/api")
+    return url.encodedPath
+        .takeIf { Regex("/api/runs/[A-Za-z0-9_-]+/artifacts/[A-Za-z0-9_-]+").matches(it) }
+        ?.removePrefix("/api")
 }

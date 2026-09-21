@@ -42,9 +42,13 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
             olderHistory = snapshot.history
             olderError = null
         }
-        return if (boundary == null) snapshot else snapshot.copy(
-            events = mergeHistory(older, snapshot.events), oldest = boundary!!, hasOlder = moreOlder,
-        )
+        return if (boundary == null) snapshot
+        else
+            snapshot.copy(
+                events = mergeHistory(older, snapshot.events),
+                oldest = boundary!!,
+                hasOlder = moreOlder,
+            )
     }
     LaunchedEffect(path, api, owner) {
         if (enabled && api != null) {
@@ -70,7 +74,14 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
                             } else if (!it.catchingUp && it.state != null && it.history != null) {
                                 vm.historyCache.save(
                                     key,
-                                    CachedHistory(it.cursor, it.history, it.state, value.events, oldest = value.oldest, hasOlder = value.hasOlder),
+                                    CachedHistory(
+                                        it.cursor,
+                                        it.history,
+                                        it.state,
+                                        value.events,
+                                        oldest = value.oldest,
+                                        hasOlder = value.hasOlder,
+                                    ),
                                     expectedGeneration = cacheGeneration,
                                 )
                             }
@@ -86,67 +97,101 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
             }
         }
     }
-    return value.copy(loadingOlder = loadingOlder, olderError = olderError, loadOlder = {
-        val history = value.history
-        if (enabled && api != null && history != null && value.hasOlder && !loadingOlder) {
-            loadingOlder = true
-            olderError = null
-            val before = value.oldest
-            val cacheGeneration = vm.historyCache.generation
-            scope.launch {
-                try {
-                    val page = api.get<HistoryPage>(path.removeSuffix("/stream") + "/history?before=$before&history=${segment(history)}")
-                    if (value.history == history && page.history == history) {
-                        require(page.oldest < before || !page.hasOlder) { "Page d’historique invalide." }
-                        older = mergeHistory(page.events, older)
-                        olderHistory = history
-                        boundary = page.oldest
-                        moreOlder = page.hasOlder
-                        value = display(value)
-                        value.state?.let { detail ->
-                            vm.historyCache.save(
-                                vm.historyCache.key(workspace.origin, api.csrf, path),
-                                CachedHistory(value.cursor, history, detail, value.events, oldest = value.oldest, hasOlder = value.hasOlder),
-                                expectedGeneration = cacheGeneration,
+    return value.copy(
+        loadingOlder = loadingOlder,
+        olderError = olderError,
+        loadOlder = {
+            val history = value.history
+            if (enabled && api != null && history != null && value.hasOlder && !loadingOlder) {
+                loadingOlder = true
+                olderError = null
+                val before = value.oldest
+                val cacheGeneration = vm.historyCache.generation
+                scope.launch {
+                    try {
+                        val page =
+                            api.get<HistoryPage>(
+                                path.removeSuffix("/stream") +
+                                    "/history?before=$before&history=${segment(history)}"
                             )
+                        if (value.history == history && page.history == history) {
+                            require(page.oldest < before || !page.hasOlder) {
+                                "Page d’historique invalide."
+                            }
+                            older = mergeHistory(page.events, older)
+                            olderHistory = history
+                            boundary = page.oldest
+                            moreOlder = page.hasOlder
+                            value = display(value)
+                            value.state?.let { detail ->
+                                vm.historyCache.save(
+                                    vm.historyCache.key(workspace.origin, api.csrf, path),
+                                    CachedHistory(
+                                        value.cursor,
+                                        history,
+                                        detail,
+                                        value.events,
+                                        oldest = value.oldest,
+                                        hasOlder = value.hasOlder,
+                                    ),
+                                    expectedGeneration = cacheGeneration,
+                                )
+                            }
                         }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        olderError = e.message ?: "Historique indisponible. Réessayez."
+                        if (e is ApiException && e.status == 401) vm.report(e)
+                    } finally {
+                        loadingOlder = false
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    olderError = e.message ?: "Historique indisponible. Réessayez."
-                    if (e is ApiException && e.status == 401) vm.report(e)
-                } finally {
-                    loadingOlder = false
                 }
             }
-        }
-    })
+        },
+    )
 }
 
-/** Keep Compose's key-based anchor: requesting an index here overrides the reader's
- * current position and may target a layout measured before the page was inserted. */
+/**
+ * Keep Compose's key-based anchor: requesting an index here overrides the reader's current position
+ * and may target a layout measured before the page was inserted.
+ */
 @Composable
-internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, ready: Boolean, follow: Boolean, keys: List<String>, rendering: MarkdownRendering? = null, stopFollowing: () -> Unit): () -> Unit {
+internal fun rememberHistoryPaging(
+    live: LiveSnapshot,
+    list: LazyListState,
+    ready: Boolean,
+    follow: Boolean,
+    keys: List<String>,
+    rendering: MarkdownRendering? = null,
+    stopFollowing: () -> Unit,
+): () -> Unit {
     val current by rememberUpdatedState(live)
     var headerAnchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
     var settling by remember(list) { mutableStateOf(false) }
     var requested by remember(list) { mutableStateOf<Pair<String?, Long>?>(null) }
     LaunchedEffect(list, live.loadingOlder) {
         val before = live.oldest
-        if (live.loadingOlder) snapshotFlow { list.layoutInfo.visibleItemsInfo }.collect { visible ->
-            // Ignore the new page's layout if it arrives before this collector is cancelled.
-            if (current.oldest != before) return@collect
-            // Follow the reader during the request; never restore its initial position.
-            headerAnchor = if (visible.firstOrNull()?.key == "history:older") {
-                visible.firstOrNull { it.key != "history:older" }?.let { it.key.toString() to -it.offset }
-            } else null
-        }
+        if (live.loadingOlder)
+            snapshotFlow { list.layoutInfo.visibleItemsInfo }
+                .collect { visible ->
+                    // Ignore the new page's layout if it arrives before this collector is
+                    // cancelled.
+                    if (current.oldest != before) return@collect
+                    // Follow the reader during the request; never restore its initial position.
+                    headerAnchor =
+                        if (visible.firstOrNull()?.key == "history:older") {
+                            visible
+                                .firstOrNull { it.key != "history:older" }
+                                ?.let { it.key.toString() to -it.offset }
+                        } else null
+                }
     }
     LaunchedEffect(live.loadingOlder, live.oldest, keys) {
         // A loading request can start before this effect from the previous frame runs.
         // Do not consume its anchor until a response (or an error) is actually present.
-        val responseArrived = requested != (live.history to live.oldest) || live.olderError != null || !live.hasOlder
+        val responseArrived =
+            requested != (live.history to live.oldest) || live.olderError != null || !live.hasOlder
         if (!live.loadingOlder && settling && responseArrived) {
             val saved = headerAnchor
             headerAnchor = null
@@ -175,9 +220,12 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
             // Fast cached/local responses may finish before a loading frame exists.
             // Capture here as well; the observer refreshes this if the reader moves.
             val visible = list.layoutInfo.visibleItemsInfo
-            headerAnchor = if (visible.firstOrNull()?.key == "history:older") {
-                visible.firstOrNull { it.key != "history:older" }?.let { it.key.toString() to -it.offset }
-            } else null
+            headerAnchor =
+                if (visible.firstOrNull()?.key == "history:older") {
+                    visible
+                        .firstOrNull { it.key != "history:older" }
+                        ?.let { it.key.toString() to -it.offset }
+                } else null
             settling = true
             requested = current.history to current.oldest
             stopFollowing()
@@ -189,36 +237,55 @@ internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, read
         // Re-arm only after leaving the top zone, never just because a response
         // changed the cursor. The old layout can still show index zero then.
         var armed = true
-        if (ready && !follow) snapshotFlow {
-            val snapshot = current
-            val nearStart = list.layoutInfo.visibleItemsInfo.isNotEmpty() &&
-                list.firstVisibleItemIndex <= 1 && list.firstVisibleItemScrollOffset < threshold
-            val available = !settling && !snapshot.loadingOlder
-            Triple(nearStart, available, snapshot.hasOlder && snapshot.olderError == null &&
-                requested != (snapshot.history to snapshot.oldest))
-        }.collect { (nearStart, available, canLoad) ->
-            if (available) {
-                if (!nearStart) armed = true
-                else if (armed && canLoad) {
-                    armed = false
-                    currentLoad()
+        if (ready && !follow)
+            snapshotFlow {
+                    val snapshot = current
+                    val nearStart =
+                        list.layoutInfo.visibleItemsInfo.isNotEmpty() &&
+                            list.firstVisibleItemIndex <= 1 &&
+                            list.firstVisibleItemScrollOffset < threshold
+                    val available = !settling && !snapshot.loadingOlder
+                    Triple(
+                        nearStart,
+                        available,
+                        snapshot.hasOlder &&
+                            snapshot.olderError == null &&
+                            requested != (snapshot.history to snapshot.oldest),
+                    )
                 }
-            }
-        }
+                .collect { (nearStart, available, canLoad) ->
+                    if (available) {
+                        if (!nearStart) armed = true
+                        else if (armed && canLoad) {
+                            armed = false
+                            currentLoad()
+                        }
+                    }
+                }
     }
     return load
 }
 
-internal fun androidx.compose.foundation.lazy.LazyListScope.historyHeader(live: LiveSnapshot, load: () -> Unit) {
-    if (live.hasOlder || live.loadingOlder || live.olderError != null) item(key = "history:older") {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.height(48.dp), contentAlignment = Alignment.Center) {
-                if (live.loadingOlder) CircularProgressIndicator(Modifier.size(20.dp))
-                else TextButton(onClick = load) { Text("Messages précédents") }
+internal fun androidx.compose.foundation.lazy.LazyListScope.historyHeader(
+    live: LiveSnapshot,
+    load: () -> Unit,
+) {
+    if (live.hasOlder || live.loadingOlder || live.olderError != null)
+        item(key = "history:older") {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.height(48.dp), contentAlignment = Alignment.Center) {
+                    if (live.loadingOlder) CircularProgressIndicator(Modifier.size(20.dp))
+                    else TextButton(onClick = load) { Text("Messages précédents") }
+                }
+                live.olderError?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
-            live.olderError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         }
-    }
 }
 
 /** Restore once the feed exists; background resumes retain the existing list state. */
@@ -255,13 +322,13 @@ internal fun rememberHistoryPosition(
         if (ready && visible) {
             try {
                 snapshotFlow {
-                    ReadingPosition(
-                        list.firstVisibleItemIndex,
-                        list.firstVisibleItemScrollOffset,
-                        currentFollow,
-                        firstEvent,
-                    )
-                }
+                        ReadingPosition(
+                            list.firstVisibleItemIndex,
+                            list.firstVisibleItemScrollOffset,
+                            currentFollow,
+                            firstEvent,
+                        )
+                    }
                     .collectLatest { vm.historyCache.position(key, it) }
             } finally {
                 withContext(NonCancellable) {
@@ -356,7 +423,9 @@ internal fun timelineEntries(events: List<RunEvent>, chat: Boolean = false): Lis
             positions.clear()
             legacyTool = null
         }
-        val legacy = (event.type == "item.started" || event.type == "item.completed") && event.activityData() == null
+        val legacy =
+            (event.type == "item.started" || event.type == "item.completed") &&
+                event.activityData() == null
         if (legacy && event.type == "item.completed" && legacyTool != null) {
             val index = legacyTool
             val original = folded[index]
@@ -408,11 +477,16 @@ internal fun timelineEntries(events: List<RunEvent>, chat: Boolean = false): Lis
             val presentation = if (chat) presentActivity(event) else null
             if (presentation?.kind == ActivityKind.NOTICE) {
                 val interrupted =
-                    event.type == "status" && event.text.lowercase() in listOf("cancelled", "interrupted")
-                if (event.id !in recovered &&
-                    (presentation.failed || interrupted || presentation.connectionInterrupted())) {
+                    event.type == "status" &&
+                        event.text.lowercase() in listOf("cancelled", "interrupted")
+                if (
+                    event.id !in recovered &&
+                        (presentation.failed || interrupted || presentation.connectionInterrupted())
+                ) {
                     flushActivity()
-                    result.add(TimelineEntry("notice:${event.id}", listOf(event), false, notice = true))
+                    result.add(
+                        TimelineEntry("notice:${event.id}", listOf(event), false, notice = true)
+                    )
                 }
             } else activity.add(event)
         }
@@ -471,9 +545,17 @@ internal fun deliveryTimeline(
 }
 
 @Composable
-internal fun TimelineRow(vm: LeoViewModel, entry: TimelineEntry, agent: String, rendering: MarkdownRendering? = null) {
+internal fun TimelineRow(
+    vm: LeoViewModel,
+    entry: TimelineEntry,
+    agent: String,
+    rendering: MarkdownRendering? = null,
+) {
     if (entry.files.isNotEmpty()) ArtifactStrip(vm, entry.files)
-    else if (entry.message) CompositionLocalProvider(LocalMarkdownRendering provides rendering) { EventRow(vm, entry.events.single(), agent) }
+    else if (entry.message)
+        CompositionLocalProvider(LocalMarkdownRendering provides rendering) {
+            EventRow(vm, entry.events.single(), agent)
+        }
     else if (entry.notice) ChatNotice(presentActivity(entry.events.single()))
     else {
         var expanded by rememberSaveable(entry.key) { mutableStateOf(false) }
@@ -553,15 +635,38 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
                     Modifier.padding(horizontal = if (user) 16.dp else 2.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (user) Text(content, style = MaterialTheme.typography.bodyLarge)
-                    else Markdown(content)
-                    val attachments = runCatching {
-                        event.payload?.get("attachments")?.let {
-                            wireJson.decodeFromJsonElement<List<ChatAttachment>>(it)
-                        }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(
+                            if (user) "Vous" else agent,
+                            Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            java.text
+                                .SimpleDateFormat(
+                                    "HH:mm",
+                                    androidx.compose.ui.platform.LocalConfiguration.current.locales[
+                                            0],
+                                )
+                                .format(java.util.Date(event.createdAt)),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                        .getOrNull()
-                        .orEmpty()
+                    if (user)
+                        androidx.compose.foundation.text.selection.SelectionContainer {
+                            Text(content, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    else Markdown(content)
+                    val attachments =
+                        runCatching {
+                                event.payload?.get("attachments")?.let {
+                                    wireJson.decodeFromJsonElement<List<ChatAttachment>>(it)
+                                }
+                            }
+                            .getOrNull()
+                            .orEmpty()
                     if (attachments.isNotEmpty()) AttachmentList(vm, attachments)
                 }
             }
@@ -569,7 +674,11 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
     } else ActivityCard(event)
 }
 
-internal suspend fun restoreHistoryPosition(list: LazyListState, saved: ReadingPosition, rendering: MarkdownRendering?) {
+internal suspend fun restoreHistoryPosition(
+    list: LazyListState,
+    saved: ReadingPosition,
+    rendering: MarkdownRendering?,
+) {
     snapshotFlow { list.layoutInfo.totalItemsCount }.first { it > 0 }
     val index = saved.index.coerceIn(0, list.layoutInfo.totalItemsCount - 1)
     list.scrollToItem(index, saved.offset.coerceAtLeast(0))

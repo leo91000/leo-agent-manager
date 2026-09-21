@@ -2,12 +2,12 @@
 
 package dev.leo.manager.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -129,6 +129,9 @@ fun RunScreen(
     id: String,
     openChat: (String) -> Unit = {},
     back: () -> Unit = {},
+    chooseTask: (() -> Unit)? = null,
+    taskDetails: (() -> Unit)? = null,
+    createTask: (() -> Unit)? = null,
     openRun: (String) -> Unit,
 ) {
     val live = rememberLive(vm, state, "/runs/${segment(id)}/stream")
@@ -140,7 +143,15 @@ fun RunScreen(
             deliveryTimeline(timelineEntries(events), live.state?.artifacts.orEmpty())
         }
     var menu by remember { mutableStateOf(false) }
-    var tab by rememberSaveable(id) { mutableIntStateOf(0) }
+    var details by rememberSaveable(id) { mutableStateOf(false) }
+    var fullscreen by rememberSaveable(id) { mutableStateOf(false) }
+    BackHandler(fullscreen) { fullscreen = false }
+    val focusMode = LocalFocusMode.current
+    DisposableEffect(fullscreen) {
+        focusMode(fullscreen)
+        onDispose { focusMode(false) }
+    }
+    var tab by rememberSaveable(id) { mutableIntStateOf(1) }
     var autoTab by rememberSaveable(id) { mutableStateOf(true) }
     var follow by rememberSaveable(id) { mutableStateOf(true) }
     var confirm by rememberSaveable(id) { mutableStateOf<String?>(null) }
@@ -159,7 +170,17 @@ fun RunScreen(
         ) {
             follow = it
         }
-    val loadOlder = rememberHistoryPaging(live, logState, positionReady && tab == 1, follow, timeline.map { it.key }, rendering) { follow = false }
+    val loadOlder =
+        rememberHistoryPaging(
+            live,
+            logState,
+            positionReady && tab == 1,
+            follow,
+            timeline.map { it.key },
+            rendering,
+        ) {
+            follow = false
+        }
     LaunchedEffect(run?.id, live.synced) {
         if (autoTab && run != null && live.synced) {
             autoTab = false
@@ -167,31 +188,53 @@ fun RunScreen(
         }
     }
     val followGesture = rememberHistoryFollowGesture(logState) { follow = it }
-    FollowHistoryTail(logState, positionReady && follow && tab == 1 && !more, live.cursor, rendering, followGesture)
+    FollowHistoryTail(
+        logState,
+        positionReady && follow && tab == 1 && !more,
+        live.cursor,
+        rendering,
+        followGesture,
+    )
     ArtifactLinkHost(vm, live.state?.artifacts.orEmpty()) {
         Column(Modifier.fillMaxSize()) {
             live.error?.let { ErrorNotice(it) {} }
             run?.let { current ->
-                DetailHeader(
-                    current.title,
-                    "${statusLabel(current.status)} · ${duration(current)}",
-                    back,
-                ) {
-                    if (live.state.artifacts.isNotEmpty())
-                        ActionIcon("Fichiers", LeoIcons.Layers) {
-                            autoTab = false
-                            tab = 2
-                        }
+                val headerActions: @Composable RowScope.() -> Unit = {
+                    if (current.active)
+                        ActionIcon("Arrêter", LeoIcons.Stop, !state.busy) { confirm = "cancel" }
                     Box {
                         ActionIcon("Options de l’exécution", Icons.Default.MoreVert) { menu = true }
                         DropdownMenu(menu, { menu = false }) {
+                            if (taskDetails != null)
+                                DropdownMenuItem(
+                                    text = { Text("Détails de la tâche") },
+                                    onClick = {
+                                        menu = false
+                                        taskDetails()
+                                    },
+                                )
+                            if (createTask != null)
+                                DropdownMenuItem(
+                                    text = { Text("Créer une tâche") },
+                                    onClick = {
+                                        menu = false
+                                        createTask()
+                                    },
+                                )
+                            DropdownMenuItem(
+                                text = { Text("Plein écran") },
+                                onClick = {
+                                    menu = false
+                                    fullscreen = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Mission et détails") },
                                 leadingIcon = { Icon(Icons.Default.Info, null) },
                                 onClick = {
                                     menu = false
                                     autoTab = false
-                                    tab = 3
+                                    details = true
                                 },
                             )
                             if (current.resumeAvailable && current.trigger != "chat")
@@ -203,18 +246,7 @@ fun RunScreen(
                                         vm.perform { api.request("POST", "/runs/$id/resume") }
                                     },
                                 )
-                            if (current.active)
-                                DropdownMenuItem(
-                                    text = { Text("Arrêter") },
-                                    leadingIcon = { Icon(LeoIcons.Stop, null) },
-                                    enabled = !state.busy,
-                                    onClick = {
-                                        menu = false
-                                        vm.clearMessage()
-                                        confirm = "cancel"
-                                    },
-                                )
-                            else if (current.trigger != "chat")
+                            if (!current.active && current.trigger != "chat")
                                 DropdownMenuItem(
                                     text = { Text("Relancer") },
                                     enabled = !state.busy,
@@ -237,6 +269,47 @@ fun RunScreen(
                         }
                     }
                 }
+                if (!fullscreen) {
+                    if (chooseTask != null)
+                        ConversationHeader("Tâches", current.title, chooseTask, headerActions)
+                    else
+                        DetailHeader(
+                            current.title,
+                            "${statusLabel(current.status)} · ${duration(current)}",
+                            back,
+                            headerActions,
+                        )
+                } else
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            when (tab) {
+                                0 -> "Résultat"
+                                2 -> "Fichiers"
+                                else -> "Conversation"
+                            },
+                            Modifier.weight(1f).padding(start = 16.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        ActionIcon("Quitter le plein écran", Icons.Default.Close) {
+                            fullscreen = false
+                        }
+                    }
+                current.error
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let {
+                        Text(
+                            it,
+                            Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                if (current.status in listOf("failed", "interrupted", "cancelled"))
+                    Text(
+                        statusLabel(current.status),
+                        Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
                 current.accountWaitReason?.let {
                     Text(
                         "En attente : $it",
@@ -256,37 +329,29 @@ fun RunScreen(
                         Modifier.padding(horizontal = 20.dp),
                         style = MaterialTheme.typography.bodySmall,
                     )
-                if (tab < 2)
+                if (!fullscreen)
                     SecondaryTabRow(
-                        selectedTabIndex = tab,
+                        selectedTabIndex = listOf(1, 0, 2).indexOf(tab),
                         containerColor = MaterialTheme.colorScheme.background,
                     ) {
-                        listOf("Résultat", "Activité").forEachIndexed { index, title ->
+                        listOf(1 to "Conversation", 0 to "Résultat", 2 to "Fichiers").forEach {
+                            (index, label) ->
                             Tab(
-                                tab == index,
-                                {
+                                selected = tab == index,
+                                onClick = {
                                     autoTab = false
                                     tab = index
                                 },
-                                text = { Text(title) },
+                                text = {
+                                    Text(
+                                        if (index == 2 && live.state.artifacts.isNotEmpty())
+                                            "$label · ${live.state.artifacts.size}"
+                                        else label,
+                                        maxLines = 1,
+                                    )
+                                },
                             )
                         }
-                    }
-                else
-                    Row(
-                        Modifier.padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ActionIcon(
-                            "Retour à l’activité",
-                            androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
-                        ) {
-                            tab = 1
-                        }
-                        Text(
-                            if (tab == 2) "Artifacts" else "Mission et détails",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
                     }
                 when (tab) {
                     0 ->
@@ -301,6 +366,9 @@ fun RunScreen(
                                 Markdown(current.summary)
                                 ShareButton(current.summary)
                             }
+                            current.outcome
+                                ?.takeIf { current.status == "succeeded" }
+                                ?.let { CompletionEvidence(it, current.snapshot.agent.name) }
                             if (live.state.artifacts.isNotEmpty())
                                 ArtifactStrip(vm, latestArtifacts(live.state.artifacts))
                         }
@@ -328,6 +396,22 @@ fun RunScreen(
                                     rendering,
                                 )
                             }
+                            if (!current.active)
+                                current.outcome
+                                    ?.takeIf { current.status == "succeeded" }
+                                    ?.let { outcome ->
+                                        item(key = "outcome:${outcome.reportedAt}") {
+                                            CompletionEvidence(outcome, current.snapshot.agent.name)
+                                        }
+                                    }
+                            if (current.active)
+                                item {
+                                    Text(
+                                        "L’agent travaille…",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
                             if (events.isEmpty()) item { Text("L’activité apparaîtra ici.") }
                         }
                         if (!follow)
@@ -336,73 +420,73 @@ fun RunScreen(
                             }
                     }
                     2 -> Page { ArtifactsPanel(vm, live.state.artifacts) }
-                    3 ->
-                        Page {
-                            Text(
-                                current.snapshot.agent.name,
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                "${current.snapshot.project?.name ?: current.snapshot.projects.joinToString { it.name }.ifBlank { "Projets autorisés" }} · ${current.snapshot.agent.model.ifBlank { "Modèle par défaut" }}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            current.codexAccountName?.let {
-                                Text("Compte : $it", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Heading("Instructions d’origine")
-                            Markdown(current.snapshot.task.prompt)
-                            Panel {
-                                Text(
-                                    "Espace de travail",
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                current.workspaces.forEach { workspace ->
-                                    Text(
-                                        current.snapshot.projects
-                                            .find { it.id == workspace.projectId }
-                                            ?.name ?: workspace.projectId
-                                    )
-                                    Code("${workspace.kind} · ${workspace.path}")
-                                }
-                                Code(
-                                    current.workspace
-                                        ?: if (current.workspaceCleanedAt != null)
-                                            "Worktree nettoyé"
-                                        else "Pas encore préparé"
-                                )
-                                if (
-                                    !current.active &&
-                                        (current.workspace != null ||
-                                            current.workspaces.isNotEmpty()) &&
-                                        (current.isolated || current.snapshot.task.worktree)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            vm.clearMessage()
-                                            confirm = "cleanup"
-                                        },
-                                        enabled = !state.busy,
-                                    ) {
-                                        Text("Nettoyer le worktree")
-                                    }
-                                }
-                                Text("Déclenchement : ${current.trigger}")
-                                Text(
-                                    "Créée : ${date(current.createdAt)}\nDébut : ${date(current.startedAt)}\nFin : ${date(current.finishedAt)}"
-                                )
-                                Text(
-                                    "Accès : ${current.snapshot.agent.access.sandbox} · ${current.snapshot.agent.timeoutMinutes} minutes maximum"
-                                )
-                                Text(
-                                    "Skills : ${current.snapshot.skills.joinToString { it.name }.ifEmpty { "Aucun" }}"
-                                )
-                                current.usage?.forEach { (key, value) -> Text("$key : $value") }
-                                Code(
-                                    "Exécution : ${current.id}\nSession : ${current.sessionId ?: "—"}"
-                                )
-                            }
-                        }
                 }
+                if (details)
+                    DetailSheet("Mission et détails", { details = false }) {
+                        Text(
+                            current.snapshot.agent.name,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "${current.snapshot.project?.name ?: current.snapshot.projects.joinToString { it.name }.ifBlank { "Projets autorisés" }} · ${current.snapshot.agent.model.ifBlank { "Modèle par défaut" }}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        current.codexAccountName?.let {
+                            Text("Compte : $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Heading("Instructions d’origine")
+                        Markdown(current.snapshot.task.prompt)
+                        Panel {
+                            Text("Espace de travail", style = MaterialTheme.typography.titleMedium)
+                            current.workspaces.forEach { workspace ->
+                                Text(
+                                    current.snapshot.projects
+                                        .find { it.id == workspace.projectId }
+                                        ?.name ?: workspace.projectId
+                                )
+                                Code("${workspace.kind} · ${workspace.path}")
+                                workspace.revision?.let { Code("Commit de départ : $it") }
+                            }
+                            Code(
+                                current.workspace
+                                    ?: if (current.workspaceCleanedAt != null) "Worktree nettoyé"
+                                    else "Pas encore préparé"
+                            )
+                            if (
+                                !current.active &&
+                                    current.workspace != null &&
+                                    !current.isolated &&
+                                    current.snapshot.task.worktree
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        vm.clearMessage()
+                                        confirm = "cleanup"
+                                    },
+                                    enabled = !state.busy,
+                                ) {
+                                    Text("Nettoyer le worktree")
+                                }
+                            }
+                            if (current.isolated)
+                                Text(
+                                    "Espace de travail et conversation conservés dans un disque privé. Reprenez cette exécution pour continuer."
+                                )
+                            Text("${statusLabel(current.status)} · ${duration(current)}")
+                            Text("Déclenchement : ${current.trigger}")
+                            Text(
+                                "Créée : ${date(current.createdAt)}\nDébut : ${date(current.startedAt)}\nFin : ${date(current.finishedAt)}"
+                            )
+                            Text(
+                                "Accès : ${current.snapshot.agent.access.sandbox} · ${current.snapshot.agent.timeoutMinutes} minutes maximum"
+                            )
+                            Text(
+                                "Skills : ${current.snapshot.skills.joinToString { it.name }.ifEmpty { "Aucun" }}"
+                            )
+                            current.usage?.forEach { (key, value) -> Text("$key : $value") }
+                            Code("Exécution : ${current.id}\nSession : ${current.sessionId ?: "—"}")
+                        }
+                    }
             }
                 ?: Box(
                     Modifier.fillMaxSize(),

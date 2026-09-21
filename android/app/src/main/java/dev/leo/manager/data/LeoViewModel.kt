@@ -49,6 +49,13 @@ constructor(
 ) : AndroidViewModel(application) {
     val historyCache = HistoryCache.encrypted(application)
     val files = Files(application)
+    val chatDrafts = mutableMapOf<String, ChatDraft>()
+
+    private fun clearDrafts() {
+        chatDrafts.values.forEach { files.discard(it.attachments) }
+        chatDrafts.clear()
+    }
+
     val notifications = NotificationPreferences(application)
 
     override fun onCleared() {
@@ -92,6 +99,7 @@ constructor(
     fun report(error: Throwable) {
         if (error is CancellationException) throw error
         if (error is ApiException && error.status == 401) {
+            clearDrafts()
             viewModelScope.launch { historyCache.clear() }
             connection?.clearSession()
             schedule(getApplication(), false)
@@ -157,6 +165,7 @@ constructor(
     }
 
     suspend fun logout() {
+        clearDrafts()
         mutable.update { it.copy(signingOut = true) }
         historyCache.clear()
         try {
@@ -171,6 +180,7 @@ constructor(
     }
 
     suspend fun forget() {
+        clearDrafts()
         historyCache.clear()
         withContext(Dispatchers.IO) { connection?.clearSession() }
         connection = null
@@ -237,3 +247,13 @@ constructor(
         mutable.update { it.copy(notice = "Suppression effectuée") }
     }
 }
+
+data class ChatDraft(
+    val text: String = "",
+    val model: String = "",
+    val reasoning: String = "",
+    val attachments: List<DraftAttachment> = emptyList(),
+    val editing: String? = null,
+    val submissionId: String = "",
+    val submissionKey: String = "",
+)

@@ -42,6 +42,7 @@ data class Project(
     val description: String = "",
     val baseBranch: String = "main",
     val origin: String? = null,
+    val sourceMode: String = "remote",
 )
 
 @Serializable
@@ -109,6 +110,9 @@ data class Run(
     val resumeCount: Int = 0,
     val workspaces: List<RunWorkspace> = emptyList(),
     val isolated: Boolean = false,
+    val outcome: TaskOutcome? = null,
+    val chatExecution: ChatExecution? = null,
+    val error: String? = null,
 ) {
     val active
         get() = status == "running" || status == "queued"
@@ -196,3 +200,19 @@ data class Audit(
 @Serializable data class ConsentPreview(val client: OAuthClient, val scopes: List<String>)
 
 @Serializable data class ConsentResult(val redirect: String)
+
+@Serializable
+data class TaskOutcome(
+    val status: String,
+    val reason: String = "",
+    val evidence: List<String> = emptyList(),
+    val reportedAt: Long = 0,
+    val messageId: String? = null,
+)
+
+@Serializable
+data class ChatExecution(
+    val messageId: String,
+    val text: String = "",
+    val recovery: Boolean = false,
+)

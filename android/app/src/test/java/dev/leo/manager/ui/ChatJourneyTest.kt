@@ -362,7 +362,9 @@ class ChatJourneyTest {
             compose.onNodeWithText("Chats").assertDoesNotExist()
             compose.onNodeWithContentDescription("Actualiser l’espace").assertDoesNotExist()
             screenshot("chat")
-            compose.onNodeWithText("1 action de l’agent").performScrollTo()
+            compose
+                .onNodeWithTag("conversation-history")
+                .performScrollToNode(hasText("1 action de l’agent"))
             compose.runOnIdle {
                 val activity =
                     androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
@@ -412,7 +414,8 @@ class ChatJourneyTest {
             compose.waitUntil(10000) {
                 calls.any { it.first == "PUT" && it.second.endsWith("/messages/queued") }
             }
-            compose.onNodeWithContentDescription("Artifacts").performClick()
+            compose.onNodeWithContentDescription("Options de la conversation").performClick()
+            compose.onNodeWithText("Fichiers · 3").performClick()
             waitText("Compte rendu")
             compose.onAllNodesWithText("Compte rendu").onLast().assertExists()
             screenshot("artifacts", true)
@@ -445,7 +448,10 @@ class ChatJourneyTest {
             compose.waitForIdle()
             compose.onNodeWithContentDescription("Fermer les artifacts").performClick()
             screenshot("chat-dark")
-            compose.onNodeWithText("1 action de l’agent").performScrollTo().performClick()
+            compose
+                .onNodeWithTag("conversation-history")
+                .performScrollToNode(hasText("1 action de l’agent"))
+            compose.onNodeWithText("1 action de l’agent").performClick()
             compose.onNodeWithText("État du dépôt Git").assertExists()
             compose.onNodeWithText("État du dépôt Git").performClick()
             compose.onNodeWithText("Workspace clean").assertExists()
@@ -459,7 +465,7 @@ class ChatJourneyTest {
             screenshot("chat-draft-dark")
             compose.runOnIdle { compact = true }
             compose.waitForIdle()
-            compose.onNodeWithContentDescription("Envoyer").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Ajouter à la file").assertIsDisplayed()
             compose.onNodeWithContentDescription("Options de la conversation").assertIsDisplayed()
             System.getProperty("leo.screenshots.dir")?.let { dir ->
                 compose
@@ -485,6 +491,28 @@ class ChatJourneyTest {
                             ?.content == "steer"
                 }
             }
+            compose.waitUntil(10000) {
+                compose
+                    .onAllNodes(hasSetTextAction() and isEnabled())
+                    .fetchSemanticsNodes()
+                    .isNotEmpty() && !vm.state.value.busy
+            }
+            compose.onNode(hasSetTextAction()).performTextInput("Brouillon à conserver")
+            compose.onNode(hasSetTextAction() and hasText("Brouillon à conserver")).assertExists()
+            compose.onNodeWithContentDescription("Nouvelle conversation").performClick()
+            assertEquals("Brouillon à conserver", vm.chatDrafts[chatId]?.text)
+            compose.onNodeWithText("Conversations").performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithText("Revue du projet").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onAllNodesWithText("Revue du projet").onLast().performClick()
+            compose.waitUntil(10000) {
+                compose
+                    .onAllNodes(hasSetTextAction() and hasText("Brouillon à conserver"))
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            }
+            compose.onNode(hasSetTextAction() and hasText("Brouillon à conserver")).assertExists()
             vm.setTheme("system")
             vm.api.closeStreams()
         }

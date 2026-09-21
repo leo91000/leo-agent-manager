@@ -11,8 +11,8 @@ android {
         applicationId = "dev.leo.manager"
         minSdk = 26
         targetSdk = 37
-        versionCode = 14
-        versionName = "0.5.6"
+        versionCode = 15
+        versionName = "0.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures {
@@ -67,6 +67,7 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
