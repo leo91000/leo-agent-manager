@@ -239,7 +239,7 @@ fun TasksScreen(vm: LeoViewModel, state: Workspace, openRun: (String) -> Unit) {
                 }
             }
         }
-        if (choosing && !wide)
+        if (choosing)
             ModalBottomSheet(
                 onDismissRequest = { choosing = false },
                 sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -357,7 +357,9 @@ fun TasksScreen(vm: LeoViewModel, state: Workspace, openRun: (String) -> Unit) {
             state,
             state.tasks.find { it.id == id }
                 ?: Task(
-                    agentId = state.agents.firstOrNull()?.id.orEmpty(),
+                    agentId =
+                        state.agents.firstOrNull { it.id == MAIN_AGENT_ID }?.id
+                            ?: state.agents.firstOrNull()?.id.orEmpty(),
                     timezone = java.time.ZoneId.systemDefault().id,
                 ),
             onSaved = { task ->

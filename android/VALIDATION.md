@@ -1,4 +1,42 @@
-# Android 0.5.6 — cascading history loads and held gestures
+# Android 0.6.0 — native web parity
+
+The port targets web v0.21.12. The action-by-action feature map and deliberate
+platform equivalents are in [WEB-PARITY.md](docs/WEB-PARITY.md).
+
+The implementation passed the complete 87-test JVM/Robolectric suite, lint,
+debug and optimized release builds in
+[Android CI](https://github.com/leo91000/leo-agent-manager/actions/runs/35584279965).
+Lint reports zero errors and eight warnings. The same run passed 11 actual
+Android 16 instrumentation tests, followed by the separate one-test pinned-scroll
+capture. These include native chat switching, preserved drafts, evidence,
+keyboard/enlarged text, fullscreen, task management and adaptive layout alongside
+the existing history and gesture checks. The repository's
+[quality, browser and container checks](https://github.com/leo91000/leo-agent-manager/actions/runs/35584279943)
+also passed.
+
+Two additional native-preview tests cover phone and tablet layouts, long URLs,
+completion evidence, task selection, the tablet chooser and selecting the main
+agent by default when another agent appears first. They bring the complete suite
+to 89 tests. The final commit's PR checks are the authoritative validation of
+these final additions.
+
+Preview images generated with `-PleoScreenshotsDir=...` use Robolectric native
+graphics and synthetic data. They are not emulator or physical-phone screenshots.
+Local software emulators did not finish booting reliably; the successful device
+evidence above comes from the accelerated Android 16 CI emulator. Physical-phone
+feel, screen-reader review and frame-time measurement have not been certified.
+
+A race discovered by the device suite is fixed: the initial asynchronous Markdown
+render can finish only once, including when its view is disposed during layout.
+Two dedicated tests prevent the pending-render count from going negative.
+
+Package `dev.leo.manager`; minSdk 26; targetSdk 37; version **0.6.0 / code 15**.
+The downloadable APK is development-signed; the optimized release build is
+validated separately. Background notifications retain Android's existing
+WorkManager scheduling (roughly 15-minute checks, subject to OS delays), which
+has different delivery timing from browser Web Push. Foreground updates use SSE.
+
+## Previous validation: Android 0.5.6 — cascading history loads and held gestures
 
 Two regression cases reproduce the 0.5.5 failure with the older-history control
 visible and more pages available: with an idle reader and with a finger still

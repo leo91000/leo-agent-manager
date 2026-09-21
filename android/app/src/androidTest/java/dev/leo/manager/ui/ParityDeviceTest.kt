@@ -93,12 +93,18 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
             ),
         )
 
-    private fun stream(state: LiveState) =
-        MockResponse()
+    private fun stream(state: LiveState): MockResponse {
+        val frame =
+            "event: batch\nid: 2\ndata: ${wireJson.encodeToString(LiveBatch(events, state, true, false))}\n\n"
+        return MockResponse()
             .setHeader("Content-Type", "text/event-stream")
-            .setBody(
-                "event: batch\nid: 2\ndata: ${wireJson.encodeToString(LiveBatch(events, state, true, false))}\n\n"
+            .setBody(frame + ": keepalive\n\n".repeat(100000))
+            .throttleBody(
+                frame.toByteArray().size.toLong(),
+                1,
+                java.util.concurrent.TimeUnit.SECONDS,
             )
+    }
 
     private fun fixture(server: MockWebServer): LeoViewModel {
         server.dispatcher =
