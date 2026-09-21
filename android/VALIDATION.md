@@ -31,8 +31,8 @@ A race discovered by the device suite is fixed: the initial asynchronous Markdow
 render can finish only once, including when its view is disposed during layout.
 Two dedicated tests prevent the pending-render count from going negative.
 A later held-finger device run exposed a missed reading anchor when a history
-response overtook the scroll observer. Paging now also captures the visible old
-message during response composition, before newly inserted rows are measured.
+response overtook the scroll observer. Paging captures the visible old message synchronously at the response boundary,
+before inserting rows, and releases loading in that same UI turn before caching.
 The same-frame case checks the anchor and absence of cascading page requests;
 the existing held-finger case continues checking real pointer input.
 

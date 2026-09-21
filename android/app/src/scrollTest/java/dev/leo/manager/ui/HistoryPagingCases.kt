@@ -31,6 +31,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
     private var hasOlder by mutableStateOf(true)
     private var ready by mutableStateOf(false)
     private var requests = 0
+    private val pageAnchor = HistoryPageAnchor()
 
     private fun start(atHeader: Boolean = false, initialOffset: Int = 420, expectLoading: Boolean = true) {
         compose.setContent {
@@ -39,7 +40,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
             scope = rememberCoroutineScope()
             val live = LiveSnapshot(oldest = numbers.first().toLong(), hasOlder = hasOlder,
                 loadingOlder = loading, loadOlder = { requests++; loading = true })
-            val load = rememberHistoryPaging(live, list, ready, false, numbers.map { "message:$it" }, rendering) {}
+            val load = rememberHistoryPaging(live, list, ready, false, numbers.map { "message:$it" }, rendering, pageAnchor) {}
             LeoTheme("dark") {
                 Surface(Modifier.fillMaxWidth().height(620.dp)) {
                     CompositionLocalProvider(LocalMarkdownRendering provides rendering) {
@@ -87,7 +88,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
         start()
         val before = compose.runOnIdle { offset()!! }
         capture("before-page")
-        compose.runOnIdle { numbers = (16..40).toList(); hasOlder = false; loading = false }
+        compose.runOnIdle { pageAnchor.beforeApply(); numbers = (16..40).toList(); hasOlder = false; loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(200)
         compose.waitForIdle()
@@ -106,7 +107,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
         compose.runOnIdle { scope.launch { list.scrollBy(-170f); moved = true } }
         compose.waitUntil(10000) { moved }
         val before = compose.runOnIdle { offset()!! }
-        compose.runOnIdle { numbers = (16..40).toList(); hasOlder = false; loading = false }
+        compose.runOnIdle { pageAnchor.beforeApply(); numbers = (16..40).toList(); hasOlder = false; loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(200)
         compose.waitForIdle()
@@ -117,7 +118,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
     @Test fun visibleLoaderDisappearsWithoutMovingTheFirstParagraph() {
         start(atHeader = true)
         val before = compose.runOnIdle { offset()!! }
-        compose.runOnIdle { numbers = (16..40).toList(); hasOlder = false; loading = false }
+        compose.runOnIdle { pageAnchor.beforeApply(); numbers = (16..40).toList(); hasOlder = false; loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(200)
         compose.waitForIdle()
@@ -127,7 +128,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
     @Test fun visibleHeaderWithMorePagesDoesNotLoadTheEntireHistory() {
         start(atHeader = true)
         val before = compose.runOnIdle { offset()!! }
-        compose.runOnIdle { numbers = (16..40).toList(); loading = false }
+        compose.runOnIdle { pageAnchor.beforeApply(); numbers = (16..40).toList(); loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(500)
         try {
@@ -155,7 +156,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
             assertEquals("The drag must reach the history control", "history:older", list.layoutInfo.visibleItemsInfo.first().key)
         }
         val before = compose.runOnIdle { offset()!! }
-        compose.runOnIdle { numbers = (16..40).toList(); loading = false }
+        compose.runOnIdle { pageAnchor.beforeApply(); numbers = (16..40).toList(); loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(500)
         try {
@@ -193,11 +194,17 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
             list.dispatchRawDelta(-250f)
             assertEquals("history:older", list.layoutInfo.visibleItemsInfo.first().key)
             before = offset()!!
+            pageAnchor.beforeApply()
             numbers = (16..40).toList()
             loading = false
         }
         compose.waitForIdle()
-        compose.waitUntil(20000) { rendering.pending == 0 && offset() == before }
+        try {
+            compose.waitUntil(20000) { rendering.pending == 0 && offset() == before }
+        } catch (failure: Throwable) {
+            throw AssertionError("Same-frame anchor not settled: expected=$before, actual=${offset()}, pending=${rendering.pending}, " +
+                "requests=$requests, visible=${list.layoutInfo.visibleItemsInfo.map { it.key to it.offset }}", failure)
+        }
         compose.runOnIdle {
             assertEquals("The response must preserve the latest layout, even before its observer runs", before, offset())
             assertEquals("A cached response must not cascade into another page", 1, requests)
@@ -213,7 +220,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
     @Test fun consecutivePagesKeepTheCurrentParagraphWithoutDuplicateRequests() {
         start()
         val before = compose.runOnIdle { offset()!! }
-        compose.runOnIdle { numbers = (16..40).toList(); loading = false }
+        compose.runOnIdle { pageAnchor.beforeApply(); numbers = (16..40).toList(); loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(200)
         compose.waitForIdle()
@@ -221,7 +228,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
         positionAt(1, 300)
         compose.waitUntil(20000) { loading }
         val nextBefore = compose.runOnIdle { list.layoutInfo.visibleItemsInfo.first { it.key == "message:16" }.offset }
-        compose.runOnIdle { numbers = (11..40).toList(); loading = false }
+        compose.runOnIdle { pageAnchor.beforeApply(); numbers = (11..40).toList(); loading = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(200)
         compose.waitForIdle()
@@ -235,7 +242,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
         start()
         positionAt(20, 300)
         val before = compose.runOnIdle { list.layoutInfo.visibleItemsInfo.first { it.key == "message:40" }.offset }
-        compose.runOnIdle { numbers = (16..40).toList(); loading = false; hasOlder = false }
+        compose.runOnIdle { pageAnchor.beforeApply(); numbers = (16..40).toList(); loading = false; hasOlder = false }
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(200)
         compose.waitForIdle()

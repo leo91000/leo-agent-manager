@@ -166,8 +166,14 @@ fun ChatScreen(
     back: () -> Unit = {},
     create: () -> Unit = back,
 ) {
+    val pageAnchor = remember(id) { HistoryPageAnchor() }
     val live =
-        rememberLive(vm, state, if (id == null) "/chats/stream" else "/chats/${segment(id)}/stream")
+        rememberLive(
+            vm,
+            state,
+            if (id == null) "/chats/stream" else "/chats/${segment(id)}/stream",
+            pageAnchor::beforeApply,
+        )
     val chat = live.state?.chat?.takeIf { it.id == id }
     var createdId by rememberSaveable(id) { mutableStateOf<String?>(null) }
     var agent by rememberSaveable(id) { mutableStateOf(initialAgent) }
@@ -251,6 +257,7 @@ fun ChatScreen(
             follow,
             timeline.map { it.key },
             rendering,
+            pageAnchor,
         ) {
             follow = false
         }

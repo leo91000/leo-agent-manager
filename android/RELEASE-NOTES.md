@@ -13,7 +13,7 @@
   compact Leo navigation and search across tasks, agents, projects and skills.
 - Project source mode and starting revisions match the web. Agent access editing
   matches shared GitHub restrictions, dedicated tokens and MCP tool selection.
-- History responses also capture the latest visible message before inserting older
+- History responses capture the latest visible message before inserting older
   rows, protecting the reading anchor when a response overtakes a scroll observer.
 - Existing encrypted history, stable scrolling, files, questions, connections and
   native authentication flows are retained. No backend migration is required.

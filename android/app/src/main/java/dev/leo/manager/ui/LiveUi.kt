@@ -6,7 +6,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,7 +22,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 
 @Composable
-fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnapshot {
+fun rememberLive(
+    vm: LeoViewModel,
+    workspace: Workspace,
+    path: String,
+    beforeOlderPage: () -> Unit = {},
+): LiveSnapshot {
     val owner = LocalLifecycleOwner.current
     val enabled = workspace.session.authenticated && !workspace.signingOut
     val api = if (enabled) vm.api else null
@@ -109,6 +113,7 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
                 val before = value.oldest
                 val cacheGeneration = vm.historyCache.generation
                 scope.launch {
+                    var pageApplied = false
                     try {
                         val page =
                             api.get<HistoryPage>(
@@ -119,11 +124,17 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
                             require(page.oldest < before || !page.hasOlder) {
                                 "Page d’historique invalide."
                             }
+                            // Capture the reader synchronously before any response state is applied.
+                            beforeOlderPage()
                             older = mergeHistory(page.events, older)
                             olderHistory = history
                             boundary = page.oldest
                             moreOlder = page.hasOlder
                             value = display(value)
+                            // Release paging in the same UI turn as insertion. Disk persistence
+                            // must not leave the reader on the new rows while restoration waits.
+                            pageApplied = true
+                            loadingOlder = false
                             value.state?.let { detail ->
                                 vm.historyCache.save(
                                     vm.historyCache.key(workspace.origin, api.csrf, path),
@@ -142,15 +153,25 @@ fun rememberLive(vm: LeoViewModel, workspace: Workspace, path: String): LiveSnap
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        olderError = e.message ?: "Historique indisponible. Réessayez."
-                        if (e is ApiException && e.status == 401) vm.report(e)
+                        // A cache failure cannot undo an already applied server page.
+                        if (!pageApplied) {
+                            olderError = e.message ?: "Historique indisponible. Réessayez."
+                            if (e is ApiException && e.status == 401) vm.report(e)
+                        }
                     } finally {
-                        loadingOlder = false
+                        // A later request may have started while this page was being cached.
+                        if (!pageApplied) loadingOlder = false
                     }
                 }
             }
         },
     )
+}
+
+/** The response boundary can capture a layout before snapshotFlow observes its final movement. */
+internal class HistoryPageAnchor {
+    var capture: (() -> Unit)? = null
+    fun beforeApply() { capture?.invoke() }
 }
 
 /**
@@ -165,28 +186,30 @@ internal fun rememberHistoryPaging(
     follow: Boolean,
     keys: List<String>,
     rendering: MarkdownRendering? = null,
+    pageAnchor: HistoryPageAnchor? = null,
     stopFollowing: () -> Unit,
 ): () -> Unit {
     val current by rememberUpdatedState(live)
     var headerAnchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
     var settling by remember(list) { mutableStateOf(false) }
     var requested by remember(list) { mutableStateOf<Pair<String?, Long>?>(null) }
-    var requestedKeys by remember(list) { mutableStateOf(emptySet<String>()) }
-    // Composition sees the old layout before the response's new rows are measured.
-    // A deferred snapshotFlow collector may not have observed the final pointer MOVE
-    // when a response cancels it. Capture that latest old-message anchor directly.
-    // Ignore newly inserted keys and avoid subscribing composition to every scroll.
-    val responseLayout =
-        if (!live.loadingOlder && settling)
-            Snapshot.withoutReadObservation { list.layoutInfo.visibleItemsInfo.toList() }
-        else emptyList()
-    val oldVisibleMessage =
-        responseLayout.firstOrNull { it.key != "history:older" }
-            ?.takeIf { it.key.toString() in requestedKeys }
-    val responseAnchor =
-        if (responseLayout.firstOrNull()?.key == "history:older")
-            oldVisibleMessage?.let { it.key.toString() to -it.offset }
-        else null
+    var capturedBeforeApply by remember(list) { mutableStateOf(false) }
+    DisposableEffect(pageAnchor, list) {
+        val capture = {
+            val visible = list.layoutInfo.visibleItemsInfo
+            headerAnchor =
+                if (visible.firstOrNull()?.key == "history:older")
+                    visible.firstOrNull { it.key != "history:older" }
+                        ?.let { it.key.toString() to -it.offset }
+                else null
+            // A null anchor is intentional when the reader has left the header.
+            capturedBeforeApply = true
+        }
+        pageAnchor?.capture = capture
+        onDispose {
+            pageAnchor?.let { if (it.capture === capture) it.capture = null }
+        }
+    }
     LaunchedEffect(list, live.loadingOlder) {
         val before = live.oldest
         if (live.loadingOlder)
@@ -194,7 +217,7 @@ internal fun rememberHistoryPaging(
                 .collect { visible ->
                     // Ignore the new page's layout if it arrives before this collector is
                     // cancelled.
-                    if (current.oldest != before) return@collect
+                    if (capturedBeforeApply || current.oldest != before) return@collect
                     // Follow the reader during the request; never restore its initial position.
                     headerAnchor =
                         if (visible.firstOrNull()?.key == "history:older") {
@@ -210,9 +233,7 @@ internal fun rememberHistoryPaging(
         val responseArrived =
             requested != (live.history to live.oldest) || live.olderError != null || !live.hasOlder
         if (!live.loadingOlder && settling && responseArrived) {
-            // A known old layout away from the header deliberately clears a stale anchor:
-            // ordinary lazy-list key anchoring already preserves that reading position.
-            val saved = if (oldVisibleMessage != null) responseAnchor else headerAnchor
+            val saved = headerAnchor
             headerAnchor = null
             if (saved != null) {
                 val index = keys.indexOf(saved.first)
@@ -247,7 +268,7 @@ internal fun rememberHistoryPaging(
                 } else null
             settling = true
             requested = current.history to current.oldest
-            requestedKeys = keys.toSet()
+            capturedBeforeApply = false
             stopFollowing()
             current.loadOlder()
         }

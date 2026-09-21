@@ -134,7 +134,9 @@ fun RunScreen(
     createTask: (() -> Unit)? = null,
     openRun: (String) -> Unit,
 ) {
-    val live = rememberLive(vm, state, "/runs/${segment(id)}/stream")
+    val pageAnchor = remember(id) { HistoryPageAnchor() }
+    val live =
+        rememberLive(vm, state, "/runs/${segment(id)}/stream", pageAnchor::beforeApply)
     val run = live.state?.run
     val events = live.events
     val more = live.catchingUp
@@ -178,6 +180,7 @@ fun RunScreen(
             follow,
             timeline.map { it.key },
             rendering,
+            pageAnchor,
         ) {
             follow = false
         }
