@@ -99,6 +99,21 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
             ),
         )
 
+    private val chats =
+        listOf(
+            chat,
+            chat.copy(
+                id = "other",
+                title = "Préparer la prochaine version",
+                pendingQuestions = 1,
+            ),
+            chat.copy(
+                id = "old",
+                title = "Explorer les résultats",
+                updatedAt = timestamp - 172800000,
+            ),
+        )
+
     private fun stream(state: LiveState): MockResponse {
         val frame =
             "event: batch\nid: 2\ndata: ${wireJson.encodeToString(LiveBatch(events, state, true, false))}\n\n"
@@ -123,27 +138,15 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
                             path != "/api/chats/stream"
                     )
                         return stream(
-                            LiveState(chat = chat.copy(id = path.split('/')[3]), run = chat.run)
+                            LiveState(
+                                chat = chats.single { it.id == path.split('/')[3] },
+                                run = chat.run,
+                            )
                         )
                     when (path) {
                         "/api/chats/stream" ->
                             return stream(
-                                LiveState(
-                                    chats =
-                                        listOf(
-                                            chat,
-                                            chat.copy(
-                                                id = "other",
-                                                title = "Préparer la prochaine version",
-                                                pendingQuestions = 1,
-                                            ),
-                                            chat.copy(
-                                                id = "old",
-                                                title = "Explorer les résultats",
-                                                updatedAt = timestamp - 172800000,
-                                            ),
-                                        )
-                                )
+                                LiveState(chats = chats)
                             )
                         "/api/runs/run/stream" -> return stream(LiveState(run = run))
                     }
