@@ -1,9 +1,15 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package dev.leo.manager.ui
 
+import android.Manifest
 import android.app.Application
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -187,74 +193,123 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
         }
     }
 
-    fun compactChatEvidenceAndSwitcher() {
+    private fun withSoftwareKeyboard(block: () -> Unit) {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val resolver = InstrumentationRegistry.getInstrumentation().targetContext.contentResolver
+        val setting = "show_ime_with_hard_keyboard"
+        val original = Settings.Secure.getString(resolver, setting)
+        fun restoreSetting(value: String?) {
+            automation.adoptShellPermissionIdentity(Manifest.permission.WRITE_SECURE_SETTINGS)
+            try {
+                check(Settings.Secure.putString(resolver, setting, value))
+            } finally {
+                automation.dropShellPermissionIdentity()
+            }
+        }
+        // CI emulators expose a hardware keyboard. Exercise a real IME, and restore
+        // the device preference afterward so standalone device runs leave no change.
+        try {
+            restoreSetting("1")
+            block()
+        } finally {
+            restoreSetting(original)
+        }
+    }
+
+    fun compactChatEvidenceAndSwitcher() = withSoftwareKeyboard {
         MockWebServer().use { server ->
             val vm = fixture(server)
-            var dark by mutableStateOf(true)
-            var fontScale by mutableFloatStateOf(1f)
-            compose.setContent {
-                val density = LocalDensity.current
-                CompositionLocalProvider(
-                    LocalDensity provides Density(density.density, fontScale)
-                ) {
-                    LeoTheme(if (dark) "dark" else "light") { LeoApp(vm = vm) }
+            try {
+                var dark by mutableStateOf(true)
+                var fontScale by mutableFloatStateOf(1f)
+                var imeVisible = false
+                var keyboard: SoftwareKeyboardController? = null
+                compose.setContent {
+                    val visible = WindowInsets.isImeVisible
+                    val controller = LocalSoftwareKeyboardController.current
+                    SideEffect {
+                        imeVisible = visible
+                        keyboard = controller
+                    }
+                    val density = LocalDensity.current
+                    CompositionLocalProvider(
+                        LocalDensity provides Density(density.density, fontScale)
+                    ) {
+                        LeoTheme(if (dark) "dark" else "light") { LeoApp(vm = vm) }
+                    }
                 }
-            }
-            compose.waitUntil(30000) {
-                compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isNotEmpty()
-            }
-            capture("conversation-list-dark")
-            compose.onNodeWithText(chat.title).performClick()
-            compose.waitUntil(30000) {
-                compose.onAllNodesWithText("Tâche terminée").fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithText("Tâche terminée").performScrollTo()
-            compose.onNodeWithText("Détails").performClick()
-            capture("chat-evidence-dark")
-            compose.onNodeWithText("Conversations").performClick()
-            compose.waitUntil(15000) {
+                compose.waitUntil(30000) {
+                    compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isNotEmpty()
+                }
+                capture("conversation-list-dark")
+                compose.onNodeWithText(chat.title).performClick()
+                compose.waitUntil(30000) {
+                    compose.onAllNodesWithText("Tâche terminée").fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithText("Tâche terminée").performScrollTo()
+                compose.onNodeWithText("Détails").performClick()
+                capture("chat-evidence-dark")
+                compose.onNodeWithText("Conversations").performClick()
+                compose.waitUntil(15000) {
+                    compose
+                        .onAllNodesWithText("Préparer la prochaine version")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
+                }
+                capture("conversation-switcher-dark")
+                compose.onNodeWithText("Rechercher une conversation").performTextInput("prochaine")
+                compose.onNodeWithText("Explorer les résultats").assertDoesNotExist()
+                compose.onNodeWithText("Préparer la prochaine version").performClick()
+                compose.waitUntil(30000) {
+                    compose.onAllNodesWithText("Rechercher une conversation").fetchSemanticsNodes().isEmpty() &&
+                        compose.onAllNodesWithText("Préparer la prochaine version").fetchSemanticsNodes().isNotEmpty() &&
+                        compose.onAllNodesWithText("Tâche terminée").fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.runOnIdle {
+                    dark = false
+                    fontScale = 1.3f
+                }
+                capture("chat-large-text-light")
                 compose
-                    .onAllNodesWithText("Préparer la prochaine version")
-                    .fetchSemanticsNodes()
-                    .isNotEmpty()
+                    .onNode(hasSetTextAction())
+                    .performClick()
+                    .performTextInput("Un brouillon sur téléphone")
+                compose.runOnIdle { checkNotNull(keyboard).show() }
+                compose.waitUntil(15000) {
+                    compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes()
+                    imeVisible
+                }
+                compose.onNodeWithContentDescription("Envoyer").assertIsDisplayed()
+                capture("chat-keyboard-light")
+                InstrumentationRegistry.getInstrumentation()
+                    .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+                compose.waitUntil(15000) {
+                    compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes()
+                    !imeVisible
+                }
+                compose
+                    .onNode(hasSetTextAction() and hasText("Un brouillon sur téléphone"))
+                    .assertIsDisplayed()
+                compose.onNodeWithContentDescription("Options de la conversation").performClick()
+                compose.onNodeWithText("Plein écran").performClick()
+                compose.waitUntil(10000) {
+                    compose.onAllNodesWithContentDescription("Quitter le plein écran")
+                        .fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNode(hasSetTextAction()).assertDoesNotExist()
+                capture("chat-fullscreen-light")
+                InstrumentationRegistry.getInstrumentation()
+                    .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+                compose
+                    .onNode(hasSetTextAction() and hasText("Un brouillon sur téléphone"))
+                    .assertExists()
+                compose.onNodeWithContentDescription("Options de la conversation").performClick()
+                compose.onNodeWithText("Détails de la conversation").performClick()
+                compose.onAllNodesWithText("Agent principal").onLast().assertExists()
+                capture("chat-details-light")
+            } finally {
+                vm.api.closeStreams()
             }
-            capture("conversation-switcher-dark")
-            compose.onNodeWithText("Rechercher une conversation").performTextInput("prochaine")
-            compose.onNodeWithText("Explorer les résultats").assertDoesNotExist()
-            compose.onNodeWithText("Préparer la prochaine version").performClick()
-            compose.waitUntil(30000) {
-                compose.onAllNodesWithText("Tâche terminée").fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.runOnIdle {
-                dark = false
-                fontScale = 1.3f
-            }
-            capture("chat-large-text-light")
-            compose
-                .onNode(hasSetTextAction())
-                .performClick()
-                .performTextInput("Un brouillon sur téléphone")
-            compose.onNodeWithContentDescription("Envoyer").assertIsDisplayed()
-            capture("chat-keyboard-light")
-            InstrumentationRegistry.getInstrumentation()
-                .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-            compose
-                .onNode(hasSetTextAction() and hasText("Un brouillon sur téléphone"))
-                .assertExists()
-            compose.onNodeWithContentDescription("Options de la conversation").performClick()
-            compose.onNodeWithText("Plein écran").performClick()
-            compose.onNode(hasSetTextAction()).assertDoesNotExist()
-            capture("chat-fullscreen-light")
-            InstrumentationRegistry.getInstrumentation()
-                .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-            compose
-                .onNode(hasSetTextAction() and hasText("Un brouillon sur téléphone"))
-                .assertExists()
-            compose.onNodeWithContentDescription("Options de la conversation").performClick()
-            compose.onNodeWithText("Détails de la conversation").performClick()
-            compose.onAllNodesWithText("Agent principal").onLast().assertExists()
-            capture("chat-details-light")
-            vm.api.closeStreams()
         }
     }
 
