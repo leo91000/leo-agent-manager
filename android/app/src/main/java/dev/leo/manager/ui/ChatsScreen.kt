@@ -936,26 +936,35 @@ fun ChatScreen(
                                         stopping = true
                                     }
                                 else
-                                    FilledIconButton(
+                                    IconButton(
                                         onClick = { send("queue") },
                                         enabled = canSend,
-                                        modifier = Modifier.size(48.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = IconButtonDefaults.filledIconButtonColors(
-                                            containerColor = androidx.compose.ui.graphics.Color(0xFF4545F5),
-                                            contentColor = androidx.compose.ui.graphics.Color.White,
-                                        ),
+                                        modifier = Modifier.size(48.dp).testTag("conversation-send"),
                                     ) {
-                                        Icon(
-                                            if (editing != null) Icons.Default.Check
-                                            else if (active || chat?.paused == true)
-                                                Icons.Default.Add
-                                            else LeoIcons.Up,
-                                            if (editing != null) "Modifier"
-                                            else if (active || chat?.paused == true)
-                                                "Ajouter à la file"
-                                            else "Envoyer",
-                                        )
+                                        // Keep the native touch target generous while the visible
+                                        // button stays discreet alongside the message field.
+                                        Surface(
+                                            Modifier.size(32.dp).testTag("conversation-send-face"),
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (canSend) androidx.compose.ui.graphics.Color(0xFF4545F5)
+                                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                                            contentColor = if (canSend) androidx.compose.ui.graphics.Color.White
+                                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                        ) {
+                                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    if (editing != null) Icons.Default.Check
+                                                    else if (active || chat?.paused == true)
+                                                        Icons.Default.Add
+                                                    else LeoIcons.Up,
+                                                    if (editing != null) "Modifier"
+                                                    else if (active || chat?.paused == true)
+                                                        "Ajouter à la file"
+                                                    else "Envoyer",
+                                                    Modifier.size(18.dp),
+                                                )
+                                            }
+                                        }
                                     }
                             }
                         }

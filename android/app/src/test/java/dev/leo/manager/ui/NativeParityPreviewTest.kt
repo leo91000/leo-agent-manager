@@ -230,6 +230,13 @@ class NativeParityPreviewTest {
                         compose.onNodeWithTag("conversation-header").assertCompactHeight(if (largeText) 80.dp else 64.dp)
                         compose.onNodeWithTag("conversation-files")
                             .assertIsDisplayed().assertCompactHeight(if (largeText) 116.dp else 88.dp)
+                        val sendBounds = compose.onNodeWithTag("conversation-send").getUnclippedBoundsInRoot()
+                        org.junit.Assert.assertEquals(48.dp, sendBounds.bottom - sendBounds.top)
+                        org.junit.Assert.assertEquals(48.dp, sendBounds.right - sendBounds.left)
+                        val faceBounds = compose.onNodeWithTag("conversation-send-face", useUnmergedTree = true)
+                            .getUnclippedBoundsInRoot()
+                        org.junit.Assert.assertEquals(32.dp, faceBounds.bottom - faceBounds.top)
+                        org.junit.Assert.assertEquals(32.dp, faceBounds.right - faceBounds.left)
                         val name = if (largeText) "fil-phone-large-text" else "fil-phone-density"
                         capture(name)
                         // Compact presentation must retain access to every file and the native viewer.

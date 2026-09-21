@@ -5,6 +5,7 @@
 - Compact 56 dp conversation header and single-row resting composer. Messages use
   16 sp body text, 24 sp line height and 16 dp reading margins; assistant replies
   stay on the page rather than in cards.
+- Sending uses a discreet 32 dp face and 18 dp arrow inside a 48 dp native touch target.
 - Published files use a compact horizontal rail with small previews in the transcript.
   Full galleries, group names, versions, authenticated opening and sharing remain available.
 - Tasks have an underlined filter strip, flat rows, fine separators and a narrow
