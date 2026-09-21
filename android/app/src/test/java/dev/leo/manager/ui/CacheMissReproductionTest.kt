@@ -155,7 +155,13 @@ class CacheMissReproductionTest {
                         compose.waitUntil(10000) {
                             compose.onAllNodesWithText("Messages précédents").fetchSemanticsNodes().isEmpty()
                         }
-                        compose.waitForIdle()
+                        // Receiving the page removes the loader before the asynchronous
+                        // reading-anchor restoration has finished its next layout.
+                        compose.waitUntil(10000) {
+                            val bounds = compose.onAllNodesWithText("Message 021")
+                                .fetchSemanticsNodes().firstOrNull()?.boundsInRoot
+                            bounds != null && bounds.height > 0 && kotlin.math.abs(bounds.top - before) <= 1f
+                        }
                         compose.onNodeWithText("Message 021").assertIsDisplayed()
                         assertEquals(before, compose.onNodeWithText("Message 021").fetchSemanticsNode().boundsInRoot.top, 1f)
                         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Message 001"))
