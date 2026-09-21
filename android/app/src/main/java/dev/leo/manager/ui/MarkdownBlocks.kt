@@ -109,3 +109,20 @@ internal class MarkdownRendering {
     }
 }
 internal val LocalMarkdownRendering = compositionLocalOf<MarkdownRendering?> { null }
+
+/** A render and its disposal can both finish the same initial layout. */
+internal class MarkdownRenderPass(private val rendering: MarkdownRendering?) {
+    private var pending = false
+    fun begin() {
+        if (!pending) {
+            pending = true
+            rendering?.begin()
+        }
+    }
+    fun finish() {
+        if (pending) {
+            pending = false
+            rendering?.end()
+        }
+    }
+}

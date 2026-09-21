@@ -341,10 +341,10 @@ fun Markdown(content: String) {
                 .build()
         }
     val rendering = LocalMarkdownRendering.current
-    var initial by remember(markwon, rendering) { mutableStateOf(true) }
+    val initial = remember(markwon, rendering) { MarkdownRenderPass(rendering) }
     DisposableEffect(markwon, rendering) {
-        rendering?.begin()
-        onDispose { if (initial) rendering?.end() }
+        initial.begin()
+        onDispose { initial.finish() }
     }
     val currentContent by rememberUpdatedState(content)
     var blocks by remember(markwon) { mutableStateOf(emptyList<MarkdownBlock>()) }
@@ -358,10 +358,7 @@ fun Markdown(content: String) {
                 blocks = withContext(Dispatchers.Default) { renderer.render(text) }
                 withFrameNanos {}
                 withFrameNanos {}
-                if (initial) {
-                    initial = false
-                    rendering?.end()
-                }
+                initial.finish()
                 rendering?.changed()
                 delay(80)
             }
