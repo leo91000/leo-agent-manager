@@ -252,9 +252,11 @@ class NativeParityPreviewTest {
         val dir = System.getProperty("leo.screenshots.dir") ?: return
         compose.waitForIdle()
         File(dir).mkdirs()
-        compose
-            .onAllNodes(isRoot())
-            .onLast()
+        val target =
+            if (compose.onAllNodes(isDialog()).fetchSemanticsNodes().isNotEmpty())
+                compose.onNode(isDialog())
+            else compose.onRoot()
+        target
             .captureToImage()
             .asAndroidBitmap()
             .compress(
