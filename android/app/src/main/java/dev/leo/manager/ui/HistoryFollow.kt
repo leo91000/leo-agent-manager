@@ -136,7 +136,15 @@ internal fun FollowHistoryTail(
     LaunchedEffect(list, allowed, rendering, gesture) {
         if (allowed) snapshotFlow {
             val info = list.layoutInfo
-            Triple(info.totalItemsCount to info.viewportSize.height, rendering.revision, currentContent)
+            val tail = info.visibleItemsInfo.lastOrNull()
+            // Selectable native text may relocate after release without changing
+            // content or viewport size. Observe its measured position as well;
+            // intentional gestures disable this collector before it can repin.
+            val geometry = listOf(
+                info.totalItemsCount, info.viewportSize.height, info.viewportEndOffset,
+                info.afterContentPadding, tail?.index, tail?.offset, tail?.size,
+            )
+            Triple(geometry, rendering.revision, currentContent)
         }.conflate().collect {
             withFrameNanos { }
             if (gesture?.busy == true) return@collect

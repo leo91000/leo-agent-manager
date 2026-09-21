@@ -218,10 +218,14 @@ abstract class HistoryFollowCases {
         append()
         compose.runOnIdle { assertTrue("Streaming under a stationary finger must retain follow intent", follow) }
         history.performTouchInput { up() }
+        settle()
         // Native text focus can report relocation after the pointer event has
-        // finished. Reproduce that late callback on both JVM and device runners.
+        // finished, even after follow has run. Reproduce its real displacement
+        // as well as the late callback on both JVM and device runners.
         compose.runOnIdle {
-            gesture.onPostScroll(Offset(0f, 1f), Offset.Zero, NestedScrollSource.UserInput)
+            val relocated = list.dispatchRawDelta(-24f)
+            assertTrue("The delayed relocation actually moves the list", relocated < 0f)
+            gesture.onPostScroll(Offset(0f, -relocated), Offset.Zero, NestedScrollSource.UserInput)
         }
         settle()
         compose.runOnIdle {
