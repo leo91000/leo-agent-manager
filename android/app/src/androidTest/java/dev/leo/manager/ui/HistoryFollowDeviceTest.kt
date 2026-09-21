@@ -12,11 +12,25 @@ class HistoryFollowDeviceTest : HistoryFollowCases() {
         checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
 
     // Reuse the active Compose rule so CI's existing device selection also checks paging.
-    @Test fun olderPageDoesNotCascadeWhileTheHeaderIsVisible() {
-        object : HistoryPagingCases(compose) {}.visibleHeaderWithMorePagesDoesNotLoadTheEntireHistory()
+    @Test
+    fun olderPageDoesNotCascadeWhileTheHeaderIsVisible() {
+        object : HistoryPagingCases(compose) {}
+            .visibleHeaderWithMorePagesDoesNotLoadTheEntireHistory()
     }
 
-    @Test fun olderPageKeepsTheTextUnderAnActiveFinger() {
-        object : HistoryPagingCases(compose) {}.pageArrivingDuringAHeldDragPreservesTextAndDoesNotCascade()
+    @Test
+    fun olderPageKeepsTheTextUnderAnActiveFinger() {
+        object : HistoryPagingCases(compose) {}
+            .pageArrivingDuringAHeldDragPreservesTextAndDoesNotCascade()
     }
+
+    // The existing CI device entry point also exercises the complete native app.
+    @Test
+    fun compactConversationAndKeyboard() =
+        ParityDeviceCases(compose).compactChatEvidenceAndSwitcher()
+
+    @Test
+    fun taskConversationAndManagement() = ParityDeviceCases(compose).taskConversationAndManagement()
+
+    @Test fun adaptiveTaskLayout() = ParityDeviceCases(compose).adaptiveTaskLayout()
 }

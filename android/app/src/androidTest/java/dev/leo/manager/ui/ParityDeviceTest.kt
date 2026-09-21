@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.test.core.app.ApplicationProvider
@@ -20,9 +21,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /** Actual Android rendering with a local test-only API; never touches a user's server. */
-@RunWith(AndroidJUnit4::class)
-class ParityDeviceTest {
-    @get:Rule val compose = createComposeRule()
+internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
     private val timestamp = System.currentTimeMillis()
     private val task =
         Task(
@@ -178,7 +177,6 @@ class ParityDeviceTest {
         }
     }
 
-    @Test
     fun compactChatEvidenceAndSwitcher() {
         MockWebServer().use { server ->
             val vm = fixture(server)
@@ -250,7 +248,6 @@ class ParityDeviceTest {
         }
     }
 
-    @Test
     fun adaptiveTaskLayout() {
         MockWebServer().use { server ->
             val vm = fixture(server)
@@ -274,7 +271,6 @@ class ParityDeviceTest {
         }
     }
 
-    @Test
     fun taskConversationAndManagement() {
         MockWebServer().use { server ->
             val vm = fixture(server)
@@ -300,4 +296,18 @@ class ParityDeviceTest {
             vm.api.closeStreams()
         }
     }
+}
+
+@RunWith(AndroidJUnit4::class)
+class ParityDeviceTest {
+    @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun compactChatEvidenceAndSwitcher() =
+        ParityDeviceCases(compose).compactChatEvidenceAndSwitcher()
+
+    @Test
+    fun taskConversationAndManagement() = ParityDeviceCases(compose).taskConversationAndManagement()
+
+    @Test fun adaptiveTaskLayout() = ParityDeviceCases(compose).adaptiveTaskLayout()
 }
