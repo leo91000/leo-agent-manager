@@ -211,11 +211,18 @@ abstract class HistoryFollowCases {
 
     @Test fun holdingWithoutMovingResumesFollowOnReleaseButNeverRepinsAReader() {
         start()
+        compose.runOnIdle { assertTrue("Initial history follows", follow) }
         history.performTouchInput { down(center) }
+        compose.runOnIdle { assertTrue("The stationary press is observed", gesture.touching) }
         append()
+        compose.runOnIdle { assertTrue("Streaming under a stationary finger must retain follow intent", follow) }
         history.performTouchInput { up() }
         settle()
-        compose.runOnIdle { assertTrue(follow); assertFalse(list.canScrollForward) }
+        compose.runOnIdle {
+            assertFalse("Release clears the active touch", gesture.touching)
+            assertTrue("A stationary release must resume following", follow)
+            assertFalse("Resumed follow reaches the new end", list.canScrollForward)
+        }
         history.performTouchInput { swipeDown() }
         settle()
         history.performTouchInput { click(center) }

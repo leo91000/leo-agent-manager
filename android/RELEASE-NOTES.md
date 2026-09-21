@@ -10,6 +10,7 @@
   Full galleries, group names, versions, authenticated opening and sharing remain available.
 - Tasks have an underlined filter strip, flat rows, fine separators and a narrow
   selection marker. Execution details remain expandable with labelled touch targets.
+- History follow distinguishes actual finger movement from text relocation during a stationary press.
 - No backend change or dependency-pin upgrade. This is a density adaptation inspired
   by the supplied ChatGPT screenshot, not a pixel-identical reproduction.
 

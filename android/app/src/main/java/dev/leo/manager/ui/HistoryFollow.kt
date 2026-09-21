@@ -24,6 +24,7 @@ internal class HistoryFollowGesture(
         private set
     private var flinging by mutableStateOf(false)
     private var moved = false
+    private var pointerMoved = false
     val busy get() = touching || flinging
 
     fun contact(down: Boolean) {
@@ -31,10 +32,20 @@ internal class HistoryFollowGesture(
         if (down) {
             flinging = false
             moved = false
+            pointerMoved = false
         }
     }
 
+    fun motion() {
+        pointerMoved = true
+    }
+
     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+        // Selectable Android text can request a relocation during a held press
+        // when streamed text is rebound. A nested-scroll label alone does not
+        // establish that the reader actually moved their finger.
+        if (touching && !pointerMoved && source == NestedScrollSource.UserInput)
+            return Offset.Zero
         if (source == NestedScrollSource.UserInput || flinging) {
             if (consumed.y > 0f) {
                 // Touch slop has already been handled by LazyColumn. Any actual
@@ -77,6 +88,7 @@ internal fun Modifier.historyFollowGesture(gesture: HistoryFollowGesture): Modif
             try {
                 do {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (event.changes.any { it.position != it.previousPosition }) gesture.motion()
                 } while (event.changes.any { it.pressed })
             } finally {
                 gesture.contact(false)
