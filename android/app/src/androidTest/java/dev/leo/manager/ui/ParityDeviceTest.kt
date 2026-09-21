@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.leo.manager.data.*
 import java.io.File
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import okhttp3.mockwebserver.*
@@ -156,8 +157,11 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
                         .setBody(body)
                 }
             }
-        return LeoViewModel(ApplicationProvider.getApplicationContext<Application>()).also { vm ->
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        runBlocking { Preferences(application).setOrigin("") }
+        return LeoViewModel(application).also { vm ->
             runBlocking {
+                vm.state.first { it.ready }
                 vm.forget()
                 vm.connect(server.url("/").toString())
             }
@@ -284,9 +288,11 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
             }
             compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Tâche terminée"))
             capture("task-conversation-dark")
-            compose.onAllNodesWithText("Tâches").onFirst().performClick()
+            compose.onNode(hasText("Tâches") and hasText(task.name)).performClick()
             capture("task-inbox-dark")
-            compose.onAllNodesWithText(task.name).onLast().performClick()
+            compose
+                .onNode(hasText(task.name) and hasText("Prochaine :", substring = true))
+                .performClick()
             compose.onNodeWithContentDescription("Options de l’exécution").performClick()
             compose.onNodeWithText("Détails de la tâche").performClick()
             capture("task-details-dark")
