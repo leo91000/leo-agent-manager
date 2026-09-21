@@ -2,10 +2,48 @@ package dev.leo.manager.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import dev.leo.manager.R
+
+private val LeoBody = FontFamily(
+    Font(R.font.leo_body_400, FontWeight.Normal),
+    Font(R.font.leo_body_500, FontWeight.Medium),
+    Font(R.font.leo_body_600, FontWeight.SemiBold),
+    Font(R.font.leo_body_700, FontWeight.Bold),
+)
+private val LeoHeading = FontFamily(
+    Font(R.font.leo_heading_600, FontWeight.SemiBold),
+    Font(R.font.leo_heading_700, FontWeight.Bold),
+)
+
+// The web's DM Sans / Manrope identity, with Android font scaling intact.
+private val LeoTypography = Typography().let { base ->
+    base.copy(
+        displayLarge = base.displayLarge.copy(fontFamily = LeoHeading),
+        displayMedium = base.displayMedium.copy(fontFamily = LeoHeading),
+        displaySmall = base.displaySmall.copy(fontFamily = LeoHeading),
+        headlineLarge = base.headlineLarge.copy(fontFamily = LeoHeading),
+        headlineMedium = base.headlineMedium.copy(fontFamily = LeoHeading),
+        headlineSmall = base.headlineSmall.copy(fontFamily = LeoHeading),
+        titleLarge = base.titleLarge.copy(fontFamily = LeoHeading, fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold),
+        titleMedium = base.titleMedium.copy(fontFamily = LeoHeading, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
+        titleSmall = base.titleSmall.copy(fontFamily = LeoBody, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
+        bodyLarge = base.bodyLarge.copy(fontFamily = LeoBody, fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.sp),
+        bodyMedium = base.bodyMedium.copy(fontFamily = LeoBody, fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.sp),
+        bodySmall = base.bodySmall.copy(fontFamily = LeoBody, fontSize = 12.sp, lineHeight = 16.sp),
+        labelLarge = base.labelLarge.copy(fontFamily = LeoBody, fontSize = 13.sp, lineHeight = 18.sp),
+        labelMedium = base.labelMedium.copy(fontFamily = LeoBody, fontSize = 12.sp, lineHeight = 16.sp),
+        labelSmall = base.labelSmall.copy(fontFamily = LeoBody, fontSize = 11.sp, lineHeight = 14.sp),
+    )
+}
 
 // Semantic tokens from src/styles/theme.css. Keep the web brand while using
 // Android's native typography, touch targets, shapes and interaction patterns.
@@ -98,6 +136,7 @@ fun leoDarkTheme(preference: String): Boolean =
 fun LeoTheme(preference: String = "system", content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = if (leoDarkTheme(preference)) LeoDarkColors else LeoLightColors,
+        typography = LeoTypography,
         content = content,
     )
 }

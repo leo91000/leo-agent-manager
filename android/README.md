@@ -1,7 +1,9 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
-Version 0.6.0 brings the current web conversation and task experience to native Android.
+Version 0.6.1 applies the Fil design to the native web-parity port: compact conversation
+chrome, flat task rows and compact inline files, with the web palette and bundled
+DM Sans / Manrope fonts. Body text stays at 16 sp / 24 sp and respects Android font scaling.
 It retains stable history loading and reading position during an active drag.
 See the [parity audit](docs/WEB-PARITY.md) for the reference and validation scope.
 Tool activity has native views: commands, reads, searches, diffs,

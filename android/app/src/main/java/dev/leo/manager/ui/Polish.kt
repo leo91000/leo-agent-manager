@@ -46,6 +46,15 @@ internal object LeoIcons {
             lineTo(3f, 6f)
             quadTo(3f, 4f, 5f, 4f)
         }
+    val Tasks =
+        line("Tasks") {
+            moveTo(9f, 5f); lineTo(21f, 5f)
+            moveTo(9f, 12f); lineTo(21f, 12f)
+            moveTo(9f, 19f); lineTo(21f, 19f)
+            moveTo(2f, 5f); lineTo(4f, 7f); lineTo(7f, 3f)
+            moveTo(2f, 12f); lineTo(4f, 14f); lineTo(7f, 10f)
+            moveTo(3f, 19f); lineTo(5f, 19f)
+        }
     val File =
         line("File") {
             moveTo(14f, 3f)
@@ -202,7 +211,8 @@ internal fun SearchField(label: String, value: String, change: (String) -> Unit)
         Modifier.fillMaxWidth(),
         placeholder = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         singleLine = true,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(12.dp),
+        textStyle = MaterialTheme.typography.bodyMedium,
         colors =
             TextFieldDefaults.colors(
                 focusedIndicatorColor = Color.Transparent,

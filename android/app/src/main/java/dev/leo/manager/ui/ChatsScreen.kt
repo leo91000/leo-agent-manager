@@ -840,11 +840,12 @@ fun ChatScreen(
                     }
                 if (!fullscreen)
                     Surface(
-                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp).testTag("conversation-composer"),
+                        shape = RoundedCornerShape(18.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        color = MaterialTheme.colorScheme.surface,
                     ) {
-                        Column(Modifier.padding(6.dp)) {
+                        Column(Modifier.padding(4.dp)) {
                             if (attachments.isNotEmpty())
                                 Box(Modifier.heightIn(max = 140.dp)) {
                                     LazyColumn {
@@ -939,6 +940,11 @@ fun ChatScreen(
                                         onClick = { send("queue") },
                                         enabled = canSend,
                                         modifier = Modifier.size(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = IconButtonDefaults.filledIconButtonColors(
+                                            containerColor = androidx.compose.ui.graphics.Color(0xFF4545F5),
+                                            contentColor = androidx.compose.ui.graphics.Color.White,
+                                        ),
                                     ) {
                                         Icon(
                                             if (editing != null) Icons.Default.Check

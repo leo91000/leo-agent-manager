@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.leo.manager.data.*
@@ -87,7 +88,7 @@ internal fun CompletionEvidence(outcome: TaskOutcome, agent: String) {
             else MaterialTheme.colorScheme.background,
         shape = RoundedCornerShape(16.dp),
     ) {
-        Column(Modifier.padding(horizontal = if (attention) 12.dp else 2.dp, vertical = 4.dp)) {
+        Column(Modifier.padding(horizontal = if (attention) 12.dp else 0.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     if (attention) Icons.Default.Info else Icons.Default.Check,
@@ -99,7 +100,7 @@ internal fun CompletionEvidence(outcome: TaskOutcome, agent: String) {
                 Text(
                     outcomeLabel(outcome),
                     Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = color,
                 )
                 TextButton(onClick = { expanded = !expanded }) {
@@ -137,42 +138,51 @@ internal fun ConversationHeader(
     choose: () -> Unit,
     actions: @Composable RowScope.() -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 8.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                onClick = choose,
-                modifier = Modifier.weight(1f),
-                color = MaterialTheme.colorScheme.background,
-                shape = RoundedCornerShape(12.dp),
+    Surface(Modifier.testTag("conversation-header"), color = MaterialTheme.colorScheme.background) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Icon(
-                            LeoIcons.Down,
-                            null,
-                            Modifier.padding(start = 6.dp).size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
+                Surface(
+                    onClick = choose,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.background,
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (label == "Conversations") LeoIcons.Chat else LeoIcons.Tasks,
+                                null,
+                                Modifier.padding(end = 8.dp).size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Icon(
+                                LeoIcons.Down,
+                                null,
+                                Modifier.padding(start = 6.dp).size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        if (title.isNotBlank())
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                     }
-                    if (title.isNotBlank())
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                 }
+                actions()
             }
-            actions()
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
         }
     }
 }

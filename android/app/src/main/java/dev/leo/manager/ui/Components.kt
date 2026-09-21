@@ -27,6 +27,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
+import androidx.core.content.res.ResourcesCompat
+import dev.leo.manager.R
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -393,12 +395,23 @@ private fun MarkdownBlockView(
         with(androidx.compose.ui.platform.LocalDensity.current) {
             MaterialTheme.typography.bodyLarge.fontSize.toPx()
         }
+    val lineHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        MaterialTheme.typography.bodyLarge.lineHeight.toPx()
+    }
     AndroidView(
-        factory = { MarkdownTextView(it, copyText) },
+        factory = { context ->
+            MarkdownTextView(context, copyText).apply {
+                typeface = ResourcesCompat.getFont(context, R.font.leo_body)
+            }
+        },
         modifier = Modifier.fillMaxWidth(),
         update = {
             if (it.textSize != textSizePx)
                 it.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, textSizePx)
+            val metrics = it.paint.fontMetrics
+            val extra = (lineHeightPx - (metrics.descent - metrics.ascent)).coerceAtLeast(0f)
+            if (it.lineSpacingExtra != extra || it.lineSpacingMultiplier != 1f)
+                it.setLineSpacing(extra, 1f)
             it.setTextColor(color)
             it.setLinkTextColor(linkColor)
             it.bind(markwon, block)

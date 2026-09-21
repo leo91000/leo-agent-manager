@@ -3,6 +3,9 @@
 package dev.leo.manager.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,6 +16,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.leo.manager.data.*
@@ -98,18 +108,29 @@ fun TasksScreen(vm: LeoViewModel, state: Workspace, openRun: (String) -> Unit) {
                 )
             }
             SearchField("Rechercher une tâche", query) { query = it }
-            Choice(
-                "Afficher",
-                filter,
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 listOf(
                     "all" to "Toutes",
                     "scheduled" to "Planifiées",
                     "once" to "Ponctuelles",
                     "paused" to "En pause",
                     "archived" to "Archivées",
-                ),
-            ) {
-                filter = it
+                ).forEach { (key, label) ->
+                    val selected = filter == key
+                    val line = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                    TextButton(
+                        onClick = { filter = key },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .semantics { role = Role.Tab; this.selected = selected }
+                            .drawBehind {
+                                drawLine(line, Offset(0f, size.height), Offset(size.width, size.height),
+                                    strokeWidth = if (selected) 2.dp.toPx() else 1.dp.toPx())
+                            },
+                    ) {
+                        Text(label, color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
             LazyColumn(
                 Modifier.weight(1f),
@@ -137,32 +158,43 @@ fun TasksScreen(vm: LeoViewModel, state: Workspace, openRun: (String) -> Unit) {
                         items(rows, key = { it.id }) { task ->
                             Surface(
                                 onClick = { choose(task) },
-                                color =
-                                    if (task.id == selected?.id)
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    else MaterialTheme.colorScheme.background,
-                                shape = RoundedCornerShape(14.dp),
+                                color = Color.Transparent,
+                                shape = RoundedCornerShape(4.dp),
                             ) {
-                                Column(
-                                    Modifier.fillMaxWidth().padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Text(
-                                        task.name,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.titleSmall,
-                                    )
-                                    Text(
-                                        if (task.archived) "Archivée"
-                                        else if (!task.enabled) "En pause"
-                                        else if (task.nextRun != null)
-                                            "Prochaine : ${date(task.nextRun)}"
-                                        else "Ponctuelle",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    latest[task.id]?.let { Status(it.status) }
+                                Column {
+                                    Row(
+                                        Modifier.fillMaxWidth().heightIn(min = 76.dp)
+                                            .padding(vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Box(
+                                            Modifier.width(2.dp).height(40.dp).background(
+                                                if (task.id == selected?.id) MaterialTheme.colorScheme.primary
+                                                else Color.Transparent
+                                            )
+                                        )
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            Text(task.name, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                                style = MaterialTheme.typography.titleSmall)
+                                            Text(
+                                                if (task.archived) "Archivée"
+                                                else if (!task.enabled) "En pause"
+                                                else if (task.nextRun != null) "Prochaine : ${date(task.nextRun)}"
+                                                else "Ponctuelle",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            latest[task.id]?.let { latestRun ->
+                                                Text(statusLabel(latestRun.status), style = MaterialTheme.typography.labelSmall,
+                                                    color = if (latestRun.status in listOf("failed", "interrupted"))
+                                                        MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                        Icon(LeoIcons.Right, null, Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
                                 }
                             }
                         }

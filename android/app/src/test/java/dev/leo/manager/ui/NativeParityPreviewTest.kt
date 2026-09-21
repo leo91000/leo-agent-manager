@@ -7,6 +7,10 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -54,7 +58,15 @@ class NativeParityPreviewTest {
     @Config(qualifiers = "w1280dp-h800dp-mdpi")
     fun tabletTaskInboxAndConversationLayout() = preview(true)
 
-    private fun preview(wide: Boolean) {
+    @Test
+    @Config(qualifiers = "w360dp-h800dp-mdpi")
+    fun filFilesAndComposerStayCompactOnSmallPhone() = preview(false, compact = true)
+
+    @Test
+    @Config(qualifiers = "w360dp-h800dp-mdpi")
+    fun filRemainsReadableWithEnlargedText() = preview(false, compact = true, largeText = true)
+
+    private fun preview(wide: Boolean, compact: Boolean = false, largeText: Boolean = false) {
         MockWebServer().use { server ->
             val now = System.currentTimeMillis()
             val task =
@@ -98,7 +110,21 @@ class NativeParityPreviewTest {
                     run = run.copy(trigger = "chat"),
                     updatedAt = now,
                 )
-            val reply =
+            val files = if (compact) listOf(
+                Deliverable("report", "run", key = "report", messageId = "reply",
+                    title = "Compte rendu de la version", name = "rapport.md", kind = "markdown",
+                    mediaType = "text/markdown", size = 12288, createdAt = now, group = "Rapports"),
+                Deliverable("notes", "run", key = "notes", messageId = "reply",
+                    title = "Notes de validation", name = "validation.md", kind = "markdown",
+                    mediaType = "text/markdown", size = 8192, createdAt = now, group = "Rapports"),
+                Deliverable("changes", "run", key = "changes", messageId = "reply",
+                    title = "Détails des modifications", name = "modifications.md", kind = "markdown",
+                    mediaType = "text/markdown", size = 4096, createdAt = now, group = "Rapports"),
+            ) else emptyList()
+            val reply = if (compact)
+                "La nouvelle interface est prête. **La lecture est plus légère** : les messages gardent leur place et les fichiers prennent moins de hauteur.\n\n" +
+                    "Les détails restent accessibles au toucher, sans encombrer la conversation."
+            else
                 "La nouvelle interface est prête.\n\n- Navigation compacte et explicite\n- Détails disponibles à la demande\n- Plus de place pour la conversation\n\nLes longues adresses restent lisibles : https://example.test/" +
                     "une-longue-adresse-".repeat(7)
             val events =
@@ -121,7 +147,7 @@ class NativeParityPreviewTest {
                 )
             fun stream(state: LiveState): MockResponse {
                 val frame =
-                    "event: batch\nid: 2\ndata: ${wireJson.encodeToString(LiveBatch(events, state, true, false))}\n\n"
+                    "event: batch\nid: 2\ndata: ${wireJson.encodeToString(LiveBatch(events, state.copy(artifacts = files), true, false))}\n\n"
                 return MockResponse()
                     .setHeader("Content-Type", "text/event-stream")
                     .setBody(frame + ": keepalive\n\n".repeat(100000))
@@ -134,6 +160,9 @@ class NativeParityPreviewTest {
             server.dispatcher =
                 object : Dispatcher() {
                     override fun dispatch(request: RecordedRequest): MockResponse {
+                        if (request.path!!.startsWith("/api/runs/run/artifacts/"))
+                            return MockResponse().setHeader("Content-Type", "text/markdown")
+                                .setBody("# Compte rendu\n\nLa revue est terminée.")
                         val body =
                             when (request.path!!.substringBefore('?')) {
                                 "/api/session" -> "{\"authenticated\":true,\"csrf\":\"fixture\"}"
@@ -181,7 +210,10 @@ class NativeParityPreviewTest {
                     vm.state.first { it.ready }
                     vm.connect(server.url("/").toString())
                 }
-                LeoTheme("dark") { LeoApp(vm = vm) }
+                val density = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(density.density, if (largeText) 1.3f else density.fontScale)) {
+                    LeoTheme("dark") { LeoApp(vm = vm) }
+                }
             }
             try {
                 waitText(chat.title)
@@ -192,6 +224,21 @@ class NativeParityPreviewTest {
                         .onNodeWithTag("conversation-history")
                         .performScrollToNode(hasText("Tâche terminée"))
                     awaitMarkdown(activity, "La nouvelle interface")
+                    if (compact) {
+                        val composer = compose.onNodeWithTag("conversation-composer")
+                        composer.assertIsDisplayed().assertCompactHeight(if (largeText) 88.dp else 72.dp)
+                        compose.onNodeWithTag("conversation-header").assertCompactHeight(if (largeText) 80.dp else 64.dp)
+                        compose.onNodeWithTag("conversation-files")
+                            .assertIsDisplayed().assertCompactHeight(if (largeText) 116.dp else 88.dp)
+                        val name = if (largeText) "fil-phone-large-text" else "fil-phone-density"
+                        capture(name)
+                        // Compact presentation must retain access to every file and the native viewer.
+                        compose.onNodeWithTag("conversation-files").performScrollToIndex(2)
+                        compose.onNodeWithText("Détails des modifications").assertIsDisplayed().performClick()
+                        waitText("modifications.md")
+                        compose.onNodeWithText("Version 1").assertExists()
+                        return
+                    }
                     capture("chat-phone-dark")
                     compose.onNodeWithText("Détails").performClick()
                     compose.onNode(hasText("Rapporté par", substring = true)).performScrollTo()
@@ -227,6 +274,12 @@ class NativeParityPreviewTest {
                 vm.api.closeStreams()
             }
         }
+    }
+
+    private fun SemanticsNodeInteraction.assertCompactHeight(maximum: androidx.compose.ui.unit.Dp) {
+        val bounds = getUnclippedBoundsInRoot()
+        val measured = bounds.bottom - bounds.top
+        org.junit.Assert.assertTrue("Expected height <= $maximum, measured $measured", measured <= maximum)
     }
 
     private fun waitText(value: String) {

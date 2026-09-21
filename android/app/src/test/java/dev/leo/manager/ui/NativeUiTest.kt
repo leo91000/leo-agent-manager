@@ -91,7 +91,7 @@ class NativeUiTest {
         screenshot("tasks")
         compose.onNodeWithText("Tâches").performClick()
         compose.onNodeWithText("Toutes").performClick()
-        compose.onNodeWithText("Archivées").performClick()
+        compose.onNodeWithText("Archivées").performScrollTo().performClick()
         compose.onAllNodesWithText("Ancienne mission").onFirst().assertExists()
         compose.onNodeWithText("Revue quotidienne").assertDoesNotExist()
         compose.onAllNodesWithText("Ancienne mission").onLast().performClick()

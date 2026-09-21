@@ -29,6 +29,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -105,26 +107,56 @@ fun ArtifactsPanel(vm: LeoViewModel, artifacts: List<Deliverable>) {
 internal fun ArtifactStrip(vm: LeoViewModel, artifacts: List<Deliverable>) {
     val openArtifact = LocalArtifactLinks.current
     var opening by remember { mutableStateOf<Deliverable?>(null) }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        artifacts
-            .groupBy { it.group }
-            .forEach { (group, entries) ->
-                if (group.isNotBlank())
-                    Text(
-                        group,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(entries, key = { it.id }) { artifact ->
-                        Box(Modifier.width(168.dp)) {
-                            ArtifactTile(vm, artifact) {
-                                if (!openArtifact("/api" + artifact.path())) opening = artifact
+    // The transcript is a reader, not a file gallery. Keep every file accessible
+    // in one compact rail; full previews, groups and versions remain in Files.
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val rowWidth = minOf(maxWidth, 280.dp)
+        LazyRow(
+            Modifier.testTag("conversation-files"),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(artifacts, key = { it.id }) { artifact ->
+                Surface(
+                    onClick = {
+                        if (!openArtifact("/api" + artifact.path())) opening = artifact
+                    },
+                    modifier = Modifier.width(rowWidth),
+                    color = MaterialTheme.colorScheme.background,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Column {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Box(
+                                Modifier.size(44.dp).clip(RoundedCornerShape(6.dp))
+                                    .background(MaterialTheme.colorScheme.surface),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(LeoIcons.File, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                                if (artifact.previewStatus == "ready") ArtifactThumbnail(vm, artifact)
                             }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(artifact.title.ifBlank { artifact.name }, style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    "${artifact.name.substringAfterLast('.', artifact.kind).uppercase()} · ${fileSize(artifact.size)}" +
+                                        if (artifact.version > 1) " · v${artifact.version}" else "",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Icon(LeoIcons.Right, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
             }
+        }
     }
     opening?.let { artifact ->
         key(artifact.id) {

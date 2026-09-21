@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,7 +29,7 @@ private data class Destination(val route: String, val label: String, val icon: I
 private val destinations =
     listOf(
         Destination("chats", "Chats", LeoIcons.Chat),
-        Destination("tasks", "Tâches", Icons.AutoMirrored.Filled.List),
+        Destination("tasks", "Tâches", LeoIcons.Tasks),
         Destination("runs", "Activité", LeoIcons.Terminal),
         Destination("workspace", "Plus", Icons.Default.Menu),
     )
@@ -134,13 +133,21 @@ fun LeoApp(
                     },
                     bottomBar = {
                         if (!wide && !focused && !WindowInsets.isImeVisible)
-                            NavigationBar {
+                            NavigationBar(
+                                containerColor = MaterialTheme.colorScheme.background,
+                                tonalElevation = 0.dp,
+                            ) {
                                 destinations.forEach { d ->
                                     NavigationBarItem(
                                         selected == d.route,
                                         { navigate(d.route) },
-                                        icon = { Icon(d.icon, d.label) },
+                                        icon = { Icon(d.icon, d.label, Modifier.size(22.dp)) },
                                         label = { Text(d.label) },
+                                        colors = NavigationBarItemDefaults.colors(
+                                            indicatorColor = MaterialTheme.colorScheme.background,
+                                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        ),
                                     )
                                 }
                             }

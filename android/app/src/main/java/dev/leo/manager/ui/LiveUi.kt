@@ -624,7 +624,7 @@ internal fun TimelineRow(
                         if (tools > 0) "$tools action${if (tools > 1) "s" else ""} de l’agent"
                         else "Suivi de l’exécution",
                         Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (errors > 0)
@@ -661,7 +661,7 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
         val content =
             if (user) (event.payload?.get("text") as? JsonPrimitive)?.contentOrNull ?: event.text
             else item.string("text").ifEmpty { event.text }
-        Box(
+        BoxWithConstraints(
             Modifier.fillMaxWidth(),
             contentAlignment = if (user) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
@@ -669,37 +669,46 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
                 color =
                     if (user) MaterialTheme.colorScheme.surfaceContainerHigh
                     else MaterialTheme.colorScheme.background,
-                shape = RoundedCornerShape(22.dp),
-                modifier = if (user) Modifier.fillMaxWidth(0.9f) else Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp),
+                modifier = if (user) Modifier.widthIn(max = maxWidth * 0.9f) else Modifier.fillMaxWidth(),
             ) {
                 Column(
-                    Modifier.padding(horizontal = if (user) 16.dp else 2.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    Modifier.padding(horizontal = if (user) 16.dp else 0.dp, vertical = if (user) 12.dp else 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(
-                            if (user) "Vous" else agent,
-                            Modifier.weight(1f),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            java.text
-                                .SimpleDateFormat(
-                                    "HH:mm",
-                                    androidx.compose.ui.platform.LocalConfiguration.current.locales[
-                                            0],
-                                )
-                                .format(java.util.Date(event.createdAt)),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    if (!user)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(
+                                agent,
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                java.text
+                                    .SimpleDateFormat(
+                                        "HH:mm",
+                                        androidx.compose.ui.platform.LocalConfiguration.current.locales[
+                                                0],
+                                    )
+                                    .format(java.util.Date(event.createdAt)),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     if (user)
                         androidx.compose.foundation.text.selection.SelectionContainer {
                             Text(content, style = MaterialTheme.typography.bodyLarge)
                         }
                     else Markdown(content)
+                    if (user)
+                        Text(
+                            java.text.SimpleDateFormat("HH:mm", androidx.compose.ui.platform.LocalConfiguration.current.locales[0])
+                                .format(java.util.Date(event.createdAt)),
+                            Modifier.align(Alignment.End),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     val attachments =
                         runCatching {
                                 event.payload?.get("attachments")?.let {

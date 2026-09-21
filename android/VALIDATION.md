@@ -1,4 +1,21 @@
-# Android 0.6.0 — native web parity
+# Android 0.6.1 — Fil density
+
+The selected Fil design retains the web palette and bundles DM Sans / Manrope,
+with a compact header/composer, flat task rows and a horizontal inline file rail.
+Two additional native UI cases bring the JVM/Robolectric suite to 92 tests. They
+measure the header, composer and file rail on a 360 dp phone at normal and 130%
+font scale, then scroll to the third file and open its native viewer. Existing
+phone/tablet, long-link, keyboard, history and task-management cases remain.
+
+Run `./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` from
+`android/`. Add `-PleoScreenshotsDir=/absolute/path` for native-graphics previews.
+These images use Robolectric and fixture data, not a physical phone. Android 16
+instrumentation remains a separate CI gate; the current commit's checks on
+[PR #1](https://github.com/leo91000/leo-agent-manager/pull/1) are authoritative.
+The development APK is version **0.6.1 / code 16**. Font licenses are bundled in
+its assets. Release optimization is checked separately from development signing.
+
+## Previous validation: Android 0.6.0 — native web parity
 
 The port targets web v0.21.12. The action-by-action feature map and deliberate
 platform equivalents are in [WEB-PARITY.md](docs/WEB-PARITY.md).

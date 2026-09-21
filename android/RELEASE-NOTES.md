@@ -1,4 +1,18 @@
-# Leo Android 0.6.0 — native web parity
+# Leo Android 0.6.1 — Fil, compact native reading
+
+- Implements the selected Fil direction using the web palette and bundled DM Sans /
+  Manrope fonts. Font licenses are included in the APK; Android font scaling is retained.
+- Compact 56 dp conversation header and single-row resting composer. Messages use
+  16 sp body text, 24 sp line height and 16 dp reading margins; assistant replies
+  stay on the page rather than in cards.
+- Published files use a compact horizontal rail with small previews in the transcript.
+  Full galleries, group names, versions, authenticated opening and sharing remain available.
+- Tasks have an underlined filter strip, flat rows, fine separators and a narrow
+  selection marker. Execution details remain expandable with labelled touch targets.
+- No backend change or dependency-pin upgrade. This is a density adaptation inspired
+  by the supplied ChatGPT screenshot, not a pixel-identical reproduction.
+
+## Previous release: Leo Android 0.6.0 — native web parity
 
 - Compact Conversations header with a searchable, dated native conversation sheet.
   Switching conversations retains message, model and attachment drafts.
