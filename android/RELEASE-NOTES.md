@@ -1,4 +1,11 @@
-# Leo Android 0.6.1 — Fil, compact native reading
+# Leo Android 0.6.2 — floating latest-message control
+
+- The jump-to-bottom arrow floats at the top right of chat and task conversations.
+- It fades out during scrolling, returns once scrolling stops when newer content is below,
+  and resumes following on tap. It no longer reserves a row above the composer.
+- Compact 36 dp circular face, 48 dp touch target and the existing web palette.
+
+## Previous release: Leo Android 0.6.1 — Fil, compact native reading
 
 - Implements the selected Fil direction using the web palette and bundled DM Sans /
   Manrope fonts. Font licenses are included in the APK; Android font scaling is retained.

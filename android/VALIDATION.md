@@ -1,4 +1,15 @@
-# Android 0.6.1 — Fil density
+# Android 0.6.2 — floating latest-message control
+
+The return-to-bottom control overlays the top right of chat and task transcripts,
+fades out during a drag/fling, and fades back in after scrolling stops while newer
+content remains below. It reserves no transcript/composer space and uses a 36 dp
+face inside a 48 dp touch target. The existing ScrollResumeTest now checks overlay
+placement, unchanged composer position, disappearance during a held drag,
+reappearance after release and reaching the latest message on tap. The existing
+93-test suite and Android 16 CI gate remain the validation baseline.
+The development APK is **0.6.2 / code 17**. The current PR checks are authoritative.
+
+## Previous validation: Android 0.6.1 — Fil density
 
 The selected Fil design retains the web palette and bundles DM Sans / Manrope,
 with a compact header/composer, flat task rows and a horizontal inline file rail.

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -182,9 +183,16 @@ class ScrollResumeTest {
                     requests[1],
                 )
                 // A reader who scrolled upward must stay at the same offset on resume.
+                val composerTop = compose.onNodeWithTag("conversation-composer").fetchSemanticsNode().boundsInRoot.top
                 compose.onNode(hasScrollAction()).performTouchInput { swipeDown() }
                 compose.waitForIdle()
                 compose.onNodeWithContentDescription("Derniers messages").assertExists()
+                val viewport = compose.onNodeWithTag("conversation-history").fetchSemanticsNode().boundsInRoot
+                val arrow = compose.onNodeWithContentDescription("Derniers messages").fetchSemanticsNode().boundsInRoot
+                assertTrue("The latest-message control floats at the top right", arrow.top >= viewport.top &&
+                    arrow.bottom <= viewport.top + 72f && arrow.right <= viewport.right && arrow.left >= viewport.right - 72f)
+                assertEquals("Showing the overlay does not move the composer", composerTop,
+                    compose.onNodeWithTag("conversation-composer").fetchSemanticsNode().boundsInRoot.top, 0.1f)
                 fun position() =
                     compose
                         .onNode(hasScrollAction())
@@ -222,6 +230,17 @@ class ScrollResumeTest {
                     "/api/chats/diagnostic/stream?after=60&history=v1%3Afixture%3A1&window=1",
                     requests[3],
                 )
+                // Keep a real drag active long enough for the fade-out to finish.
+                val history = compose.onNodeWithTag("conversation-history")
+                history.performTouchInput { down(center); moveBy(Offset(0f, 80f), delayMillis = 200) }
+                compose.mainClock.advanceTimeBy(250)
+                compose.waitForIdle()
+                compose.onNodeWithContentDescription("Derniers messages").assertDoesNotExist()
+                history.performTouchInput { advanceEventTime(200); up() }
+                compose.waitForIdle()
+                compose.onNodeWithContentDescription("Derniers messages").assertIsDisplayed().performClick()
+                waitLast()
+                compose.onNodeWithContentDescription("Derniers messages").assertDoesNotExist()
                 compose.runOnIdle {
                     owner.registry.currentState = Lifecycle.State.DESTROYED
                     opened = false

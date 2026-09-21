@@ -384,43 +384,42 @@ fun RunScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         if (more) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        LazyColumn(
-                            Modifier.weight(1f).historyFollowGesture(followGesture),
-                            state = logState,
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            historyHeader(live, loadOlder)
-                            items(timeline, key = { it.key }) { entry ->
-                                TimelineRow(
-                                    vm,
-                                    entry,
-                                    current.snapshot.agent.name.ifBlank { "Leo" },
-                                    rendering,
-                                )
-                            }
-                            if (!current.active)
-                                current.outcome
-                                    ?.takeIf { current.status == "succeeded" }
-                                    ?.let { outcome ->
-                                        item(key = "outcome:${outcome.reportedAt}") {
-                                            CompletionEvidence(outcome, current.snapshot.agent.name)
-                                        }
-                                    }
-                            if (current.active)
-                                item {
-                                    Text(
-                                        "L’agent travaille…",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall,
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            LazyColumn(
+                                Modifier.fillMaxSize().historyFollowGesture(followGesture),
+                                state = logState,
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                historyHeader(live, loadOlder)
+                                items(timeline, key = { it.key }) { entry ->
+                                    TimelineRow(
+                                        vm,
+                                        entry,
+                                        current.snapshot.agent.name.ifBlank { "Leo" },
+                                        rendering,
                                     )
                                 }
-                            if (events.isEmpty()) item { Text("L’activité apparaîtra ici.") }
-                        }
-                        if (!follow)
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                ActionIcon("Dernière activité", LeoIcons.Bottom) { follow = true }
+                                if (!current.active)
+                                    current.outcome
+                                        ?.takeIf { current.status == "succeeded" }
+                                        ?.let { outcome ->
+                                            item(key = "outcome:${outcome.reportedAt}") {
+                                                CompletionEvidence(outcome, current.snapshot.agent.name)
+                                            }
+                                        }
+                                if (current.active)
+                                    item {
+                                        Text(
+                                            "L’agent travaille…",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                if (events.isEmpty()) item { Text("L’activité apparaîtra ici.") }
                             }
+                            HistoryBottomButton(logState, follow, "Dernière activité") { follow = true }
+                        }
                     }
                     2 -> Page { ArtifactsPanel(vm, live.state.artifacts) }
                 }

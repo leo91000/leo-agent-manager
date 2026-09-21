@@ -641,194 +641,194 @@ fun ChatScreen(
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(28.dp))
                     }
-                } else
-                    LazyColumn(
-                        Modifier.weight(1f)
-                            .testTag("conversation-history")
-                            .historyFollowGesture(followGesture),
-                        state = listState,
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        if (id == null)
-                            item {
-                                Panel {
-                                    Choice("Agent", agent, state.agents.map { it.id to it.name }) {
-                                        agent = it
-                                        project = ""
+                } else {
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        LazyColumn(
+                            Modifier.fillMaxSize()
+                                .testTag("conversation-history")
+                                .historyFollowGesture(followGesture),
+                            state = listState,
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            if (id == null)
+                                item {
+                                    Panel {
+                                        Choice("Agent", agent, state.agents.map { it.id to it.name }) {
+                                            agent = it
+                                            project = ""
+                                        }
+                                        Choice(
+                                            "Projet",
+                                            project,
+                                            listOf("" to "Tous les projets autorisés") +
+                                                projects.map { it.id to it.name },
+                                        ) {
+                                            project = it
+                                        }
+                                        Text("Envoyez un message ou un fichier pour commencer.")
                                     }
-                                    Choice(
-                                        "Projet",
-                                        project,
-                                        listOf("" to "Tous les projets autorisés") +
-                                            projects.map { it.id to it.name },
-                                    ) {
-                                        project = it
+                                }
+                            historyHeader(live, loadOlder)
+                            items(timeline, key = { it.key }) {
+                                TimelineRow(vm, it, chat?.agentName ?: "Leo", rendering)
+                            }
+                            if (!active && delivery.sending.isEmpty() && !live.catchingUp)
+                                chat?.run?.outcome?.let { outcome ->
+                                    item(key = "outcome:${outcome.messageId}:${outcome.reportedAt}") {
+                                        CompletionEvidence(outcome, chat.agentName)
                                     }
-                                    Text("Envoyez un message ou un fichier pour commencer.")
                                 }
-                            }
-                        historyHeader(live, loadOlder)
-                        items(timeline, key = { it.key }) {
-                            TimelineRow(vm, it, chat?.agentName ?: "Leo", rendering)
-                        }
-                        if (!active && delivery.sending.isEmpty() && !live.catchingUp)
-                            chat?.run?.outcome?.let { outcome ->
-                                item(key = "outcome:${outcome.messageId}:${outcome.reportedAt}") {
-                                    CompletionEvidence(outcome, chat.agentName)
-                                }
-                            }
-                        items(delivery.sending, key = { "sending:${it.message.id}" }) { sending ->
-                            Column {
-                                EventRow(
-                                    vm,
-                                    RunEvent(
-                                        -1,
-                                        sending.message.createdAt,
-                                        "chat.user",
-                                        sending.message.text,
-                                        mapOf(
-                                            "text" to JsonPrimitive(sending.message.text),
-                                            "attachments" to
-                                                wireJson.encodeToJsonElement(
-                                                    sending.message.attachments
-                                                ),
+                            items(delivery.sending, key = { "sending:${it.message.id}" }) { sending ->
+                                Column {
+                                    EventRow(
+                                        vm,
+                                        RunEvent(
+                                            -1,
+                                            sending.message.createdAt,
+                                            "chat.user",
+                                            sending.message.text,
+                                            mapOf(
+                                                "text" to JsonPrimitive(sending.message.text),
+                                                "attachments" to
+                                                    wireJson.encodeToJsonElement(
+                                                        sending.message.attachments
+                                                    ),
+                                            ),
                                         ),
-                                    ),
-                                    chat?.agentName ?: "Leo",
-                                )
-                                Text(
-                                    sending.label,
-                                    Modifier.align(Alignment.End).padding(end = 16.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        if (active && !live.catchingUp)
-                            item {
-                                Text(
-                                    "L’agent travaille…",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        if (pending.isNotEmpty())
-                            item(key = "queue-header") {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TextButton(
-                                        onClick = { queueExpanded = !queueExpanded },
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Text("${pending.size} message(s) en attente")
-                                        Icon(
-                                            if (queueExpanded) LeoIcons.Down else LeoIcons.Right,
-                                            null,
-                                            Modifier.size(16.dp),
-                                        )
-                                    }
-                                    TextButton(
-                                        onClick = {
-                                            vm.perform {
-                                                api.request(
-                                                    "POST",
-                                                    "/chats/${segment(chat!!.id)}/pause",
-                                                    buildJsonObject { put("paused", !chat.paused) },
-                                                )
-                                            }
-                                        },
-                                        enabled = !state.busy,
-                                    ) {
-                                        Text(if (chat?.paused == true) "Reprendre" else "Pause")
-                                    }
+                                        chat?.agentName ?: "Leo",
+                                    )
+                                    Text(
+                                        sending.label,
+                                        Modifier.align(Alignment.End).padding(end = 16.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
-                        if (queueExpanded)
-                            items(pending, key = { "pending:${it.id}" }) { message ->
-                                val private =
-                                    chat?.questions.orEmpty().any {
-                                        it.id == message.questionId &&
-                                            it.fields.any { f -> f.secret }
+                            if (active && !live.catchingUp)
+                                item {
+                                    Text(
+                                        "L’agent travaille…",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            if (pending.isNotEmpty())
+                                item(key = "queue-header") {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(
+                                            onClick = { queueExpanded = !queueExpanded },
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Text("${pending.size} message(s) en attente")
+                                            Icon(
+                                                if (queueExpanded) LeoIcons.Down else LeoIcons.Right,
+                                                null,
+                                                Modifier.size(16.dp),
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                vm.perform {
+                                                    api.request(
+                                                        "POST",
+                                                        "/chats/${segment(chat!!.id)}/pause",
+                                                        buildJsonObject { put("paused", !chat.paused) },
+                                                    )
+                                                }
+                                            },
+                                            enabled = !state.busy,
+                                        ) {
+                                            Text(if (chat?.paused == true) "Reprendre" else "Pause")
+                                        }
                                     }
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    shape = RoundedCornerShape(20.dp),
-                                ) {
-                                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                        Text(
-                                            if (message.status == "sending") "Envoi en cours…"
-                                            else "En attente",
-                                            style = MaterialTheme.typography.labelLarge,
-                                        )
-                                        Text(if (private) "Réponse privée" else message.text)
-                                        if (message.attachments.isNotEmpty())
-                                            AttachmentList(vm, message.attachments)
-                                        if (message.status == "queued")
-                                            Row {
-                                                if (message.questionId == null) {
+                                }
+                            if (queueExpanded)
+                                items(pending, key = { "pending:${it.id}" }) { message ->
+                                    val private =
+                                        chat?.questions.orEmpty().any {
+                                            it.id == message.questionId &&
+                                                it.fields.any { f -> f.secret }
+                                        }
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        shape = RoundedCornerShape(20.dp),
+                                    ) {
+                                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                            Text(
+                                                if (message.status == "sending") "Envoi en cours…"
+                                                else "En attente",
+                                                style = MaterialTheme.typography.labelLarge,
+                                            )
+                                            Text(if (private) "Réponse privée" else message.text)
+                                            if (message.attachments.isNotEmpty())
+                                                AttachmentList(vm, message.attachments)
+                                            if (message.status == "queued")
+                                                Row {
+                                                    if (message.questionId == null) {
+                                                        ActionIcon(
+                                                            "Modifier le message en attente",
+                                                            Icons.Default.Edit,
+                                                            onClick = { edit(message) },
+                                                            enabled = !state.busy,
+                                                        )
+                                                        if (active && message.mode != "steer")
+                                                            TextButton(
+                                                                onClick = {
+                                                                    vm.perform {
+                                                                        api.request(
+                                                                            "PUT",
+                                                                            "/chats/${segment(chat.id)}/messages/${segment(message.id)}",
+                                                                            buildJsonObject {
+                                                                                put("id", message.id)
+                                                                                put(
+                                                                                    "text",
+                                                                                    message.text,
+                                                                                )
+                                                                                put("mode", "steer")
+                                                                                put(
+                                                                                    "model",
+                                                                                    message.model,
+                                                                                )
+                                                                                put(
+                                                                                    "reasoning",
+                                                                                    message.reasoning,
+                                                                                )
+                                                                                put(
+                                                                                    "attachmentIds",
+                                                                                    wireJson
+                                                                                        .encodeToJsonElement(
+                                                                                            message
+                                                                                                .attachments
+                                                                                                .map {
+                                                                                                    it
+                                                                                                        .id
+                                                                                                }
+                                                                                        ),
+                                                                                )
+                                                                            },
+                                                                        )
+                                                                    }
+                                                                },
+                                                                enabled = !state.busy,
+                                                            ) {
+                                                                Text("Intervenir")
+                                                            }
+                                                    }
                                                     ActionIcon(
-                                                        "Modifier le message en attente",
-                                                        Icons.Default.Edit,
-                                                        onClick = { edit(message) },
+                                                        "Retirer le message",
+                                                        Icons.Default.Delete,
+                                                        onClick = { removing = message },
                                                         enabled = !state.busy,
                                                     )
-                                                    if (active && message.mode != "steer")
-                                                        TextButton(
-                                                            onClick = {
-                                                                vm.perform {
-                                                                    api.request(
-                                                                        "PUT",
-                                                                        "/chats/${segment(chat.id)}/messages/${segment(message.id)}",
-                                                                        buildJsonObject {
-                                                                            put("id", message.id)
-                                                                            put(
-                                                                                "text",
-                                                                                message.text,
-                                                                            )
-                                                                            put("mode", "steer")
-                                                                            put(
-                                                                                "model",
-                                                                                message.model,
-                                                                            )
-                                                                            put(
-                                                                                "reasoning",
-                                                                                message.reasoning,
-                                                                            )
-                                                                            put(
-                                                                                "attachmentIds",
-                                                                                wireJson
-                                                                                    .encodeToJsonElement(
-                                                                                        message
-                                                                                            .attachments
-                                                                                            .map {
-                                                                                                it
-                                                                                                    .id
-                                                                                            }
-                                                                                    ),
-                                                                            )
-                                                                        },
-                                                                    )
-                                                                }
-                                                            },
-                                                            enabled = !state.busy,
-                                                        ) {
-                                                            Text("Intervenir")
-                                                        }
                                                 }
-                                                ActionIcon(
-                                                    "Retirer le message",
-                                                    Icons.Default.Delete,
-                                                    onClick = { removing = message },
-                                                    enabled = !state.busy,
-                                                )
-                                            }
+                                        }
                                     }
                                 }
-                            }
+                        }
+                        HistoryBottomButton(listState, follow, "Derniers messages") { follow = true }
                     }
-                if (!follow)
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        ActionIcon("Derniers messages", LeoIcons.Bottom) { follow = true }
-                    }
+                }
                 if (questions.isNotEmpty())
                     OutlinedButton(
                         onClick = { asking = questions.first() },
