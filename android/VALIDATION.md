@@ -5,6 +5,9 @@ visibility, enables a link, copies it to the native clipboard, verifies the
 system-share action, and revokes the link. Mutation requests include the CSRF
 token. The dialog scrolls for smaller displays and larger text. Server integration
 and web browser tests separately cover anonymous download and revoked-link rejection.
+The shared history suites and artifact sharing test use the Compose v2 test rule
+(StandardTestDispatcher), preventing unconfined frame callbacks from resuming on
+the Markdown worker during measurement or dialog disposal.
 The development APK is **0.7.0 / code 18**. Current CI results are authoritative;
 Robolectric tests are separate from the Android 16 instrumentation gate.
 
