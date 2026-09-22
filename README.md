@@ -14,6 +14,7 @@ Run it on a VPS so schedules keep working when your laptop is off.
 - Follow runs, inspect results and original instructions, cancel, retry, archive tasks, and clean up reviewed worktrees.
 - Edit global and project `.agents/skills`, including supporting files and Markdown previews.
 - Connect multiple ChatGPT accounts through Codex device sign-in. Runs select available capacity automatically, resume across account exhaustion, and show live usage and reset windows. GitHub keeps its own device sign-in.
+- Store multiple 1Password service account tokens and explicitly grant each agent read access on web or Android. See [1Password setup and access](docs/ONEPASSWORD.md).
 - Add remote and command MCP servers from the UI, sign in with OAuth on any device, discover tools, and choose each agent’s connections and tool access.
 - Expose scoped tools through a **stateless MCP 2026-07-28** endpoint, with stateless compatibility for older Streamable HTTP clients, OAuth, PKCE, refresh rotation, and revocation.
 

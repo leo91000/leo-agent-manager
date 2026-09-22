@@ -255,6 +255,12 @@ impl Service {
                 }
                 if kind == "agents" {
                     db.delete(&format!("agent-github:{id}"))?;
+                    for mut account in db.list("onepassword")? {
+                        if let Some(agents) = account["agentIds"].as_array_mut() {
+                            agents.retain(|agent| agent != &id);
+                        }
+                        db.put("onepassword", &account)?;
+                    }
                 }
                 db.remove(&kind, &id)?;
                 db.audit(

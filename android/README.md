@@ -1,7 +1,8 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
-Version 0.7.0 adds revocable public links for individual artifact versions, with
+Version 0.8.0 adds 1Password service accounts with explicit agent grants.
+Version 0.7.0 introduced revocable public links for individual artifact versions, with
 native copying and Android link sharing from the file viewer. Files stay private
 by default; the server must include the public-artifact API introduced alongside
 this release. It retains the Fil design to the native web-parity port: compact conversation
@@ -258,3 +259,10 @@ The same Compose gesture regression cases run as JVM tests and device instrument
 ./gradlew testDebugUnitTest --tests '*HistoryFollowTest'
 ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.leo.manager.ui.HistoryFollowDeviceTest
 ```
+
+## 1Password
+
+Connections includes service account creation, token rotation, connection testing,
+disabling/deleting accounts, and explicit per-agent grants. No agent receives
+access by default. Tokens use masked input and are not saved in instance state.
+See [server setup and access](../docs/ONEPASSWORD.md).

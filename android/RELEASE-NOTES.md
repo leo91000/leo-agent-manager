@@ -1,4 +1,12 @@
-# Leo Android 0.7.0 — public artifact links
+# Leo Android 0.8.0 — 1Password service accounts
+
+- Add multiple named service account tokens from Connections → 1Password.
+- Explicitly allow or deny each agent, including Main; access starts disabled for every agent.
+- Rotate tokens, disable or delete accounts, and test the connection.
+- Tokens are masked during entry, encrypted on the server, and never returned to the app.
+- Requires server v0.23.0 with the scoped read-only 1Password workspace tool.
+
+## Previous release: Leo Android 0.7.0 — public artifact links
 
 - Enable or revoke a public link from the artifact viewer. Files stay private by default.
 - Copy the link or send it using Android’s native share sheet. Recipients need no account.

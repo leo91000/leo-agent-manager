@@ -151,6 +151,18 @@ impl Projects {
 }
 
 pub async fn rpc(s: &Service, bearer: &str, method: &str, params: &Value) -> Result<Value> {
+    if method == "tools/call" && params["name"] == "onepassword" {
+        return Ok(
+            match crate::onepassword::call(s, bearer, &params["arguments"]).await {
+                Ok(result) => {
+                    json!({"content":[{"type":"text","text":result.to_string()}],"structuredContent":result})
+                }
+                Err(error) => {
+                    json!({"isError":true,"content":[{"type":"text","text":error.message}]})
+                }
+            },
+        );
+    }
     if method == "tools/call" && params["name"] == "report_outcome" {
         return Ok(
             match crate::outcome::report(s, bearer, &params["arguments"]).await {
@@ -202,6 +214,10 @@ pub async fn rpc(s: &Service, bearer: &str, method: &str, params: &Value) -> Res
                 .as_array_mut()
                 .unwrap()
                 .push(crate::outcome::tool());
+            catalog["tools"]
+                .as_array_mut()
+                .unwrap()
+                .push(crate::onepassword::tool());
             Ok(catalog)
         }
         "tools/call" if params["name"] == "open_project" => {

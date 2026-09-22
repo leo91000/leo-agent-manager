@@ -552,3 +552,79 @@ async fn native_mcp_callback_requires_the_initiating_session_and_csrf_to_finish(
             .unwrap()
     );
 }
+
+#[tokio::test]
+async fn onepassword_management_requires_owner_session_and_csrf() {
+    let (_root, app, _) = app().await;
+    for (method, path) in [("GET", "/api/onepassword"), ("POST", "/api/onepassword")] {
+        let response = app
+            .clone()
+            .oneshot(
+                request(method, path, Value::Null)
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/api/setup", Value::Null)
+                .body(Body::from(
+                    json!({"setupToken":"test-setup","password":"password-long-enough"})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+    let input = json!({"name":"Fixture","token":"ops_http_fixture","enabled":true,"agentIds":[]});
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/api/onepassword", Value::Null)
+                .header("cookie", &cookie)
+                .body(Body::from(input.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/api/onepassword", Value::Null)
+                .header("cookie", &cookie)
+                .header("x-csrf-token", body["csrf"].as_str().unwrap())
+                .body(Body::from(input.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let bytes = to_bytes(response.into_body(), 10000).await.unwrap();
+    assert!(!String::from_utf8_lossy(&bytes).contains("ops_http_fixture"));
+    let response = app
+        .oneshot(
+            request("GET", "/api/onepassword", Value::Null)
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let bytes = to_bytes(response.into_body(), 10000).await.unwrap();
+    assert!(!String::from_utf8_lossy(&bytes).contains("ops_http_fixture"));
+}

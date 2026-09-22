@@ -2,12 +2,13 @@ use crate::{service::policy, validation::text};
 use serde_json::{Value, json};
 use std::{path::Path, sync::LazyLock};
 static TOKEN: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"\b(?:gh[pousr]_\w{15,}|github_pat_\w{15,}|sk-[\w-]{12,})\b").unwrap()
+    regex::Regex::new(r"\b(?:gh[pousr]_\w{15,}|github_pat_\w{15,}|ops_[\w.-]{15,}|sk-[\w-]{12,})\b")
+        .unwrap()
 });
 static BEARER: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?i)(Bearer\s+)[\w.~-]+").unwrap());
 static CREDENTIAL: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r#"(?i)("?(?:access_token|refresh_token|id_token|OPENAI_API_KEY|CODEX_API_KEY)"?\s*[:=]\s*"?)[^"\s,}]+"#).unwrap()
+    regex::Regex::new(r#"(?i)("?(?:access_token|refresh_token|id_token|OPENAI_API_KEY|CODEX_API_KEY|OP_SERVICE_ACCOUNT_TOKEN)"?\s*[:=]\s*"?)[^"\s,}]+"#).unwrap()
 });
 static EXHAUSTED: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)^(?:you['’]ve hit your usage limit|you have hit your usage limit|usage limit (?:has been )?(?:reached|exceeded))\b").unwrap()
@@ -38,6 +39,7 @@ pub fn payload(value: &Value, secrets: &[String]) -> Value {
                             "id_token",
                             "openai_api_key",
                             "codex_api_key",
+                            "op_service_account_token",
                         ]
                         .contains(&k.to_lowercase().as_str())
                         {

@@ -1,4 +1,18 @@
-# Android 0.7.0 — public artifact links
+# Android 0.8.0 — 1Password service accounts
+
+`OnePasswordJourneyTest` covers masked token entry, no grants by default,
+explicit agent selection, CSRF-protected writes and preserving the saved token
+when only access is edited. These are Robolectric tests, separate from the
+existing Android 16 instrumentation gate. Backend tests cover encrypted storage,
+revocation during a read, disabled accounts, token rotation, deletion and owner
+session/CSRF requirements. Browser journeys cover desktop and narrow screens,
+persistence after restart and access removal in Chromium and WebKit.
+
+The development APK is **0.8.0 / code 19**. The current commit's Android and
+Quality workflows are authoritative for the complete regression suites, lint,
+optimized release build and Android 16 device checks.
+
+## Previous validation: Android 0.7.0 — public artifact links
 
 The artifact link UI regression now opens the sharing dialog, fetches current
 visibility, enables a link, copies it to the native clipboard, verifies the

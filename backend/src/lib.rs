@@ -39,5 +39,6 @@ pub mod project_workspaces;
 pub mod live;
 mod live_text;
 
+pub mod onepassword;
 pub mod outcome;
 pub mod project_git;

@@ -9,6 +9,8 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', ...devices['Desktop Chrome'] },
   projects: [
+    { name: 'journeys-onepassword', testMatch: 'onepassword.spec.ts' },
+    { name: 'layout-webkit-onepassword', testMatch: 'onepassword.spec.ts', use: { browserName: 'webkit', isMobile: true, hasTouch: true } },
     { name: 'journeys-live', testMatch: 'live.spec.ts' },
     { name: 'layout-webkit-live', testMatch: 'live.spec.ts', use: { browserName: 'webkit' } },
     { name: 'journeys-deliverables', testMatch: 'deliverables.spec.ts' },
