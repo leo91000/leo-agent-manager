@@ -3,9 +3,10 @@ import type { Deliverable } from '../../shared/artifacts'
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { artifactUrl, fileSize, latestArtifacts } from '../../shared/artifacts'
 import { highlight } from '../highlight'
-import { ArrowDown, ArrowLeft, ChevronRight, FileText, Maximize2, Minimize2, X } from '../icons'
+import { ArrowDown, ArrowLeft, ChevronRight, FileText, Link, Maximize2, Minimize2, X } from '../icons'
 import { iconButton } from '../ui'
 import ArtifactGallery from './ArtifactGallery.vue'
+import ArtifactSharing from './ArtifactSharing.vue'
 import Icon from './Icon.vue'
 import Markdown from './Markdown.vue'
 import VirtualSelect from './VirtualSelect.vue'
@@ -23,6 +24,7 @@ const compare = ref(false)
 const split = ref(50)
 const zoom = ref(false)
 const full = ref(false)
+const sharing = ref(false)
 const width = ref(900)
 const content = ref('')
 const error = ref('')
@@ -99,6 +101,9 @@ onBeforeUnmount(() => {
               {{ current ? `${current.name} · ${fileSize(current.size)}` : `${latest.length} deliverables` }}
             </p>
           </div>
+          <button v-if="current" :class="iconButton" aria-label="Share file" :aria-expanded="sharing" @click="sharing = !sharing">
+            <Icon :name="Link" :size="18" />
+          </button>
           <a v-if="current" :href="artifactUrl(current, 'download')" :download="current.name" :class="iconButton" aria-label="Download original"><Icon :name="ArrowDown" :size="19" /></a>
           <button class="phone:hidden" :class="[iconButton]" :aria-label="full ? 'Exit fullscreen' : 'Fullscreen preview'" @click="full = !full">
             <Icon :name="full ? Minimize2 : Maximize2" :size="18" />
@@ -107,6 +112,7 @@ onBeforeUnmount(() => {
             <Icon :name="X" :size="20" />
           </button>
         </header>
+        <ArtifactSharing v-if="current && sharing" :key="current.id" :item="current" />
         <div v-if="current" class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-2 phone:px-3">
           <VirtualSelect v-if="versions.length > 1" v-model="selected" class="w-36" label="Version" hide-label compact :options="versions.map(item => ({ value: item.id, label: `Version ${item.version}` }))" />
           <span v-else class="text-xs text-muted">Version {{ current.version }}</span>

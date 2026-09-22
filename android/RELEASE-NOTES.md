@@ -1,4 +1,12 @@
-# Leo Android 0.6.2 — floating latest-message control
+# Leo Android 0.7.0 — public artifact links
+
+- Enable or revoke a public link from the artifact viewer. Files stay private by default.
+- Copy the link or send it using Android’s native share sheet. Recipients need no account.
+- Sharing applies to the selected version only; new versions remain private.
+- Re-enabling a revoked link creates a different URL. Copies already downloaded remain with recipients.
+- Retains the Fil design and floating latest-message control. Requires the accompanying server update.
+
+## Previous release: Leo Android 0.6.2 — floating latest-message control
 
 - The jump-to-bottom arrow floats at the top right of chat and task conversations.
 - It fades out during scrolling, returns once scrolling stops when newer content is below,

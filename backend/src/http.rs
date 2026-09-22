@@ -165,8 +165,10 @@ async fn check_security(
     {
         return Err(Error::new(403, "Unexpected host."));
     }
+    let public_artifact = crate::artifacts::sharing::public_read(path, method);
     let requested = header(headers, "origin");
-    if !requested.is_empty()
+    if !public_artifact
+        && !requested.is_empty()
         && requested != app.service.config.public_url
         && !(std::env::var("NODE_ENV").unwrap_or_default() != "production"
             && ["http://localhost:5178", "http://127.0.0.1:5178"].contains(&requested))
@@ -211,7 +213,10 @@ async fn check_security(
             }
         }
     }
-    if path.starts_with("/api/") && !["/api/session", "/api/setup", "/api/login"].contains(&path) {
+    if !public_artifact
+        && path.starts_with("/api/")
+        && !["/api/session", "/api/setup", "/api/login"].contains(&path)
+    {
         let session = app
             .service
             .auth
@@ -373,6 +378,26 @@ async fn lease(State(app): State<App>, request: Request) -> Result<Json<Value>> 
 async fn api(State(app): State<App>, request: Request) -> Result<Response> {
     let path = request.uri().path().to_owned();
     let segments: Vec<_> = path.split('/').collect();
+    if let ["", "api", "public", "artifacts", token] = segments.as_slice() {
+        return crate::artifacts::sharing::http(&app.service, token, request).await;
+    }
+    if let ["", "api", "runs", run, "artifacts", artifact, "visibility"] = segments.as_slice() {
+        if request.method() != "PUT" {
+            return Err(Error::new(405, "Method not allowed."));
+        }
+        let input = Input::read(request).await?;
+        return Ok(Json(
+            crate::artifacts::sharing::set(
+                &app.service,
+                run,
+                artifact,
+                crate::artifacts::sharing::visibility(&input.body)?,
+                None,
+            )
+            .await?,
+        )
+        .into_response());
+    }
     if let ["", "api", "runs", run, "artifacts", rest @ ..] = segments.as_slice()
         && rest.len() <= 1
     {

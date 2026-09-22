@@ -163,11 +163,23 @@ pub async fn rpc(s: &Service, bearer: &str, method: &str, params: &Value) -> Res
             },
         );
     }
+    if method == "tools/call" && params["name"] == "set_artifact_visibility" {
+        return Ok(
+            match crate::artifacts::sharing::for_agent(s, bearer, &params["arguments"]).await {
+                Ok(result) => {
+                    json!({"content":[{"type":"text","text":format!("Artifact {}. {}", text(&result,"visibility"), text(&result,"publicUrl"))}],"structuredContent":result})
+                }
+                Err(error) => {
+                    json!({"isError":true,"content":[{"type":"text","text":error.message}]})
+                }
+            },
+        );
+    }
     if method == "tools/call" && params["name"] == "publish_artifact" {
         return Ok(
             match s.artifacts.publish(s, bearer, &params["arguments"]).await {
                 Ok(result) => {
-                    json!({"content":[{"type":"text","text":format!("Published {}: {}",text(&result,"title"),text(&result,"url"))}],"structuredContent":result})
+                    json!({"content":[{"type":"text","text":format!("Published {}: {}",text(&result,"title"),result["publicUrl"].as_str().unwrap_or(text(&result,"url")))}],"structuredContent":result})
                 }
                 Err(error) => {
                     json!({"isError":true,"content":[{"type":"text","text":error.message}]})
@@ -182,6 +194,10 @@ pub async fn rpc(s: &Service, bearer: &str, method: &str, params: &Value) -> Res
                 .as_array_mut()
                 .unwrap()
                 .push(crate::artifacts::tool());
+            catalog["tools"]
+                .as_array_mut()
+                .unwrap()
+                .push(crate::artifacts::sharing::tool());
             catalog["tools"]
                 .as_array_mut()
                 .unwrap()

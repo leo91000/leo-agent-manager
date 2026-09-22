@@ -96,6 +96,7 @@ fun ArtifactsPanel(vm: LeoViewModel, artifacts: List<Deliverable>) {
                 previous = shown.getOrNull(index - 1)?.let { previous -> { opening = previous } },
                 next = shown.getOrNull(index + 1)?.let { next -> { opening = next } },
                 version = item.version,
+                artifact = item,
             ) {
                 opening = null
             }
@@ -167,6 +168,7 @@ internal fun ArtifactStrip(vm: LeoViewModel, artifacts: List<Deliverable>) {
                 artifact.mediaType,
                 artifact.kind,
                 version = artifact.version,
+                artifact = artifact,
             ) {
                 opening = null
             }
@@ -283,8 +285,11 @@ internal fun FilePreview(
     previous: (() -> Unit)? = null,
     next: (() -> Unit)? = null,
     version: Int? = null,
+    artifact: Deliverable? = null,
     close: () -> Unit,
 ) {
+    var sharing by remember { mutableStateOf(false) }
+    if (sharing && artifact != null) ArtifactSharingDialog(vm, artifact) { sharing = false }
     var file by remember(path, localPath) { mutableStateOf<File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
@@ -345,6 +350,7 @@ internal fun FilePreview(
                         }
                     },
                     actions = {
+                        if (artifact != null) ActionIcon("Lien public", Icons.Default.Share) { sharing = true }
                         ActionIcon("Enregistrer", LeoIcons.Download, file != null) {
                             save.launch(name)
                         }
@@ -679,6 +685,7 @@ internal fun ArtifactLinkHost(
                     item.mediaType,
                     item.kind,
                     version = item.version,
+                    artifact = item,
                 ) {
                     opening = null
                 }

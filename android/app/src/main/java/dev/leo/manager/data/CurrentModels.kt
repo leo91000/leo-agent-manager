@@ -82,6 +82,8 @@ data class Deliverable(
     val mediaType: String = "application/octet-stream",
     val size: Long = 0,
     val createdAt: Long = 0,
+    val visibility: String = "private",
+    val publicUrl: String? = null,
     val previewStatus: String = "none",
     val excerpt: String? = null,
 ) {

@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { expect, expectSingleScroll, initializeRepository, test } from './fixtures'
 
-test('persistent deliverables have a gallery, revisions, mobile viewer, and playable media', async ({ page, workspace }) => {
+test('persistent deliverables have a gallery, revisions, mobile viewer, and playable media', async ({ page, browser, workspace }) => {
   test.setTimeout(60000)
   initializeRepository(workspace.projectPath)
   const chat = await workspace.api('/api/chats', 'POST', {})
@@ -52,6 +52,34 @@ test('persistent deliverables have a gallery, revisions, mobile viewer, and play
   await page.getByRole('link', { name: 'Read the report', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Deliverables viewer' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Mobile review', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Share file', exact: true }).click()
+  const sharing = page.getByRole('region', { name: 'File sharing' })
+  await sharing.getByRole('button', { name: 'Enable public link', exact: true }).click()
+  const link = sharing.getByRole('textbox', { name: 'Public link', exact: true })
+  await expect(link).toBeVisible()
+  await page.screenshot({ animations: 'disabled', path: test.info().outputPath('public-sharing-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(sharing.getByRole('button', { name: 'Disable public link', exact: true })).toBeInViewport()
+  await page.screenshot({ animations: 'disabled', path: test.info().outputPath('public-sharing-mobile.png') })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const publicUrl = await link.inputValue()
+  const guest = await browser.newContext()
+  try {
+    const response = await guest.request.get(publicUrl)
+    expect(response.status()).toBe(200)
+    expect(await response.text()).toContain('Mobile review')
+    expect((await guest.request.get(`${workspace.url}/api/runs/${runId}/artifacts/${notes.id}`)).status()).toBe(401)
+    await sharing.getByRole('button', { name: 'Disable public link', exact: true }).click()
+    await expect(sharing.getByText('Private file', { exact: true })).toBeVisible()
+    expect((await guest.request.get(publicUrl)).status()).toBe(404)
+    await sharing.getByRole('button', { name: 'Enable public link', exact: true }).click()
+    await expect(link).toBeVisible()
+    expect(await link.inputValue()).not.toBe(publicUrl)
+    expect((await guest.request.get(publicUrl)).status()).toBe(404)
+    await sharing.getByRole('button', { name: 'Disable public link', exact: true }).click()
+    await expect(sharing.getByText('Private file', { exact: true })).toBeVisible()
+  }
+  finally { await guest.close() }
   await page.getByRole('button', { name: 'Close viewer', exact: true }).click()
   await page.getByRole('link', { name: 'View image', exact: true }).click()
   await expect(page.getByRole('dialog').getByRole('img').first()).toBeVisible()

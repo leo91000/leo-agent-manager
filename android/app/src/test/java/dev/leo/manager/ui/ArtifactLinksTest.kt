@@ -1,6 +1,8 @@
 package dev.leo.manager.ui
 
 import android.app.Application
+import android.content.ClipboardManager
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -36,6 +38,7 @@ class ArtifactLinksTest {
     @Test fun `older artifact links load authenticated metadata and open the native preview`() {
         MockWebServer().use { server ->
             val paths = CopyOnWriteArrayList<String>()
+            val public = AtomicBoolean(false)
             val file = Deliverable(id = "file", runId = "older", key = "notes", name = "notes.md", kind = "markdown", mediaType = "text/markdown")
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -44,7 +47,15 @@ class ArtifactLinksTest {
                         paths.add(path)
                         if (request.getHeader("Cookie") != "leo_session=fixture") return MockResponse().setResponseCode(401).setBody("{\"error\":\"Missing session\"}")
                     }
+                    if (path == "/api/runs/older/artifacts/file/visibility") {
+                        assertEquals("PUT", request.method)
+                        assertEquals("fixture", request.getHeader("X-CSRF-Token"))
+                        public.set(request.body.readUtf8().contains("public"))
+                    }
                     val body = when (path) {
+                        "/api/runs/older/artifacts/file?metadata=1", "/api/runs/older/artifacts/file/visibility" ->
+                            wireJson.encodeToString(file.copy(visibility = if (public.get()) "public" else "private",
+                                publicUrl = if (public.get()) server.url("/api/public/artifacts/public-fixture").toString() else null))
                         "/api/session" -> return MockResponse().setHeader("Set-Cookie", "leo_session=fixture; Path=/; HttpOnly").setBody("{\"authenticated\":true,\"csrf\":\"fixture\"}")
                         "/api/runs/older/artifacts" -> wireJson.encodeToString(listOf(file))
                         "/api/runs/older/artifacts/file?download=1" -> "Document conservé depuis un ancien run."
@@ -72,8 +83,19 @@ class ArtifactLinksTest {
             compose.waitUntil(15000) { compose.onAllNodesWithText("notes.md").fetchSemanticsNodes().isNotEmpty() }
             compose.waitUntil(15000) { paths.contains("/api/runs/older/artifacts/file?download=1") }
             compose.onNodeWithContentDescription("Enregistrer").assertIsEnabled()
+            compose.onNodeWithContentDescription("Lien public").performClick()
+            compose.waitUntil(10000) { compose.onAllNodes(hasText("Activer le lien public") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Activer le lien public").assertIsEnabled().performClick()
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Lien public activé").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Copier le lien").performClick()
+            val clipboard = ApplicationProvider.getApplicationContext<Application>().getSystemService(ClipboardManager::class.java)
+            assertEquals(server.url("/api/public/artifacts/public-fixture").toString(), clipboard.primaryClip!!.getItemAt(0).text.toString())
+            compose.onNodeWithText("Partager le lien").assertIsEnabled()
+            compose.onNodeWithText("Désactiver le lien public").performClick()
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Fichier privé").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Fermer", useUnmergedTree = true).performClick()
             compose.onNodeWithContentDescription("Fermer le fichier").performClick()
-            assertEquals(listOf("/api/runs/older/artifacts", "/api/runs/older/artifacts/file?download=1"), paths.toList())
+            assertEquals(listOf("/api/runs/older/artifacts", "/api/runs/older/artifacts/file?download=1"), paths.take(2))
         }
     }
 }

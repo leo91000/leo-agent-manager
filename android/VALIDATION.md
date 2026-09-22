@@ -1,4 +1,14 @@
-# Android 0.6.2 — floating latest-message control
+# Android 0.7.0 — public artifact links
+
+The artifact link UI regression now opens the sharing dialog, fetches current
+visibility, enables a link, copies it to the native clipboard, verifies the
+system-share action, and revokes the link. Mutation requests include the CSRF
+token. The dialog scrolls for smaller displays and larger text. Server integration
+and web browser tests separately cover anonymous download and revoked-link rejection.
+The development APK is **0.7.0 / code 18**. Current CI results are authoritative;
+Robolectric tests are separate from the Android 16 instrumentation gate.
+
+## Previous validation: Android 0.6.2 — floating latest-message control
 
 The return-to-bottom control overlays the top right of chat and task transcripts,
 fades out during a drag/fling, and fades back in after scrolling stops while newer

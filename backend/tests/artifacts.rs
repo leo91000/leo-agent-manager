@@ -412,3 +412,250 @@ async fn preview_is_prepared_asynchronously_or_reports_missing_optional_tools_wi
     );
     server.abort();
 }
+
+#[tokio::test]
+async fn public_links_are_scoped_revocable_and_survive_restart_without_exposing_private_routes() {
+    let (_root, s, run, token, server) = fixture().await;
+    let item = s
+        .artifacts
+        .publish(
+            &s,
+            &token,
+            &json!({"path":"/tmp/report.md","title":"Report","key":"public-test"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(item["visibility"], "private");
+    assert!(item["publicUrl"].is_null());
+    let session = s.auth.session().await.unwrap();
+    let app = leo_agent_manager::http::router(s.clone()).await.unwrap();
+    let endpoint = format!("{}/visibility", text(&item, "url"));
+    for (cookie, csrf, expected) in [(false, false, 401), (true, false, 403), (true, true, 200)] {
+        let mut request = Request::builder()
+            .method("PUT")
+            .uri(&endpoint)
+            .header("host", "localhost:4310");
+        if cookie {
+            request = request.header("cookie", format!("leo_session={}", text(&session, "value")));
+        }
+        if csrf {
+            request = request.header("x-csrf-token", text(&session, "csrf"));
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                request
+                    .body(Body::from(r#"{"visibility":"public"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    let shared = artifacts::list(&s, text(&run, "id"))
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    let url = url::Url::parse(text(&shared, "publicUrl")).unwrap();
+    let public = url.path().to_owned();
+    for (path, status) in [
+        (text(&item, "url").to_owned(), 401),
+        (format!("{}/../", text(&item, "url")), 401),
+        (format!("/api/runs/{}/artifacts", text(&run, "id")), 401),
+        (format!("/api/public/artifacts/{}", id()), 404),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("host", "localhost:4310")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+    }
+    for method in ["GET", "HEAD"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(&public)
+                    .header("host", "localhost:4310")
+                    .header("origin", "https://recipient.example")
+                    .header("range", "bytes=2-6")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 206);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert_eq!(
+            response.headers()["content-security-policy"],
+            "default-src 'none'; sandbox"
+        );
+        assert_eq!(response.headers()["access-control-allow-origin"], "*");
+        let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            bytes.as_ref(),
+            if method == "HEAD" {
+                b"".as_slice()
+            } else {
+                b"First".as_slice()
+            }
+        );
+    }
+    let restarted = Service::new(s.config.clone()).await.unwrap();
+    let router = leo_agent_manager::http::router(restarted.clone())
+        .await
+        .unwrap();
+    let request = || {
+        Request::builder()
+            .uri(&public)
+            .header("host", "localhost:4310")
+            .body(Body::empty())
+            .unwrap()
+    };
+    assert_eq!(
+        router.clone().oneshot(request()).await.unwrap().status(),
+        200
+    );
+    let disabled = artifacts::sharing::for_agent(
+        &s,
+        &token,
+        &json!({"artifactId":item["id"],"visibility":"private"}),
+    )
+    .await
+    .unwrap();
+    assert!(disabled["publicUrl"].is_null());
+    assert_eq!(
+        router.clone().oneshot(request()).await.unwrap().status(),
+        404
+    );
+    let enabled = artifacts::sharing::for_agent(
+        &s,
+        &token,
+        &json!({"artifactId":item["id"],"visibility":"public"}),
+    )
+    .await
+    .unwrap();
+    assert_ne!(enabled["publicUrl"], shared["publicUrl"]);
+    assert_eq!(router.oneshot(request()).await.unwrap().status(), 404);
+    assert_eq!(
+        artifacts::sharing::for_agent(
+            &s,
+            "invalid",
+            &json!({"artifactId":item["id"],"visibility":"public"})
+        )
+        .await
+        .unwrap_err()
+        .status,
+        401
+    );
+    assert_eq!(
+        artifacts::sharing::for_agent(
+            &s,
+            &token,
+            &json!({"artifactId":id(),"visibility":"public"})
+        )
+        .await
+        .unwrap_err()
+        .status,
+        404
+    );
+    assert!(
+        artifacts::sharing::for_agent(
+            &s,
+            &token,
+            &json!({"artifactId":item["id"],"visibility":"invalid"})
+        )
+        .await
+        .is_err()
+    );
+    // A grant for another active run cannot change a known artifact ID.
+    let other_task = s
+        .task(
+            json!({"name":"Other","prompt":"Other task","agentId":MAIN_AGENT_ID}),
+            None,
+        )
+        .await
+        .unwrap();
+    let other_run = s
+        .enqueue(text(&other_task, "id"), "manual", None)
+        .await
+        .unwrap();
+    s.store
+        .patch_run(text(&other_run, "id"), json!({"status":"running"}))
+        .await
+        .unwrap();
+    let other_config = s.mcps.run_configuration(&s, &other_run).await.unwrap();
+    let other_token = text(&other_config["env"], "LEO_MCP_RUN_TOKEN");
+    assert_eq!(
+        artifacts::sharing::for_agent(
+            &s,
+            other_token,
+            &json!({"artifactId":item["id"],"visibility":"private"})
+        )
+        .await
+        .unwrap_err()
+        .status,
+        404
+    );
+    assert_eq!(
+        artifacts::sharing::set(
+            &s,
+            text(&run, "id"),
+            text(&item, "id"),
+            "private",
+            Some(other_token)
+        )
+        .await
+        .unwrap_err()
+        .status,
+        403
+    );
+    s.mcps.revoke_run(&s, text(&run, "id")).await.unwrap();
+    assert_eq!(
+        artifacts::sharing::for_agent(
+            &s,
+            &token,
+            &json!({"artifactId":item["id"],"visibility":"public"})
+        )
+        .await
+        .unwrap_err()
+        .status,
+        401
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn agent_publication_is_explicit_per_version_and_idempotent() {
+    let (_root, s, run, token, server) = fixture().await;
+    let mut args = json!({"path":"/tmp/report.md","title":"Public report","key":"report","visibility":"public"});
+    let first = s.artifacts.publish(&s, &token, &args).await.unwrap();
+    assert_eq!(first["visibility"], "public");
+    let again = s.artifacts.publish(&s, &token, &args).await.unwrap();
+    assert_eq!(again["publicUrl"], first["publicUrl"]);
+    args["path"] = "/tmp/second.md".into();
+    args.as_object_mut().unwrap().remove("visibility");
+    let second = s.artifacts.publish(&s, &token, &args).await.unwrap();
+    assert_eq!(second["version"], 2);
+    assert_eq!(second["visibility"], "private");
+    args["visibility"] = "public".into();
+    let public = s.artifacts.publish(&s, &token, &args).await.unwrap();
+    assert_eq!(public["id"], second["id"]);
+    assert_ne!(public["publicUrl"], first["publicUrl"]);
+    assert_eq!(
+        artifacts::list(&s, text(&run, "id")).await.unwrap().len(),
+        2
+    );
+    let rpc=leo_agent_manager::project_workspaces::rpc(&s,&token,"tools/call",&json!({"name":"set_artifact_visibility","arguments":{"artifactId":public["id"],"visibility":"private"}})).await.unwrap();
+    assert_eq!(rpc["structuredContent"]["visibility"], "private");
+    server.abort();
+}

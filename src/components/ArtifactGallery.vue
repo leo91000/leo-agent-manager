@@ -40,6 +40,7 @@ const groups = computed(() => {
             <div class="w-full min-w-0 px-3 py-2.5">
               <p class="m-0! truncate text-xs font-semibold text-ink" :title="item.title">
                 {{ item.title }}
+                <span v-if="item.visibility === 'public'" class="ml-1 text-[10px] font-normal text-accent">Public</span>
               </p>
               <p class="m-0! mt-1! truncate text-[10px] text-muted">
                 {{ item.name.split('.').at(-1)?.toUpperCase() }} · {{ fileSize(item.size) }}<span v-if="item.width && item.height"> · {{ item.width }} × {{ item.height }}</span>

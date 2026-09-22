@@ -1,7 +1,10 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
-Version 0.6.2 retains the Fil design to the native web-parity port: compact conversation
+Version 0.7.0 adds revocable public links for individual artifact versions, with
+native copying and Android link sharing from the file viewer. Files stay private
+by default; the server must include the public-artifact API introduced alongside
+this release. It retains the Fil design to the native web-parity port: compact conversation
 chrome, flat task rows and compact inline files, with the web palette and bundled
 DM Sans / Manrope fonts. Body text stays at 16 sp / 24 sp and respects Android font scaling.
 The latest-message arrow floats at the top right and fades away while scrolling.

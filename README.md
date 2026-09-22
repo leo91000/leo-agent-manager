@@ -131,6 +131,20 @@ commit. See the [CI measurements and release paths](docs/CI-PERFORMANCE.md).
 
 Start a conversation from **Chats**, an agent, or a project. Project chats use Main agent by default. Steer a live response, queue and edit follow-ups, and resume conversations after a restart. See [chat behavior and architecture](docs/chats.md).
 
+## Public artifact links
+
+Files stay private unless explicitly shared. In the web or Android file viewer,
+open sharing to enable a public link, copy it, or disable it. Anyone with that
+link can read the selected file version without signing in. Other files, versions,
+and the conversation stay private. Disabling and re-enabling creates a new link;
+downloaded copies cannot be revoked.
+
+Agents can publish with `visibility: "public"` or call `set_artifact_visibility`
+with an artifact ID and `visibility: "public"` / `"private"`. These tools are
+scoped to the current run and should only make files public on explicit request.
+Use the returned `publicUrl` for anonymous access; the normal artifact URL remains
+authenticated. Sharing state persists across server restarts.
+
 ## Native Android client
 
 The Kotlin / Jetpack Compose client lives in [`android/`](android/README.md).

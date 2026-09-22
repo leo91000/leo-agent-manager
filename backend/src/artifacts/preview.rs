@@ -113,15 +113,22 @@ pub async fn prepare(s: Service, mut artifact: Value) -> Result<()> {
     }
     .into();
     s.store
-        .set(
-            &format!(
+        .transaction(move |db| {
+            let key = format!(
                 "artifact:{}:{}",
                 text(&artifact, "runId"),
                 text(&artifact, "id")
-            ),
-            artifact,
-            None,
-        )
+            );
+            if let Some(mut current) = db.kv(&key)? {
+                for field in ["previewStatus", "width", "height", "duration"] {
+                    if let Some(value) = artifact.get(field) {
+                        current[field] = value.clone();
+                    }
+                }
+                db.set(&key, &current, None)?;
+            }
+            Ok(())
+        })
         .await
 }
 

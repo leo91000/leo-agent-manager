@@ -12,6 +12,8 @@ export interface Deliverable {
   size: number
   createdAt: number
   url: string
+  visibility?: 'private' | 'public'
+  publicUrl?: string | null
   previewStatus: 'pending' | 'ready' | 'unavailable' | 'none'
   width?: number
   height?: number

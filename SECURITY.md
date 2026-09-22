@@ -14,6 +14,15 @@ bearer tokens and verifies scopes inside each tool. Sensitive auth headers and
 password fields are redacted from application logging. CLI credential files remain
 managed by their providers in the persistent worker home.
 
+Artifacts are private by default. Explicit public sharing grants anonymous GET/HEAD
+access to one immutable file version through an unguessable, revocable URL. Public
+routes never expose artifact metadata, run listings, or conversations. File
+responses retain sandbox CSP, nosniff and no-store headers. Public URLs are bearer
+capabilities: anyone who receives one can download that file. Revoking blocks
+future requests, not downloads already in progress or copies already saved.
+Visibility changes require an owner session with CSRF protection or a live
+agent grant scoped to that artifact’s run. New versions default to private.
+
 Project registration and skill access resolve paths under configured roots.
 Supporting files reject traversal and escaping symlinks. Worktree cleanup only
 operates on the manager's recorded worktrees and refuses dirty/untracked content.

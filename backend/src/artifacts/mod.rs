@@ -1,5 +1,6 @@
 //! Durable run deliverables. Publishing succeeds only after bytes and metadata are committed.
 pub mod file;
+pub mod sharing;
 use crate::{
     config::{id, now},
     error::{Error, Result, required},
@@ -32,7 +33,7 @@ impl Default for Artifacts {
     }
 }
 pub fn tool() -> Value {
-    json!({"name":"publish_artifact","description":"Publish a finished file for the user to view and download, including after this VM stops. Use for requested screenshots, videos, audio, documents and other deliverables. Files must be in the current run workspace or /tmp; max 512 MB. Use the same key for revisions of one deliverable. Wait for success before telling the user it is available. Publish each file separately; matching group values form a gallery. Returns a durable URL. Never publish credentials or unrelated private files.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"title":{"type":"string","maxLength":160},"key":{"type":"string","maxLength":160},"group":{"type":"string","maxLength":160}},"required":["path","title","key"],"additionalProperties":false}})
+    json!({"name":"publish_artifact","description":"Publish a finished file for the user to view and download, including after this VM stops. Use for requested screenshots, videos, audio, documents and other deliverables. Files must be in the current run workspace or /tmp; max 512 MB. Use the same key for revisions of one deliverable. Wait for success before telling the user it is available. Publish each file separately; matching group values form a gallery. Returns a durable private URL and, when visibility is public, a publicUrl readable by anyone with the link. Files are private by default; only set visibility to public when the user requests public sharing. Each new version is private unless explicitly public. Never publish credentials or unrelated private files.","inputSchema":{"type":"object","properties":{"visibility":{"type":"string","enum":["private","public"]},"path":{"type":"string"},"title":{"type":"string","maxLength":160},"key":{"type":"string","maxLength":160},"group":{"type":"string","maxLength":160}},"required":["path","title","key"],"additionalProperties":false}})
 }
 fn bounded<'a>(value: &'a Value, key: &str, limit: usize) -> Result<&'a str> {
     let s = text(value, key).trim();
@@ -43,6 +44,9 @@ fn bounded<'a>(value: &'a Value, key: &str, limit: usize) -> Result<&'a str> {
 }
 impl Artifacts {
     pub async fn publish(&self, s: &Service, bearer: &str, args: &Value) -> Result<Value> {
+        if args.get("visibility").is_some() {
+            sharing::visibility(args)?;
+        }
         let _permit = self.transfers.acquire().await.map_err(Error::internal)?;
         let run = crate::project_workspaces::authorize(s, bearer).await?;
         let path = bounded(args, "path", 4096)?;
@@ -135,7 +139,18 @@ impl Artifacts {
                 && v["group"] == text(args, "group")
                 && v["messageId"] == run["chatExecution"]["messageId"]
         }) {
-            return Ok(item.clone());
+            return if let Some(value) = args.get("visibility") {
+                sharing::set(
+                    s,
+                    run_id,
+                    text(item, "id"),
+                    value.as_str().unwrap(),
+                    Some(bearer),
+                )
+                .await
+            } else {
+                Ok(item.clone())
+            };
         }
         if existing.len() >= 500
             || existing
@@ -175,11 +190,14 @@ impl Artifacts {
             .persist_noclobber(directory.join(&artifact_id))
             .map_err(|e| Error::internal(e.error))?;
         std::fs::File::open(&directory)?.sync_all()?;
-        let record = artifact.clone();
+        let mut record = artifact.clone();
+        let visibility = args["visibility"].as_str().unwrap_or("private").to_owned();
+        let origin = s.config.public_url.clone();
         let owned_run = run_id.to_owned();
         let token = bearer.to_owned();
         let expected_attempt = attempt.to_owned();
-        s.store
+        artifact = s
+            .store
             .transaction(move |db| {
                 let current = crate::project_workspaces::authorize_in(db, &token)?;
                 let checkpoint = db
@@ -194,6 +212,7 @@ impl Artifacts {
                         "The active turn changed during publication.",
                     ));
                 }
+                sharing::apply(db, &mut record, &visibility, &origin)?;
                 db.set(
                     &format!("artifact:{owned_run}:{}", text(&record, "id")),
                     &record,
@@ -205,7 +224,7 @@ impl Artifacts {
                     text(&record, "title"),
                     Some(&record),
                 )?;
-                Ok(())
+                Ok(record)
             })
             .await?;
         let service = s.clone();
@@ -249,6 +268,18 @@ pub async fn http(
         s.store.kv(&format!("artifact:{run}:{artifact}")).await?,
         "Artifact not found",
     )?;
+    if request
+        .uri()
+        .query()
+        .is_some_and(|q| q.split('&').any(|p| p == "metadata=1"))
+    {
+        return Ok(Json(record).into_response());
+    }
+    serve(s, &record, request).await
+}
+
+async fn serve(s: &Service, record: &Value, request: Request) -> Result<Response> {
+    let artifact = text(record, "id");
     let query: std::collections::HashMap<String, String> =
         serde_urlencoded::from_str(request.uri().query().unwrap_or("")).map_err(Error::internal)?;
     let preview = query.contains_key("preview");
@@ -305,7 +336,7 @@ pub async fn http(
         HeaderValue::from_str(if preview {
             "image/jpeg"
         } else {
-            text(&record, "mediaType")
+            text(record, "mediaType")
         })
         .map_err(Error::internal)?,
     );
@@ -322,7 +353,7 @@ pub async fn http(
         HeaderValue::from_static("default-src 'none'; sandbox"),
     );
     let name: String =
-        url::form_urlencoded::byte_serialize(text(&record, "name").as_bytes()).collect();
+        url::form_urlencoded::byte_serialize(text(record, "name").as_bytes()).collect();
     let disposition = if query.contains_key("download") || record["kind"] == "file" {
         "attachment"
     } else {
