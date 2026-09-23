@@ -58,6 +58,9 @@ RUN chmod +x /opt/leo-toolkit/android.mjs && ln -s /opt/leo-toolkit/android.mjs 
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN /usr/local/bin/node /opt/leo-toolkit/manage.mjs install
 # Keep the Codex npm launcher on the manager runtime even in older Node projects.
 RUN ln -s /usr/local/bin/node /pnpm/bin/node
+# pnpm skips dependency build scripts; run Claude's pinned native installer explicitly.
+# Fail the shared manager/guest layer immediately if its executable is unavailable.
+RUN node "$(pnpm root --global)/@anthropic-ai/claude-code/install.cjs" && claude --version
 COPY deploy/toolkit/profile.sh /etc/profile.d/leo-toolkit.sh
 ENV LEO_TOOLKIT_DIR=/opt/leo-toolkit
 ENV PATH=/usr/local/bin:/home/node/.local/share/mise/shims:/usr/local/share/mise/shims:$PATH
