@@ -86,8 +86,9 @@ test('switching coding agents preserves one chat, context and provider selection
   await page.getByRole('combobox', { name: 'Model', exact: true }).click()
   await page.getByRole('option', { name: 'Sonnet', exact: true }).click()
   for (const width of [1440, 390, 320]) {
-    await page.setViewportSize({ width, height: 900 })
+    await page.setViewportSize({ width, height: width === 320 ? 600 : 900 })
     await expectSingleScroll(page)
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport()
     await page.screenshot({ path: testInfo.outputPath(`chat-provider-${width}.png`), animations: 'disabled' })
   }
   await page.getByLabel('Message', { exact: true }).fill('Continue with Claude using the previous decisions.')

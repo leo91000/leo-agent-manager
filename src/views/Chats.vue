@@ -452,16 +452,16 @@ function key(event: KeyboardEvent) {
               </p>
             </div>
             <div class="flex items-center justify-between gap-2 pt-2">
-              <div class="flex items-center gap-1">
+              <div class="flex min-w-0 flex-1 items-center gap-1">
                 <input ref="fileInput" type="file" multiple class="hidden" aria-label="Attach files" :disabled="busy" @change="pickFiles">
                 <button type="button" :class="iconButton" aria-label="Add images or files" title="Add images or files · up to 8 files, 10 MB each" :disabled="busy || attachments.length >= 8" @click="fileInput?.click()">
                   <Icon :name="Paperclip" :size="18" />
                 </button>
-                <button type="button" class="flex items-center gap-1.5 rounded-md px-1 py-1 text-[10px] text-muted hover:text-accent" :aria-expanded="options" aria-label="Message options" @click="options = !options">
-                  <Icon :name="Settings" :size="14" /><span class="max-w-36 truncate">{{ chosenProvider === 'claude' ? 'Claude' : 'Codex' }} · {{ model || 'Default' }}</span>
+                <button type="button" class="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-1 text-[10px] text-muted hover:text-accent" :aria-expanded="options" aria-label="Message options" @click="options = !options">
+                  <Icon :name="Settings" :size="14" class="shrink-0" /><span class="max-w-36 truncate">{{ chosenProvider === 'claude' ? 'Claude' : 'Codex' }} · {{ model || 'Default' }}</span>
                 </button>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex shrink-0 items-center gap-2">
                 <button v-if="active && !editing" type="button" :class="iconButton" aria-label="Stop response" title="Stop response and pause queue" :disabled="busy" @click="action('stop')">
                   <Icon :name="Square" :size="14" />
                 </button>
