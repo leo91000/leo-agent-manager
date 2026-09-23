@@ -49,10 +49,11 @@ jobs:
             cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.leo.manager.ui.HistoryFollowDeviceTest,dev.leo.manager.ui.ModelPickerDeviceTest,dev.leo.manager.ui.ClaudeDeviceTest --no-daemon
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb install -r -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w -e class 'dev.leo.manager.ui.HistoryFollowDeviceTest#oversizedFinalMessageStillReachesTheBottomAfterStreamingAndResize' dev.leo.manager.test/androidx.test.runner.AndroidJUnitRunner > android/app/build/reports/capture-instrumentation.txt
+            # Gradle uninstalls the test app, so regenerate both captures after reinstalling.
+            adb shell am instrument -w -e class 'dev.leo.manager.ui.HistoryFollowDeviceTest#oversizedFinalMessageStillReachesTheBottomAfterStreamingAndResize,dev.leo.manager.ui.ModelPickerDeviceTest#selectionSurvivesRecreationAndModelChangeResetsEffort' dev.leo.manager.test/androidx.test.runner.AndroidJUnitRunner > android/app/build/reports/capture-instrumentation.txt
             adb exec-out run-as dev.leo.manager cat files/scroll-validation/pinned-stream.png > android/app/build/reports/pinned-stream.png
             adb exec-out run-as dev.leo.manager cat files/model-picker/reasoning.png > android/app/build/reports/reasoning-picker.png
-            python3 -c 'from pathlib import Path; p = Path("android/app/build/reports"); assert "OK (1 test)" in (p / "capture-instrumentation.txt").read_text(); assert all((p / name).read_bytes()[:8] == bytes([137, 80, 78, 71, 13, 10, 26, 10]) for name in ("pinned-stream.png", "reasoning-picker.png"))'
+            python3 -c 'from pathlib import Path; p = Path("android/app/build/reports"); assert "OK (2 tests)" in (p / "capture-instrumentation.txt").read_text(); assert all((p / name).read_bytes()[:8] == bytes([137, 80, 78, 71, 13, 10, 26, 10]) for name in ("pinned-stream.png", "reasoning-picker.png"))'
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
