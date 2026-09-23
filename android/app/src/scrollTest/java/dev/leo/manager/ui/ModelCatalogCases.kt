@@ -84,6 +84,7 @@ abstract class ModelCatalogCases {
             compose.waitUntil(10000) { compose.onAllNodesWithText("Catalogue temporairement indisponible. Réessayez.").fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithText(additions.last()).performScrollTo().performClick()
             compose.runOnIdle { assertEquals(additions.last() to "", selection) }
+            compose.onNodeWithText("Terminé").performClick()
             compose.waitUntil(10000) { compose.onAllNodesWithTag("model-settings-sheet").fetchSemanticsNodes().isEmpty() }
             val beforeReopening = requests.get()
             compose.onNodeWithTag("model-picker").performScrollTo().performClick()

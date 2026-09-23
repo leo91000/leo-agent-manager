@@ -347,8 +347,7 @@ class ChatJourneyTest {
                 .onNode(hasSetTextAction())
                 .performTextInput("Examiner le projet et préparer un compte rendu")
             compose.onNodeWithTag("model-picker").performClick()
-            compose.onNodeWithText("Modèle du serveur").performClick()
-            compose.onNodeWithTag("reasoning-picker").performClick()
+            compose.onNode(hasText("Modèle du serveur") and isSelectable()).performClick()
             compose.onNodeWithTag("reasoning-slider").performSemanticsAction(
                 androidx.compose.ui.semantics.SemanticsActions.SetProgress
             ) { it(2f) }

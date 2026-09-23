@@ -40,7 +40,7 @@ abstract class ModelPickerCases {
                             listOf(ReasoningOption("low"), ReasoningOption("high")),
                     ),
                     CodexModel("hidden", "Modèle masqué", hidden = true),
-                )
+                ) + (1..5).map { CodexModel("extra-$it", "Modèle annexe $it") }
         )
 
     protected open fun captureReasoning() = Unit
@@ -90,8 +90,9 @@ abstract class ModelPickerCases {
             }
         }
         compose
-            .onNodeWithTag("reasoning-picker")
-            .assertTextContains("Effort : Élevé ▾")
+            .onNodeWithTag("model-picker")
+            .assertTextContains("Grand modèle")
+            .assertTextContains("Élevé")
             .performClick()
         selectMaximumEffort()
         compose.runOnIdle { assertEquals("ultra", result.second) }
@@ -99,10 +100,10 @@ abstract class ModelPickerCases {
         compose.onNodeWithText("Terminé").performClick()
         restoration.emulateSavedInstanceStateRestore()
         compose
-            .onNodeWithTag("reasoning-picker")
-            .assertTextContains("Effort : Ultra ▾")
+            .onNodeWithTag("model-picker")
+            .assertTextContains("Ultra")
             .performClick()
-        compose.onNodeWithTag("reasoning-default").performClick()
+        compose.onNodeWithTag("reasoning-default").performScrollTo().performClick()
         compose
             .onNodeWithTag("reasoning-slider")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Élevé"))
@@ -112,23 +113,22 @@ abstract class ModelPickerCases {
             it(3f)
         }
         compose.runOnIdle { assertEquals("max", result.second) }
-        compose.onNodeWithText("Terminé").performClick()
-        compose.onNodeWithTag("model-picker").performClick()
         compose.onNodeWithText("Modèle masqué").assertDoesNotExist()
         compose.onNodeWithText("Rechercher un modèle").performTextInput("rapide")
-        compose.onNodeWithText("Grand modèle").assertDoesNotExist()
+        compose.onNodeWithText("Modèle annexe 1").assertDoesNotExist()
         compose.onNodeWithText("Modèle rapide").performClick()
         compose.runOnIdle { assertEquals("fast" to "", result) }
+        // The effort control follows the chosen model inside the same sheet.
         compose
-            .onNodeWithTag("reasoning-picker")
-            .assertTextContains("Effort : Faible ▾")
-            .performClick()
-        compose.onNodeWithTag("reasoning-slider").performSemanticsAction(
-            SemanticsActions.SetProgress
-        ) {
-            it(1f)
-        }
+            .onNodeWithTag("reasoning-slider")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Faible"))
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
         compose.runOnIdle { assertEquals("fast" to "high", result) }
+        compose.onNodeWithText("Terminé").performClick()
+        compose
+            .onNodeWithTag("model-picker")
+            .assertTextContains("Modèle rapide")
+            .assertTextContains("Élevé")
     }
 
     @Test
@@ -138,7 +138,7 @@ abstract class ModelPickerCases {
                 SurfaceForTest { ModelPicker(catalog, "missing", "max") { _, _ -> } }
             }
         }
-        compose.onNodeWithTag("reasoning-picker").performClick()
+        compose.onNodeWithTag("model-picker").performClick()
         compose.onNodeWithTag("reasoning-slider").assertDoesNotExist()
         compose
             .onNodeWithText(
@@ -158,7 +158,7 @@ abstract class ModelPickerCases {
                 }
             }
         }
-        compose.onNodeWithTag("reasoning-picker").performClick()
+        compose.onNodeWithTag("model-picker").performClick()
         compose
             .onNodeWithText(
                 "Ce niveau n’est pas proposé par le modèle. Choisissez un niveau disponible ou le réglage par défaut."

@@ -7,18 +7,18 @@ import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, state } from '../api'
 import { chatDelivery } from '../chat-delivery'
 import ActivityFeed from '../components/ActivityFeed.vue'
+import AssistantPicker from '../components/AssistantPicker.vue'
 import ChatAttachments from '../components/ChatAttachments.vue'
 import ChatQuestions from '../components/ChatQuestions.vue'
 import ChatSwitcher from '../components/ChatSwitcher.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
-import ModelSettings from '../components/ModelSettings.vue'
 import NotificationSettings from '../components/NotificationSettings.vue'
 import ThemeControl from '../components/ThemeControl.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import { ArrowDown, Bell, Bot, ChevronDown, Clock, FileText, FolderGit2, Maximize2, Menu, MessageCircle, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Search, Send, Settings, Square, Trash2, X, Zap } from '../icons'
+import { ArrowDown, Bell, Bot, ChevronDown, Clock, FileText, FolderGit2, Maximize2, Menu, MessageCircle, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Search, Send, Square, Trash2, X, Zap } from '../icons'
 import { iconButton } from '../ui'
 import { useLiveRun } from '../use-live-run'
 import { workspaceActionsKey } from '../workspace-actions'
@@ -34,7 +34,6 @@ const draft = ref('')
 const model = ref('')
 const reasoning = ref('')
 const provider = ref<'' | 'codex' | 'claude'>('')
-const options = ref(false)
 const notifications = ref(false)
 const history = ref(false)
 const detailsOpen = ref(false)
@@ -445,21 +444,13 @@ function key(event: KeyboardEvent) {
               {{ uploadProgress }}
             </div>
             <textarea ref="textarea" v-model="draft" aria-label="Message" :placeholder="responding ? 'Add a follow-up…' : 'Message your agent…'" rows="2" maxlength="50000" class="block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!" @keydown="key" />
-            <div v-if="options" class="mb-3 border-t border-line pt-3">
-              <VirtualSelect v-model="chosenProvider" label="Coding agent" :options="[{ value: 'codex', label: 'Codex' }, { value: 'claude', label: 'Claude Code' }]" :disabled="busy" class="mb-3" />
-              <ModelSettings v-model:model="model" v-model:reasoning="reasoning" :provider="chosenProvider" :inherit="inheritAgentModel" :default-model="inheritAgentModel ? selectedAgent?.model : ''" :default-reasoning="inheritAgentModel ? selectedAgent?.reasoning : ''" :disabled="busy" /><p class="my-2! text-xs text-muted" role="status">
-                {{ switchingProvider ? 'The next message starts a new agent session with this chat’s context and existing files.' : 'Model and reasoning changes apply to the next turn.' }}
-              </p>
-            </div>
             <div class="flex items-center justify-between gap-2 pt-2">
               <div class="flex min-w-0 flex-1 items-center gap-1">
                 <input ref="fileInput" type="file" multiple class="hidden" aria-label="Attach files" :disabled="busy" @change="pickFiles">
                 <button type="button" :class="iconButton" aria-label="Add images or files" title="Add images or files · up to 8 files, 10 MB each" :disabled="busy || attachments.length >= 8" @click="fileInput?.click()">
                   <Icon :name="Paperclip" :size="18" />
                 </button>
-                <button type="button" class="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-1 text-[10px] text-muted hover:text-accent" :aria-expanded="options" aria-label="Message options" @click="options = !options">
-                  <Icon :name="Settings" :size="14" class="shrink-0" /><span class="max-w-36 truncate">{{ chosenProvider === 'claude' ? 'Claude' : 'Codex' }} · {{ model || 'Default' }}</span>
-                </button>
+                <AssistantPicker v-model:provider="chosenProvider" v-model:model="model" v-model:reasoning="reasoning" :inherit="inheritAgentModel" :default-model="inheritAgentModel ? selectedAgent?.model : ''" :default-reasoning="inheritAgentModel ? selectedAgent?.reasoning : ''" :switching="switchingProvider" :disabled="busy" />
               </div>
               <div class="flex shrink-0 items-center gap-2">
                 <button v-if="active && !editing" type="button" :class="iconButton" aria-label="Stop response" title="Stop response and pause queue" :disabled="busy" @click="action('stop')">

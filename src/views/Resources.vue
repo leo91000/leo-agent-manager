@@ -2,10 +2,10 @@
 import { computed, ref } from 'vue'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, notify, refresh, state } from '../api'
+import AssistantPicker from '../components/AssistantPicker.vue'
 import Empty from '../components/Empty.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
-import ModelSettings from '../components/ModelSettings.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
@@ -230,8 +230,7 @@ async function remove() {
           maxlength="500"
           placeholder="A short reminder of what this is for."
         /></label><template v-if="isAgent">
-          <VirtualSelect v-model="form.provider" label="Coding agent" :options="[{ value: 'codex', label: 'Codex', description: 'Use a connected ChatGPT account' }, { value: 'claude', label: 'Claude Code', description: 'Use your connected Claude account' }]" @update:model-value="form.model = ''; form.reasoning = ''" />
-          <ModelSettings v-model:model="form.model" v-model:reasoning="form.reasoning" :provider="form.provider" :disabled="busy" /><div class="span-2 col-span-2 phone:col-span-1 agent-access-panel">
+          <AssistantPicker v-model:provider="form.provider" v-model:model="form.model" v-model:reasoning="form.reasoning" variant="field" :disabled="busy" /><div class="span-2 col-span-2 phone:col-span-1 agent-access-panel">
             <div class="agent-access-heading">
               <Icon :name="ShieldCheck" :size="20" /><div><h3>Access &amp; execution</h3><p>Choose the resources this agent can use.</p></div>
             </div>

@@ -634,7 +634,6 @@ fun ChatScreen(
                                 options = false
                             }
                         }
-                        ChatProviderPicker(chosenProvider, switchingProvider, !state.busy, ::chooseProvider)
                         ModelPicker(
                             if (chosenProvider == "claude") state.claudeModels else state.models,
                             model,
@@ -644,6 +643,10 @@ fun ChatScreen(
                             inherit = inheritAgentModel,
                             enabled = !state.busy,
                             refresh = { vm.refreshModels(chosenProvider) },
+                            provider = chosenProvider,
+                            changeProvider = ::chooseProvider,
+                            switching = switchingProvider,
+                            field = true,
                         ) { m, r ->
                             model = m
                             reasoning = r
@@ -868,21 +871,6 @@ fun ChatScreen(
                         color = MaterialTheme.colorScheme.surface,
                     ) {
                         Column(Modifier.padding(4.dp)) {
-                            ChatProviderPicker(chosenProvider, switchingProvider, !state.busy, ::chooseProvider)
-                            ModelPicker(
-                                if (chosenProvider == "claude") state.claudeModels else state.models,
-                                model,
-                                reasoning,
-                                defaultModel,
-                                defaultReasoning,
-                                inherit = inheritAgentModel,
-                                enabled = !state.busy,
-                                refresh = { vm.refreshModels(chosenProvider) },
-                            ) { m, r ->
-                                model = m
-                                reasoning = r
-                            }
-
                             if (attachments.isNotEmpty())
                                 Box(Modifier.heightIn(max = 140.dp)) {
                                     LazyColumn {
@@ -917,7 +905,39 @@ fun ChatScreen(
                                     Text("Modifier le message en attente", Modifier.weight(1f))
                                     TextButton(onClick = ::clearDraft) { Text("Annuler") }
                                 }
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                            BasicTextField(
+                                draft,
+                                { if (it.length <= 50000) draft = it },
+                                Modifier.fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .padding(top = 12.dp, bottom = 4.dp, start = 12.dp, end = 12.dp),
+                                textStyle =
+                                    MaterialTheme.typography.bodyLarge.copy(
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                cursorBrush =
+                                    androidx.compose.ui.graphics.SolidColor(
+                                        MaterialTheme.colorScheme.primary
+                                    ),
+                                keyboardOptions = InputKeyboards.Sentences,
+                                maxLines = 4,
+                                enabled = !state.busy,
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (draft.isEmpty())
+                                            Text(
+                                                if (chat?.paused == true) "Ajouter à la file…"
+                                                else if (active) "Ajouter un message…"
+                                                else "Votre message…",
+                                                color =
+                                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        inner()
+                                    }
+                                },
+                            )
+                            // Message first, then one toolbar: attach, agent/model/effort, send.
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 ActionIcon(
                                     "Joindre",
                                     Icons.Default.Add,
@@ -925,37 +945,24 @@ fun ChatScreen(
                                 ) {
                                     picker.launch(arrayOf("*/*"))
                                 }
-                                BasicTextField(
-                                    draft,
-                                    { if (it.length <= 50000) draft = it },
-                                    Modifier.weight(1f)
-                                        .heightIn(min = 48.dp)
-                                        .padding(vertical = 12.dp, horizontal = 4.dp),
-                                    textStyle =
-                                        MaterialTheme.typography.bodyLarge.copy(
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        ),
-                                    cursorBrush =
-                                        androidx.compose.ui.graphics.SolidColor(
-                                            MaterialTheme.colorScheme.primary
-                                        ),
-                                    keyboardOptions = InputKeyboards.Sentences,
-                                    maxLines = 4,
-                                    enabled = !state.busy,
-                                    decorationBox = { inner ->
-                                        Box {
-                                            if (draft.isEmpty())
-                                                Text(
-                                                    if (chat?.paused == true) "Ajouter à la file…"
-                                                    else if (active) "Ajouter un message…"
-                                                    else "Votre message…",
-                                                    color =
-                                                        MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
-                                            inner()
-                                        }
-                                    },
-                                )
+                                Box(Modifier.weight(1f).padding(end = 4.dp)) {
+                                    ModelPicker(
+                                        if (chosenProvider == "claude") state.claudeModels else state.models,
+                                        model,
+                                        reasoning,
+                                        defaultModel,
+                                        defaultReasoning,
+                                        inherit = inheritAgentModel,
+                                        enabled = !state.busy,
+                                        refresh = { vm.refreshModels(chosenProvider) },
+                                        provider = chosenProvider,
+                                        changeProvider = ::chooseProvider,
+                                        switching = switchingProvider,
+                                    ) { m, r ->
+                                        model = m
+                                        reasoning = r
+                                    }
+                                }
                                 val canSend =
                                     !state.busy &&
                                         (draft.isNotBlank() || attachments.isNotEmpty()) &&

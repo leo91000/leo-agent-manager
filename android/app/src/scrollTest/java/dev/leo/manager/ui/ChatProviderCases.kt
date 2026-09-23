@@ -54,13 +54,20 @@ abstract class ChatProviderCases {
                 LeoTheme { if (state.session.authenticated) ChatScreen(vm, state, "chat", openChat = {}, openRun = {}) }
             }
             compose.waitUntil(20000) { compose.onAllNodesWithText("Deep thinker", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            // Agent, model and effort share a single menu.
+            compose.onNodeWithTag("model-picker").performClick()
+            compose.onNodeWithText("Codex").assertIsSelected()
             compose.onNodeWithText("Claude Code").performClick()
             compose.onNodeWithText("Claude Code").assertIsSelected()
             compose.onNodeWithText("Deep thinker", substring = true).assertDoesNotExist()
             compose.waitUntil(10000) { compose.onAllNodesWithText("Opus 1M", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Au prochain message, Claude Code reprend le contexte du chat et les fichiers existants.").assertExists()
+            compose.onNodeWithText("Terminé").performClick()
+            compose.waitUntil(10000) { compose.onAllNodesWithTag("model-settings-sheet").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("model-picker").assert(hasContentDescription("Claude Code", substring = true))
             compose.onNode(hasSetTextAction()).performTextInput("Continue les modifications existantes")
             restoration.emulateSavedInstanceStateRestore()
-            compose.onNodeWithText("Claude Code").assertIsSelected()
+            compose.onNodeWithTag("model-picker").assert(hasContentDescription("Claude Code · Opus 1M", substring = true))
             compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("conversation-send") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("conversation-send").performClick()
             compose.waitUntil(10000) { sent.size == 1 }
@@ -70,7 +77,10 @@ abstract class ChatProviderCases {
             assertEquals("", sent[0]["reasoning"]?.jsonPrimitive?.content)
             assertEquals("queue", sent[0]["mode"]?.jsonPrimitive?.content)
             compose.waitUntil(10000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().single().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text.isEmpty() }
+            compose.onNodeWithTag("model-picker").performClick()
             compose.onNodeWithText("Codex", substring = false).performClick()
+            compose.onNodeWithText("Terminé").performClick()
+            compose.waitUntil(10000) { compose.onAllNodesWithTag("model-settings-sheet").fetchSemanticsNodes().isEmpty() }
             compose.onNode(hasSetTextAction()).performTextInput("Reviens à Codex")
             compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("conversation-send") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("conversation-send").performClick()
