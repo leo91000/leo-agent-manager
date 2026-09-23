@@ -34,6 +34,7 @@ fun ConnectionsScreen(vm: LeoViewModel, state: Workspace, openRun: (String) -> U
         }
         if (!loaded) LinearProgressIndicator()
         CodexAccounts(vm, state, openRun)
+        ClaudeConnection(vm, state)
         OnePasswordAccounts(vm, state)
         items
             .filter { it.provider == "github" }

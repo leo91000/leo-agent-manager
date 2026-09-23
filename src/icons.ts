@@ -78,3 +78,5 @@ export const Send = 'i-lucide-arrow-up' as const
 export const Bell = 'i-lucide-bell' as const
 export const BellRing = 'i-lucide-bell-ring' as const
 export const MessageCircleQuestion = 'i-lucide-message-circle-question-mark' as const
+
+export const LogIn = 'i-lucide-log-in' as const

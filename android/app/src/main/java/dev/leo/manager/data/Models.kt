@@ -32,6 +32,7 @@ data class Agent(
     val instructions: String = "",
     val timeoutMinutes: Int = 120,
     val access: AccessPolicy = AccessPolicy(),
+    val provider: String = "codex",
 )
 
 @Serializable

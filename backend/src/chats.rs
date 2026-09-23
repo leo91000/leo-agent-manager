@@ -550,6 +550,7 @@ impl Service {
         if !text(&message, "reasoning").is_empty() {
             snapshot["snapshot"]["agent"]["reasoning"] = message["reasoning"].clone();
         }
+        crate::claude::validate_agent(&snapshot["snapshot"]["agent"])?;
         self.store
             .transaction(move |db| {
                 let mut current_chat = self::chat(db, text(&chat, "id"))?;
@@ -561,6 +562,9 @@ impl Service {
                 "messageId":message["id"],"text":message["text"],"attachments":message["attachments"],"recovery":false}
                 );
                 if let Some(run) = run {
+                    if crate::claude::provider(&snapshot["snapshot"]["agent"]) != crate::claude::provider(&run["snapshot"]["agent"]) {
+                        return Err(Error::new(409, "The agent provider changed. Start a new chat to use the new provider."));
+                    }
                     if snapshot["snapshot"]["agent"]["access"] != run["snapshot"]["agent"]["access"] {
                         return Err(Error::new(409, "Agent access changed. Start a new chat with the updated permissions."));
                     }

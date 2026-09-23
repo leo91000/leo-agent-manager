@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import type { SelectOption } from '../select'
-import { computed, onMounted } from 'vue'
+import { computed, watch } from 'vue'
 import { effortLabel } from '../../shared/models'
 import { Sparkles } from '../icons'
-import { loadModels, modelCatalog } from '../models'
+import { claudeCatalog, modelCatalog as codexCatalog, loadClaudeModels, loadModels } from '../models'
 import VirtualSelect from './VirtualSelect.vue'
 
-const props = withDefaults(defineProps<{ inherit?: boolean, defaultModel?: string, defaultReasoning?: string, disabled?: boolean }>(), { defaultModel: '', defaultReasoning: '' })
+const props = withDefaults(defineProps<{ provider?: string, inherit?: boolean, defaultModel?: string, defaultReasoning?: string, disabled?: boolean }>(), { provider: 'codex', defaultModel: '', defaultReasoning: '' })
+const modelCatalog = computed(() => props.provider === 'claude' ? claudeCatalog : codexCatalog)
+const reload = () => props.provider === 'claude' ? loadClaudeModels() : loadModels()
 const model = defineModel<string>('model', { default: '' })
 const reasoning = defineModel<string>('reasoning', { default: '' })
-const effectiveModel = computed(() => model.value || props.defaultModel || modelCatalog.models.find(model => model.isDefault)?.model || '')
-const selected = computed(() => modelCatalog.models.find(model => model.model === effectiveModel.value))
+const effectiveModel = computed(() => model.value || props.defaultModel || modelCatalog.value.models.find(model => model.isDefault)?.model || '')
+const selected = computed(() => modelCatalog.value.models.find(model => model.model === effectiveModel.value))
 const modelOptions = computed(() => {
   const options: SelectOption[] = [
-    { value: '', label: props.inherit ? 'Agent default' : 'Codex default', description: props.inherit ? props.defaultModel || 'Follow the agent’s model' : 'Follow Codex settings' },
-    ...modelCatalog.models.filter(item => !item.hidden || item.model === model.value).map(item => ({ value: item.model, label: item.displayName, description: item.description, keywords: [item.model] })),
+    { value: '', label: props.inherit ? 'Agent default' : `${props.provider === 'claude' ? 'Claude' : 'Codex'} default`, description: props.inherit ? props.defaultModel || 'Follow the agent’s model' : 'Follow provider settings' },
+    ...modelCatalog.value.models.filter(item => !item.hidden || item.model === model.value).map(item => ({ value: item.model, label: item.displayName, description: item.description, keywords: [item.model] })),
   ]
   if (model.value && !options.some(option => option.value === model.value))
     options.push({ value: model.value, label: model.value, description: 'Saved model · not in the current catalog', disabled: true })
@@ -35,7 +37,7 @@ const chosenModel = computed({ get: () => model.value, set: (value: string) => {
   reasoning.value = ''
 } })
 const unsupported = computed(() => reasoning.value && selected.value && !selected.value.supportedReasoningEfforts.some(e => e.reasoningEffort === reasoning.value))
-onMounted(loadModels)
+watch(() => props.provider, reload, { immediate: true })
 </script>
 
 <template>
@@ -46,7 +48,7 @@ onMounted(loadModels)
     </div>
     <div v-if="modelCatalog.error || unsupported" class="mt-2 flex items-start justify-between gap-3 text-xs text-muted" role="status">
       <span>{{ unsupported ? 'Choose a supported reasoning level or use the model default.' : modelCatalog.error }}</span>
-      <button v-if="modelCatalog.error" type="button" class="shrink-0 text-accent underline" :disabled="modelCatalog.loading" @click="loadModels">
+      <button v-if="modelCatalog.error" type="button" class="shrink-0 text-accent underline" :disabled="modelCatalog.loading" @click="reload">
         Retry
       </button>
     </div>

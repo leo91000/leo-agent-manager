@@ -1,4 +1,8 @@
-# Leo Android 0.9.0 — model and reasoning controls
+# Leo Android 0.10.0 — Claude Code
+
+Connect Claude Code through its official browser sign-in, finish with an authorization code, and cancel or retry from Connections. Choose Codex or Claude Code per agent; chat model and effort choices follow that provider. Existing agents remain on Codex. Requires Léo server 0.24.0.
+
+## Previous release: Leo Android 0.9.0 — model and reasoning controls
 
 - Model and reasoning buttons are directly visible in the chat composer.
 - Search the server model catalog in a native sheet. Changing models resets the

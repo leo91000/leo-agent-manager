@@ -433,7 +433,7 @@ function key(event: KeyboardEvent) {
             </div>
             <textarea ref="textarea" v-model="draft" aria-label="Message" :placeholder="responding ? 'Add a follow-up…' : 'Message your agent…'" rows="2" maxlength="50000" class="block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!" @keydown="key" />
             <div v-if="options" class="mb-3 border-t border-line pt-3">
-              <ModelSettings v-model:model="model" v-model:reasoning="reasoning" inherit :default-model="selectedAgent?.model" :default-reasoning="selectedAgent?.reasoning" :disabled="busy" /><p class="my-1! text-[10px] text-muted">
+              <ModelSettings v-model:model="model" v-model:reasoning="reasoning" :provider="selectedAgent?.provider" inherit :default-model="selectedAgent?.model" :default-reasoning="selectedAgent?.reasoning" :disabled="busy" /><p class="my-1! text-[10px] text-muted">
                 Model and reasoning changes apply to the next turn.
               </p>
             </div>

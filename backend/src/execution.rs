@@ -286,26 +286,28 @@ pub async fn prepare(
     }
     let home = directory.join("home");
     private_dir(&home.join(".codex")).await?;
-    let auth = codex_home
-        .map(Path::to_owned)
-        .unwrap_or_else(|| config.home.join(".codex"))
-        .join("auth.json");
-    if auth
-        .parent()
-        .is_some_and(|p| p.join("leo-managed-auth").exists())
-    {
-        atomic_write(&home.join(".codex/leo-managed-auth"), b"1").await?;
-    } else {
-        let bytes = tokio::fs::read(&auth)
-            .await
-            .map_err(|_| Error::bad("Connect Codex before starting an isolated agent."))?;
-        atomic_write(&home.join(".codex/auth.json"), &bytes).await?;
+    if !crate::claude::is_claude(run) {
+        let auth = codex_home
+            .map(Path::to_owned)
+            .unwrap_or_else(|| config.home.join(".codex"))
+            .join("auth.json");
+        if auth
+            .parent()
+            .is_some_and(|p| p.join("leo-managed-auth").exists())
+        {
+            atomic_write(&home.join(".codex/leo-managed-auth"), b"1").await?;
+        } else {
+            let bytes = tokio::fs::read(&auth)
+                .await
+                .map_err(|_| Error::bad("Connect Codex before starting an isolated agent."))?;
+            atomic_write(&home.join(".codex/auth.json"), &bytes).await?;
+        }
+        atomic_write(
+            &home.join(".codex/config.toml"),
+            b"cli_auth_credentials_store = \"file\"\n",
+        )
+        .await?;
     }
-    atomic_write(
-        &home.join(".codex/config.toml"),
-        b"cli_auth_credentials_store = \"file\"\n",
-    )
-    .await?;
     github_home(&home, config, access["github"] == true, github).await?;
     let git_config = home.join(".gitconfig");
     for (key, value) in [

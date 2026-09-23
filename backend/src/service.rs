@@ -18,6 +18,7 @@ pub struct Service {
     pub projects: Arc<crate::project_workspaces::Projects>,
     pub legacy_codex_login: Arc<std::sync::atomic::AtomicBool>,
     pub accounts: Arc<crate::accounts::Accounts>,
+    pub claude: Arc<crate::claude::Claude>,
     pub models: Arc<crate::models::Models>,
     pub connections: Arc<crate::connections::Connections>,
     pub account_login: Arc<tokio::sync::Mutex<Option<crate::connections::AccountLogin>>>,
@@ -50,6 +51,7 @@ impl Service {
             projects: Default::default(),
             legacy_codex_login: Default::default(),
             accounts: Default::default(),
+            claude: Default::default(),
             models: Default::default(),
             connections: Default::default(),
             account_login: Default::default(),
@@ -103,7 +105,13 @@ impl Service {
         {
             input["access"] = policy(existing);
         }
+        if input.get("provider").is_none()
+            && let Some(existing) = &existing
+        {
+            input["provider"] = crate::claude::provider(existing).into();
+        }
         let mut agent = parse("agent", input)?;
+        crate::claude::validate_agent(&agent)?;
         agent["id"] = existing_id.map(str::to_owned).unwrap_or_else(id).into();
         agent["createdAt"] = existing
             .as_ref()

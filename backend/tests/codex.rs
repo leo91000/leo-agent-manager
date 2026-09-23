@@ -20,6 +20,7 @@ fn config(root: &TempDir) -> Config {
             .join("../tests/fixtures/codex.mjs")
             .to_string_lossy()
             .into_owned(),
+        claude_bin: "claude".into(),
         gh_bin: "gh".into(),
         concurrency: 1,
         logger: false,

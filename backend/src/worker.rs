@@ -297,11 +297,19 @@ impl Worker {
                     }
                 }
             }
-            let account = match s
-                .accounts
-                .acquire(s, run_id, text(&run["snapshot"]["agent"], "model"))
-                .await
-            {
+            let claude_gate = if crate::claude::is_claude(&run) {
+                Some(s.claude.gate.lock().await)
+            } else {
+                None
+            };
+            let acquired = if crate::claude::is_claude(&run) {
+                s.claude.available(s, run_id).await.map(|_| None)
+            } else {
+                s.accounts
+                    .acquire(s, run_id, text(&run["snapshot"]["agent"], "model"))
+                    .await
+            };
+            let account = match acquired {
                 Ok(account) => account,
                 Err(error) => {
                     if run["accountWaitReason"] != error.message {
@@ -329,6 +337,12 @@ impl Worker {
             for project in locking_projects(&run) {
                 projects.insert(text(&project, "id").to_owned());
             }
+            if crate::claude::is_claude(&run) {
+                s.store
+                    .patch_run(run_id, json!({"status":"running"}))
+                    .await?;
+            }
+            drop(claude_gate);
             let cancel = CancellationToken::new();
             self.active
                 .lock()
@@ -662,13 +676,17 @@ impl Worker {
             "prepared":prepared}
             ))
             .await?;
+        let claude = crate::claude::is_claude(run);
+        if claude && prepared["isolated"] == true {
+            crate::claude::prepare_home(&s.config, &directory.join("home/.claude")).await?;
+        }
         let codex_home = directory.join(if prepared["isolated"] == true {
             "home/.codex"
         } else {
             "codex"
         });
         private_dir(&codex_home).await?;
-        if prepared["isolated"] != true {
+        if !claude && prepared["isolated"] != true {
             execution::codex_home(&s.config, &codex_home).await?;
         }
         if let Some(account) = account
@@ -693,6 +711,12 @@ impl Worker {
         );
         for key in ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_THREAD_ID"] {
             env.remove(key);
+        }
+        if claude {
+            env.extend(crate::claude::environment(
+                &s.config,
+                &crate::claude::home(&s.config),
+            ));
         }
         let mcp = s.mcps.run_configuration(s, run).await?;
         sensitive.extend(
@@ -774,7 +798,7 @@ impl Worker {
             } else {
                 None
             };
-            let chat = if run["chatExecution"].is_object() || account.is_some() {
+            let chat = if claude || run["chatExecution"].is_object() || account.is_some() {
                 private_dir(&directory.join("chat-input")).await?;
                 s.prepare_chat_files(text(run, "id"), &run["chatExecution"]["attachments"])
                     .await?;
@@ -785,7 +809,7 @@ impl Worker {
                     // chats, while retaining its own task brief and session.
                     chat["execution"] = json!({"messageId":id,"text":prompt,"recovery":resume.is_some(),"attachments":[]});
                 }
-                if text(&chat, "reasoning").is_empty() {
+                if !claude && text(&chat, "reasoning").is_empty() {
                     let source = account
                         .as_ref()
                         .map(|a| a.account_id.as_str())
@@ -798,7 +822,14 @@ impl Worker {
                     }
                 }
                 binary = std::env::current_exe()?.to_string_lossy().into_owned();
-                args = vec!["chat".into(), s.config.codex_bin.clone()];
+                args = vec![
+                    "chat".into(),
+                    if claude {
+                        s.config.claude_bin.clone()
+                    } else {
+                        s.config.codex_bin.clone()
+                    },
+                ];
                 prompt = chat.to_string();
                 Some(chat)
             } else {
@@ -830,6 +861,20 @@ impl Worker {
                 );
                 if let Some(chat) = chat {
                     plan["chat"] = chat;
+                }
+                if claude {
+                    plan["claudeState"] = json!(crate::claude::home(&s.config));
+                    plan["claudeResumeState"] = tokio::fs::read_to_string(
+                        crate::claude::home(&s.config).join("sync-required"),
+                    )
+                    .await
+                    .is_ok_and(|owner| owner == id)
+                    .into();
+                    atomic_write(
+                        &crate::claude::home(&s.config).join("sync-required"),
+                        id.as_bytes(),
+                    )
+                    .await?;
                 }
                 atomic_write(
                     &plans.join(format!("{runner}.json")),
@@ -1535,6 +1580,7 @@ mod tests {
             port: 0,
             setup_token: String::new(),
             codex_bin: "unused".into(),
+            claude_bin: "claude".into(),
             gh_bin: "unused".into(),
             concurrency: 1,
             logger: false,

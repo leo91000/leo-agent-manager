@@ -67,6 +67,12 @@ fn validate(plan: &Value, id: &str, data: &Path) -> Result<()> {
     {
         return Err(Error::bad("Invalid or expired execution plan."));
     }
+    if plan.get("claudeState").is_some()
+        && (plan["chat"]["provider"] != "claude"
+            || Path::new(text(plan, "claudeState")) != data.join("claude"))
+    {
+        return Err(Error::bad("Invalid Claude state destination."));
+    }
     let run_root = data.join("runs").join(text(plan, "runId"));
     for import in plan["imports"]
         .as_array()
@@ -576,6 +582,19 @@ pub async fn client(id: &str, stop: CancellationToken) -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn claude_credentials_have_one_private_destination() {
+        let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let mut plan = json!({"id":id,"runId":id,"expires":now()+60000,"cwd":format!("/data/runs/{id}/workspace"),"imports":[],"chat":{"provider":"claude"},"claudeState":"/data/claude"});
+        assert!(validate(&plan, id, Path::new("/data")).is_ok());
+        for destination in ["/data/other", "/home/node", "/data/../claude"] {
+            plan["claudeState"] = destination.into();
+            assert!(validate(&plan, id, Path::new("/data")).is_err());
+        }
+        plan["claudeState"] = "/data/claude".into();
+        plan["chat"]["provider"] = "codex".into();
+        assert!(validate(&plan, id, Path::new("/data")).is_err());
+    }
     #[test]
     fn imports_cannot_grant_host_or_other_run_access() {
         let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

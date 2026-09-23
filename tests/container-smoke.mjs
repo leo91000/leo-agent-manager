@@ -55,6 +55,8 @@ async function main() {
       assert.ok(Date.now() < healthDeadline, 'Docker health check did not become healthy promptly')
       await setTimeout(200)
     }
+    const claudeVersion = (await docker('exec', name, 'claude', '--version')).stdout.trim()
+    assert.match(claudeVersion, /^2\.1\.280\b/, 'official Claude Code CLI is installed')
     const health = await fetch(`${url}/health`)
     assert.equal(health.headers.get('cache-control'), 'no-store')
     const version = await health.json()

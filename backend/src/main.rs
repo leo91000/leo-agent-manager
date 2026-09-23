@@ -143,10 +143,14 @@ async fn entry(args: Vec<String>) -> Result<i32> {
         "chat" => {
             let bytes =
                 leo_agent_manager::process::read_bounded(tokio::io::stdin(), 8_000_000).await?;
-            let plan = serde_json::from_slice(&bytes)?;
+            let plan: Value = serde_json::from_slice(&bytes)?;
             let mut config = Config::load()?;
             if let Some(binary) = args.get(1) {
-                config.codex_bin = binary.clone();
+                if plan["provider"] == "claude" {
+                    config.claude_bin = binary.clone();
+                } else {
+                    config.codex_bin = binary.clone();
+                }
             }
             chat(&config, plan, stop).await
         }
@@ -165,7 +169,14 @@ async fn entry(args: Vec<String>) -> Result<i32> {
                 // Launch a Rust chat process with its complete private environment;
                 // changing global process environment after Tokio starts is unsafe.
                 let binary = std::env::current_exe()?;
-                let args = vec!["chat".into(), "codex".into()];
+                let claude = plan["chat"]["provider"] == "claude";
+                if claude {
+                    env.insert("CLAUDE_CONFIG_DIR".into(), "/home/node/.claude".into());
+                }
+                let args = vec![
+                    "chat".into(),
+                    if claude { "claude" } else { "codex" }.into(),
+                ];
                 let command = leo_agent_manager::process::command(
                     binary
                         .to_str()
@@ -249,6 +260,7 @@ async fn entry(args: Vec<String>) -> Result<i32> {
             service.worker.close().await;
             service.connections.cancel().await;
             service.cancel_account_login().await;
+            service.claude.cancel().await;
             for task in background {
                 let _ = task.await;
             }
@@ -272,9 +284,11 @@ async fn chat(config: &Config, plan: Value, stop: CancellationToken) -> Result<i
         }
         Ok::<_, std::io::Error>(())
     });
-    let result =
-        leo_agent_manager::chat_process::run(config, Path::new(&home), plan, tx.clone(), stop)
-            .await;
+    let result = if plan["provider"] == "claude" {
+        leo_agent_manager::claude_process::run(config, plan, tx.clone(), stop).await
+    } else {
+        leo_agent_manager::chat_process::run(config, Path::new(&home), plan, tx.clone(), stop).await
+    };
     if let Err(error) = &result {
         let _ = tx
             .send(serde_json::json!({

@@ -46,7 +46,7 @@ jobs:
           profile: pixel_6
           disable-animations: false
           script: |
-            cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.leo.manager.ui.HistoryFollowDeviceTest,dev.leo.manager.ui.ModelPickerDeviceTest --no-daemon
+            cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.leo.manager.ui.HistoryFollowDeviceTest,dev.leo.manager.ui.ModelPickerDeviceTest,dev.leo.manager.ui.ClaudeDeviceTest --no-daemon
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb install -r -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell am instrument -w -e class 'dev.leo.manager.ui.HistoryFollowDeviceTest#oversizedFinalMessageStillReachesTheBottomAfterStreamingAndResize' dev.leo.manager.test/androidx.test.runner.AndroidJUnitRunner > android/app/build/reports/capture-instrumentation.txt

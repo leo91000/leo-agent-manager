@@ -1,0 +1,258 @@
+use leo_agent_manager::{claude, claude_process, config::Config, http::Input, service::Service};
+use serde_json::{Value, json};
+use tempfile::TempDir;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+fn config(root: &TempDir) -> Config {
+    serde_json::from_value(json!({"dataDir":root.path().join("data"),"home":root.path().join("home"),"workspaceRoots":[root.path()],"publicUrl":"http://localhost:4310","host":"127.0.0.1","port":0,"setupToken":"test","codexBin":"/nonexistent-codex","claudeBin":std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/claude.mjs"),"ghBin":"gh","concurrency":1,"logger":false,"workerEnabled":false,"runnerUrl":""})).unwrap()
+}
+async fn route(
+    s: &std::sync::Arc<Service>,
+    method: &str,
+    path: &str,
+    body: Value,
+) -> leo_agent_manager::error::Result<Value> {
+    claude::routes(
+        s,
+        &Input {
+            method: method.into(),
+            path: format!("/api/claude/{path}"),
+            query: Default::default(),
+            headers: Default::default(),
+            body,
+        },
+    )
+    .await
+}
+async fn wait_login(s: &std::sync::Arc<Service>, state: &str) -> Value {
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        loop {
+            let v = route(s, "GET", "connection", Value::Null).await.unwrap();
+            if v["login"]["state"] == state {
+                return v;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+#[tokio::test]
+async fn official_login_cancellation_failure_retry_identity_and_logout() {
+    let root = TempDir::new().unwrap();
+    let s = Service::new(config(&root)).await.unwrap();
+    assert_eq!(
+        route(&s, "GET", "connection", Value::Null).await.unwrap()["connected"],
+        false
+    );
+    let login = route(&s, "POST", "login", json!({})).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        loop {
+            let connection = route(&s, "GET", "connection", Value::Null).await.unwrap();
+            if connection["login"]["url"].is_string() {
+                assert_eq!(
+                    connection["login"]["url"],
+                    "https://claude.com/oauth/authorize?fixture=1"
+                );
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(route(&s, "POST", "login", json!({})).await.is_err());
+    assert!(
+        route(
+            &s,
+            "POST",
+            "login/code",
+            json!({"id":"stale","code":"fixture-code"})
+        )
+        .await
+        .is_err()
+    );
+    route(&s, "DELETE", "login", json!({})).await.unwrap();
+    wait_login(&s, "cancelled").await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let failed = route(&s, "POST", "login", json!({})).await.unwrap();
+    assert_ne!(login["id"], failed["id"]);
+    route(
+        &s,
+        "POST",
+        "login/code",
+        json!({"id":failed["id"],"code":"wrong"}),
+    )
+    .await
+    .unwrap();
+    let failed = wait_login(&s, "failed").await;
+    assert!(!failed.to_string().contains("never-return"));
+    let login = route(&s, "POST", "login", json!({})).await.unwrap();
+    route(
+        &s,
+        "POST",
+        "login/code",
+        json!({"id":login["id"],"code":"fixture-code"}),
+    )
+    .await
+    .unwrap();
+    let view = wait_login(&s, "completed").await;
+    assert_eq!(view["connected"], true);
+    assert!(!view.to_string().contains("never-return"));
+    assert_eq!(view["email"], "claude-fixture@example.test");
+    let catalog = route(&s, "GET", "models", Value::Null).await.unwrap();
+    assert_eq!(catalog["stale"], false);
+    assert_eq!(catalog["models"][0]["model"], "sonnet");
+    assert!(
+        catalog["models"][0]["supportedReasoningEfforts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|effort| effort["reasoningEffort"] == "high")
+    );
+    route(&s, "DELETE", "connection", json!({})).await.unwrap();
+    assert_eq!(
+        route(&s, "GET", "connection", Value::Null).await.unwrap()["connected"],
+        false
+    );
+}
+fn plan(root: &TempDir, prompt: &str) -> Value {
+    json!({"provider":"claude","execution":{"messageId":"original","text":prompt,"attachments":[]},"instructions":"Follow the task scope","inputDirectory":root.path().join("inbox"),"output":root.path().join("result.md"),"cwd":root.path(),"model":"sonnet","reasoning":"high","sandbox":"yolo","writableRoots":[root.path()],"claudeMcps":{"mcpServers":{}},"claudeDeniedTools":[]})
+}
+fn setup(root: &TempDir) -> Config {
+    let c = config(root);
+    std::fs::create_dir_all(c.home.join(".claude")).unwrap();
+    std::fs::write(c.home.join(".claude/.credentials.json"), "yes").unwrap();
+    std::fs::create_dir(root.path().join("inbox")).unwrap();
+    c
+}
+#[tokio::test]
+async fn streaming_tools_receipts_resume_and_no_replay_after_completion() {
+    let root = TempDir::new().unwrap();
+    let c = setup(&root);
+    let p = plan(&root, "Inspect the workspace");
+    let (tx, mut rx) = mpsc::channel(64);
+    claude_process::run(&c, p.clone(), tx, CancellationToken::new())
+        .await
+        .unwrap();
+    let mut events = Vec::new();
+    while let Some(e) = rx.recv().await {
+        events.push(e);
+    }
+    assert!(events.iter().any(|e| e["type"] == "thread.started"));
+    assert!(events.iter().any(|e| e["type"] == "item.updated"));
+    assert!(
+        events
+            .iter()
+            .any(|e| e["item"]["aggregated_output"] == "fixture")
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "chat.delivered" && e["messageId"] == "original")
+    );
+    let (tx, mut rx) = mpsc::channel(64);
+    claude_process::run(&c, p.clone(), tx, CancellationToken::new())
+        .await
+        .unwrap();
+    while rx.recv().await.is_some() {}
+    assert_eq!(
+        std::fs::read_to_string(c.home.join(".claude/invocations.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    let mut next = p;
+    next["execution"]["messageId"] = "next".into();
+    next["sessionId"] = "70f5e7a1-8d65-4f5f-a545-af6ee8c0e1ab".into();
+    let (tx, mut rx) = mpsc::channel(64);
+    claude_process::run(&c, next, tx, CancellationToken::new())
+        .await
+        .unwrap();
+    while rx.recv().await.is_some() {}
+    let calls = std::fs::read_to_string(c.home.join(".claude/invocations.jsonl")).unwrap();
+    assert!(calls.contains("--resume"));
+    assert_eq!(calls.lines().count(), 2);
+}
+#[tokio::test]
+async fn question_answers_use_control_protocol() {
+    let root = TempDir::new().unwrap();
+    let c = setup(&root);
+    let p = plan(&root, "fixture:question");
+    let (tx, mut rx) = mpsc::channel(64);
+    let task =
+        tokio::spawn(async move { claude_process::run(&c, p, tx, CancellationToken::new()).await });
+    tokio::time::timeout(std::time::Duration::from_secs(8),async{while let Some(e)=rx.recv().await{
+        if e["type"]=="chat.question" {assert_eq!(e["question"]["id"].as_str().unwrap().len(),64);std::fs::write(root.path().join("inbox/messages.json"),json!([{"id":"answer","questionId":e["question"]["id"],"answers":{"0":["Small change"]}}]).to_string()).unwrap();}
+    }}).await.unwrap();
+    task.await.unwrap().unwrap();
+    let response: Value = serde_json::from_slice(
+        &std::fs::read(root.path().join("home/.claude/question-response.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        response["response"]["response"]["updatedInput"]["answers"]["Which approach?"],
+        "Small change"
+    );
+}
+#[tokio::test]
+async fn cancellation_and_provider_errors_do_not_complete_the_turn() {
+    for prompt in ["fixture:hang", "fixture:fail"] {
+        let root = TempDir::new().unwrap();
+        let c = setup(&root);
+        let p = plan(&root, prompt);
+        let cancel = CancellationToken::new();
+        let stop = cancel.clone();
+        let (tx, mut rx) = mpsc::channel(64);
+        let task = tokio::spawn(async move { claude_process::run(&c, p, tx, stop).await });
+        let timer = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            timer.cancel();
+        });
+        while let Some(e) = rx.recv().await {
+            assert_ne!(e["type"], "turn.completed");
+        }
+        assert!(task.await.unwrap().is_err());
+        assert!(!root.path().join("result.md").exists());
+    }
+}
+#[test]
+fn provider_defaults_and_sandbox_arguments_preserve_boundaries() {
+    assert_eq!(claude::provider(&json!({})), "codex");
+    assert!(claude::validate_agent(&json!({"provider":"claude","reasoning":"ultra"})).is_err());
+    let root = TempDir::new().unwrap();
+    let mut p = plan(&root, "test");
+    p["sandbox"] = "workspace-write".into();
+    let a = claude_process::args(&p);
+    assert!(!a.contains(&"--dangerously-skip-permissions".into()));
+    assert!(a.iter().any(|s| s.contains("failIfUnavailable")));
+    assert!(a.contains(&"--strict-mcp-config".into()));
+}
+
+#[tokio::test]
+async fn steering_waits_for_both_responses_and_acknowledges_each_message() {
+    let root = TempDir::new().unwrap();
+    let c = setup(&root);
+    let p = plan(&root, "fixture:slow");
+    let (tx, mut rx) = mpsc::channel(64);
+    let task =
+        tokio::spawn(async move { claude_process::run(&c, p, tx, CancellationToken::new()).await });
+    let mut delivered = Vec::new();
+    let mut responses = 0;
+    tokio::time::timeout(std::time::Duration::from_secs(15),async {
+        while let Some(e)=rx.recv().await {
+            if e["type"]=="chat.delivered" {
+                delivered.push(e["messageId"].clone());
+                if e["messageId"]=="original" {
+                    std::fs::write(root.path().join("inbox/messages.json"),json!([{"id":"steering","text":"fixture:slow additional instruction","attachments":[]}]).to_string()).unwrap();
+                }
+            }
+            if e["type"]=="item.completed" && e["item"]["type"]=="agent_message" {responses+=1;}
+            if e["type"]=="turn.completed" {assert_eq!(responses,2);}
+        }
+    }).await.unwrap();
+    task.await.unwrap().unwrap();
+    assert_eq!(delivered, vec![json!("original"), json!("steering")]);
+}

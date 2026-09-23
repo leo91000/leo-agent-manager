@@ -1,6 +1,6 @@
 # Leo Agent Manager
 
-A self-hosted Vue control room with a native Rust backend for Codex agents, recurring work, and reusable skills.
+A self-hosted Vue control room with a native Rust backend for Codex and Claude Code agents, recurring work, and reusable skills.
 Run it on a VPS so schedules keep working when your laptop is off.
 
 ![Workspace overview](docs/screenshots/overview-desktop.png)
@@ -48,6 +48,8 @@ For a remote server, use an HTTPS reverse proxy or an SSH tunnel for initial set
 [Agent toolkit, mise project versions, and automatic updates](docs/TOOLKIT.md)
 provide the complete installation procedure. [MCP and OAuth](docs/MCP.md) explain
 ChatGPT/Claude connection setup and the supported protocol boundary.
+
+[Claude Code](docs/CLAUDE-CODE.md) covers subscription sign-in, provider selection, and hosted sessions.
 
 [Codex accounts](docs/CODEX-ACCOUNTS.md) explains selection, natural resets, and automatic session handoffs.
 
@@ -118,7 +120,7 @@ runtime, database compatibility, execution supervision and performance evidence.
 - Worktrees preserve changes for review. Cleanup rejects dirty/untracked files and preserves Git branches.
 - Event output is bounded per run and expires after 30 days for finished runs; audit entries expire after 90 days. Run summaries and worktrees remain until deliberately managed.
 - Tasks choose an agent. The built-in Main agent sees all registered resources; other agents can restrict projects, skills, and GitHub connections. YOLO remains the default, with optional workspace-write and read-only execution. See [agent access](docs/AGENT-ACCESS.md) for isolation and setup. MCP `run` grants can trigger task-authorized external actions.
-- Other model providers, multi-owner tenancy, stateful MCP sessions, and standalone HTTP+SSE transports are outside this version.
+- Providers other than Codex and Claude Code, multi-owner tenancy, stateful MCP sessions, and standalone HTTP+SSE transports are outside this version.
 
 [Detailed delivery plan](docs/PLAN.md) · [Validation record](docs/QA.md) ·
 [Performance measurements](docs/PERFORMANCE.md) · [Security](SECURITY.md)

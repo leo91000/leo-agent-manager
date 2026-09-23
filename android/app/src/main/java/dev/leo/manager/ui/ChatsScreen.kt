@@ -619,7 +619,7 @@ fun ChatScreen(
                             }
                         }
                         ModelPicker(
-                            state.models,
+                            if (selectedAgent?.provider == "claude") state.claudeModels else state.models,
                             model,
                             reasoning,
                             selectedAgent?.model.orEmpty(),
@@ -850,7 +850,7 @@ fun ChatScreen(
                     ) {
                         Column(Modifier.padding(4.dp)) {
                             ModelPicker(
-                                state.models,
+                                if (selectedAgent?.provider == "claude") state.claudeModels else state.models,
                                 model,
                                 reasoning,
                                 selectedAgent?.model.orEmpty(),

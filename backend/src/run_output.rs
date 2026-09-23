@@ -8,7 +8,7 @@ static TOKEN: LazyLock<regex::Regex> = LazyLock::new(|| {
 static BEARER: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?i)(Bearer\s+)[\w.~-]+").unwrap());
 static CREDENTIAL: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r#"(?i)("?(?:access_token|refresh_token|id_token|OPENAI_API_KEY|CODEX_API_KEY|OP_SERVICE_ACCOUNT_TOKEN)"?\s*[:=]\s*"?)[^"\s,}]+"#).unwrap()
+    regex::Regex::new(r#"(?i)("?(?:access_token|refresh_token|id_token|OPENAI_API_KEY|CODEX_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|accessToken|refreshToken|OP_SERVICE_ACCOUNT_TOKEN)"?\s*[:=]\s*"?)[^"\s,}]+"#).unwrap()
 });
 static EXHAUSTED: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)^(?:you['’]ve hit your usage limit|you have hit your usage limit|usage limit (?:has been )?(?:reached|exceeded))\b").unwrap()
@@ -40,6 +40,11 @@ pub fn payload(value: &Value, secrets: &[String]) -> Value {
                             "openai_api_key",
                             "codex_api_key",
                             "op_service_account_token",
+                            "anthropic_api_key",
+                            "anthropic_auth_token",
+                            "claude_code_oauth_token",
+                            "accesstoken",
+                            "refreshtoken",
                         ]
                         .contains(&k.to_lowercase().as_str())
                         {
@@ -223,7 +228,7 @@ pub fn chat_plan(
             .map(|w| text(w, "path").into()),
     );
     let mut plan = json!({
-    "execution":run["chatExecution"],"instructions":prompt(&context,true),"inputDirectory":if prepared["isolated"]==true{
+    "provider":crate::claude::provider(&run["snapshot"]["agent"]),"claudeMcps":mcp["claudeMcps"],"claudeDeniedTools":mcp["claudeDeniedTools"],"execution":run["chatExecution"],"instructions":prompt(&context,true),"inputDirectory":if prepared["isolated"]==true{
     Path::new("/run/leo-chat").to_owned()}
     else{
     directory.join("chat-input")}

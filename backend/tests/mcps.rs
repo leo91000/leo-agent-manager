@@ -11,6 +11,7 @@ fn config(root: &TempDir) -> Config {
         port: 0,
         setup_token: String::new(),
         codex_bin: "codex".into(),
+        claude_bin: "claude".into(),
         gh_bin: "gh".into(),
         concurrency: 1,
         logger: false,

@@ -8,6 +8,9 @@ use crate::{
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc};
 pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
+    if input.path.starts_with("/api/claude/") {
+        return crate::claude::routes(s, input).await;
+    }
     if input.path == "/api/onepassword" || input.path.starts_with("/api/onepassword/") {
         return crate::onepassword::routes(s, input).await;
     }

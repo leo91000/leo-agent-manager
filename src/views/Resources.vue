@@ -47,7 +47,7 @@ const githubConfigured = ref(false)
 const removeGithub = ref(false)
 const sandboxOptions = [
   { value: 'yolo', label: 'YOLO', description: 'Autonomous execution · default' },
-  { value: 'workspace-write', label: 'Workspace write', description: 'Codex sandbox limits writes to task workspaces' },
+  { value: 'workspace-write', label: 'Workspace write', description: 'Limit writes to task workspaces' },
   { value: 'read-only', label: 'Read only', description: 'Project mounts are read-only; no approval escalation' },
 ]
 const allProjects = computed({ get: () => form.value.access?.projects === null, set: (value: boolean) => {
@@ -82,6 +82,7 @@ async function edit(item?: any) {
     : isAgent.value
       ? {
           name: '',
+          provider: 'codex',
           description: '',
           model: '',
           reasoning: '',
@@ -90,6 +91,8 @@ async function edit(item?: any) {
           access: { projects: null, skills: null, mcps: null, mcpTools: {}, github: true, sandbox: 'yolo' },
         }
       : { name: '', description: '', path: '', baseBranch: 'main', sourceMode: 'remote' }
+  if (isAgent.value)
+    form.value.provider ??= 'codex'
   if (!isAgent.value)
     form.value.sourceMode ??= 'remote'
   error.value = ''
@@ -171,7 +174,7 @@ async function remove() {
           </p>
         </div>
         <div v-if="'reasoning' in item" class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted">
-          <span class="max-w-full truncate" :title="item.model || 'Codex default'">{{ item.model || 'Codex default' }}</span>
+          <span class="max-w-full truncate" :title="item.model || 'Provider default'">{{ (item.provider === 'claude' ? 'Claude Code · ' : 'Codex · ') + (item.model || 'Provider default') }}</span>
           <span class="inline-flex items-center gap-1.5"><Icon :name="ShieldCheck" :size="13" />{{ item.access.projects === null ? 'All projects' : item.access.projects.length === 0 ? 'No projects' : item.access.projects.length === 1 ? '1 project' : `${item.access.projects.length} projects` }}</span>
         </div>
         <div v-else-if="'path' in item" class="flex shrink-0 items-center gap-5 pr-6 text-xs text-muted phone:mt-2 phone:gap-4 phone:pr-0">
@@ -227,7 +230,8 @@ async function remove() {
           maxlength="500"
           placeholder="A short reminder of what this is for."
         /></label><template v-if="isAgent">
-          <ModelSettings v-model:model="form.model" v-model:reasoning="form.reasoning" :disabled="busy" /><div class="span-2 col-span-2 phone:col-span-1 agent-access-panel">
+          <VirtualSelect v-model="form.provider" label="Coding agent" :options="[{ value: 'codex', label: 'Codex', description: 'Use a connected ChatGPT account' }, { value: 'claude', label: 'Claude Code', description: 'Use your connected Claude account' }]" @update:model-value="form.model = ''; form.reasoning = ''" />
+          <ModelSettings v-model:model="form.model" v-model:reasoning="form.reasoning" :provider="form.provider" :disabled="busy" /><div class="span-2 col-span-2 phone:col-span-1 agent-access-panel">
             <div class="agent-access-heading">
               <Icon :name="ShieldCheck" :size="20" /><div><h3>Access &amp; execution</h3><p>Choose the resources this agent can use.</p></div>
             </div>

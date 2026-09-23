@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api, notify } from '../api'
+import ClaudeConnection from '../components/ClaudeConnection.vue'
 import CodexAccounts from '../components/CodexAccounts.vue'
 import Icon from '../components/Icon.vue'
 import OnePasswordAccounts from '../components/OnePasswordAccounts.vue'
@@ -75,6 +76,7 @@ onBeforeUnmount(() => clearInterval(timer))
     {{ error }}
   </UiAlert>
   <CodexAccounts />
+  <ClaudeConnection />
   <OnePasswordAccounts />
   <div class="connection-grid grid grid-cols-2 gap-5.5 tablet:grid-cols-1">
     <article v-for="item in items.filter(item => item.provider === 'github')" :key="item.provider" class="connection-card border-t border-line py-6.5 phone:py-5.5">

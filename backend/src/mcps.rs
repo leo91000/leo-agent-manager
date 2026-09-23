@@ -278,6 +278,8 @@ impl Mcps {
         let mut servers = json!({});
         let mut args = Vec::new();
         let mut redactions = vec![token.clone()];
+        let mut claude_mcps = json!({"mcpServers":{}});
+        let mut claude_denied = Vec::<String>::new();
         for item in s.store.list("mcps").await? {
             let id = text(&item, "id");
             if item["enabled"] != true || !allowed(&access["mcps"], id) {
@@ -314,6 +316,21 @@ impl Mcps {
                 ))}
                 )
             };
+            let claude_name = format!("leo_{}", id.replace('-', "_"));
+            let claude_config = if item["transport"] == "http" {
+                json!({"type":"http","url":config["url"],"headers":{"Authorization":format!("Bearer {token}")}})
+            } else {
+                if let Some(selected) = tools.as_array() {
+                    for tool in item["tools"].as_array().into_iter().flatten() {
+                        if !selected.iter().any(|name| name == &tool["name"]) {
+                            claude_denied
+                                .push(format!("mcp__{claude_name}__{}", text(tool, "name")));
+                        }
+                    }
+                }
+                json!({"type":"stdio","command":config["command"],"args":config["args"],"env":config["env"]})
+            };
+            claude_mcps["mcpServers"][&claude_name] = claude_config;
             if !tools.is_null() {
                 config["enabled_tools"] = tools;
             }
@@ -334,6 +351,7 @@ impl Mcps {
         }
         let workspace = !s.config.runner_url.is_empty();
         if workspace {
+            claude_mcps["mcpServers"]["leo_workspace"] = json!({"type":"http","url":format!("{}/mcp-workspace",s.config.public_url),"headers":{"Authorization":format!("Bearer {token}")}});
             args.extend(["-c".into(),format!("mcp_servers.leo_workspace={}",toml(&json!({"url":format!("{}/mcp-workspace",s.config.public_url),"bearer_token_env_var":"LEO_MCP_RUN_TOKEN","tool_timeout_sec":600}))) ]);
         }
         let mut env = json!({});
@@ -357,7 +375,7 @@ impl Mcps {
         }
         redactions.retain(|r| r.len() > 3);
         Ok(json!({
-        "args":args,"env":env,"redactions":redactions}
+        "args":args,"env":env,"redactions":redactions,"claudeMcps":claude_mcps,"claudeDeniedTools":claude_denied}
         ))
     }
     pub async fn grant(&self, s: &Service, id: &str, bearer: &str) -> Result<(Value, Value)> {

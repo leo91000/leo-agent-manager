@@ -31,6 +31,7 @@ impl Fixture {
                 .join("../tests/fixtures/codex.mjs")
                 .to_string_lossy()
                 .into_owned(),
+            claude_bin: "claude".into(),
             gh_bin: "gh".into(),
             concurrency: 2,
             logger: false,

@@ -18,3 +18,20 @@ export function loadModels() {
     .then(() => {})
   return pending
 }
+
+export const claudeCatalog = reactive({ models: [] as ModelCatalog['models'], checkedAt: null as number | null, stale: false, error: '', loading: false })
+let claudePending: Promise<void> | undefined
+export function loadClaudeModels() {
+  if (claudePending)
+    return claudePending
+  claudeCatalog.loading = true
+  claudePending = api<ModelCatalog>('/claude/models')
+    .then(catalog => Object.assign(claudeCatalog, catalog))
+    .catch((error: Error) => { claudeCatalog.error = error.message })
+    .finally(() => {
+      claudeCatalog.loading = false
+      claudePending = undefined
+    })
+    .then(() => {})
+  return claudePending
+}

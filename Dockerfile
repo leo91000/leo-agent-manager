@@ -36,9 +36,10 @@ RUN npm exec --yes --package="playwright@${PLAYWRIGHT_VERSION}" -- playwright in
     && rm -rf /var/lib/apt/lists/* /root/.npm
 ARG GH_VERSION=2.100.0
 ARG CODEX_VERSION=0.154.0
+ARG CLAUDE_VERSION=2.1.280
 ARG TARGETARCH
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4310 DATA_DIR=/data AGENT_HOME=/home/node WORKSPACE_ROOTS=/workspaces
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl wget git git-lfs openssh-client python3 build-essential bubblewrap \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl wget git git-lfs openssh-client python3 build-essential bubblewrap socat \
     zip unzip xz-utils zstd bzip2 rsync file less tree sqlite3 postgresql-client \
     dnsutils iproute2 iputils-ping netcat-openbsd procps lsof strace patch diffutils \
     pkg-config libssl-dev libffi-dev ninja-build poppler-utils imagemagick ffmpeg \
@@ -51,7 +52,7 @@ RUN arch="${TARGETARCH:-amd64}" \
     && tar -xzf /tmp/gh.tar.gz -C /tmp \
     && cp "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/bin/gh \
     && rm -rf /tmp/gh*
-RUN pnpm add --global "@openai/codex@${CODEX_VERSION}"
+RUN pnpm add --global "@openai/codex@${CODEX_VERSION}" "@anthropic-ai/claude-code@${CLAUDE_VERSION}"
 COPY deploy/toolkit /opt/leo-toolkit
 RUN chmod +x /opt/leo-toolkit/android.mjs && ln -s /opt/leo-toolkit/android.mjs /usr/local/bin/leo-android
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN /usr/local/bin/node /opt/leo-toolkit/manage.mjs install

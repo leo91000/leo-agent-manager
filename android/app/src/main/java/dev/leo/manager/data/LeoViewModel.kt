@@ -32,6 +32,7 @@ data class Workspace(
     val signingOut: Boolean = false,
     val mcps: List<Mcp> = emptyList(),
     val models: ModelCatalog = ModelCatalog(),
+    val claudeModels: ModelCatalog = ModelCatalog(),
     val error: String? = null,
     val notice: String? = null,
     val agents: List<Agent> = emptyList(),
@@ -207,6 +208,13 @@ constructor(
                 )
             }
         }
+        val claudeModels = async {
+            try { api.get<ModelCatalog>("/claude/models") }
+            catch (e: Exception) {
+                if (e is CancellationException || (e is ApiException && e.status == 401)) throw e
+                ModelCatalog(error = "Claude Code nécessite une mise à jour du serveur.")
+            }
+        }
         val overview = async { api.get<Overview>("/overview") }
         val updated =
             Workspace(
@@ -217,6 +225,7 @@ constructor(
                 overview = overview.await(),
                 mcps = mcps.await(),
                 models = models.await(),
+                claudeModels = claudeModels.await(),
             )
         mutable.update {
             it.copy(
@@ -227,6 +236,7 @@ constructor(
                 overview = updated.overview,
                 mcps = updated.mcps,
                 models = updated.models,
+                claudeModels = updated.claudeModels,
             )
         }
     }

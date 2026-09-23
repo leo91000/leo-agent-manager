@@ -107,6 +107,18 @@ pub async fn fence(s: &Service, run: &Value) -> Result<()> {
     Ok(())
 }
 pub async fn session(s: &Service, run: &Value, home: &Path, cwd: &Path) -> Result<String> {
+    if crate::claude::is_claude(run) {
+        return run["sessionId"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                Error::new(
+                    409,
+                    "The saved Claude session is unavailable. Working files were preserved.",
+                )
+            });
+    }
     if !s.config.runner_url.is_empty() {
         // The authoritative session is on the retained guest disk. The guest's
         // thread/resume verifies it; asking a host Codex process cannot do so.

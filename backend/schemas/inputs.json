@@ -8,6 +8,14 @@
         "minLength": 1,
         "maxLength": 100
       },
+      "provider": {
+        "default": "codex",
+        "type": "string",
+        "enum": [
+          "codex",
+          "claude"
+        ]
+      },
       "description": {
         "default": "",
         "type": "string",
@@ -141,6 +149,7 @@
     },
     "required": [
       "name",
+      "provider",
       "description",
       "model",
       "reasoning",

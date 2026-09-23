@@ -42,3 +42,6 @@ mod live_text;
 pub mod onepassword;
 pub mod outcome;
 pub mod project_git;
+
+pub mod claude;
+pub mod claude_process;

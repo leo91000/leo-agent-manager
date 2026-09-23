@@ -17,6 +17,7 @@ async fn app() -> (TempDir, axum::Router, std::sync::Arc<Service>) {
         port: 0,
         setup_token: "test-setup".into(),
         codex_bin: "codex".into(),
+        claude_bin: "claude".into(),
         gh_bin: "gh".into(),
         concurrency: 1,
         logger: false,
