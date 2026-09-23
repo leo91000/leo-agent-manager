@@ -1,4 +1,15 @@
-# Leo Android 0.8.0 — 1Password service accounts
+# Leo Android 0.9.0 — model and reasoning controls
+
+- Model and reasoning buttons are directly visible in the chat composer.
+- Search the server model catalog in a native sheet. Changing models resets the
+  reasoning override; agent/model defaults remain explicit and recoverable.
+- Reasoning uses a rounded discrete slider with French labels, haptic feedback,
+  accessibility actions and only the levels supported by the selected model.
+- Settings survive draft navigation and recreation and apply to the next message.
+- Agent editing uses the same controls; tasks continue to inherit their agent.
+- No server changes or migration required. Installable development APK: code 20.
+
+## Previous release: Leo Android 0.8.0 — 1Password service accounts
 
 - Add multiple named service account tokens from Connections → 1Password.
 - Explicitly allow or deny each agent, including Main; access starts disabled for every agent.

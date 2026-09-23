@@ -37,7 +37,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Check conversation gestures on Android 16
+      - name: Check conversation and model controls on Android 16
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 36
@@ -46,12 +46,13 @@ jobs:
           profile: pixel_6
           disable-animations: false
           script: |
-            cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.leo.manager.ui.HistoryFollowDeviceTest --no-daemon
+            cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.leo.manager.ui.HistoryFollowDeviceTest,dev.leo.manager.ui.ModelPickerDeviceTest --no-daemon
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb install -r -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell am instrument -w -e class 'dev.leo.manager.ui.HistoryFollowDeviceTest#oversizedFinalMessageStillReachesTheBottomAfterStreamingAndResize' dev.leo.manager.test/androidx.test.runner.AndroidJUnitRunner > android/app/build/reports/capture-instrumentation.txt
             adb exec-out run-as dev.leo.manager cat files/scroll-validation/pinned-stream.png > android/app/build/reports/pinned-stream.png
-            python3 -c 'from pathlib import Path; p = Path("android/app/build/reports"); assert "OK (1 test)" in (p / "capture-instrumentation.txt").read_text(); assert (p / "pinned-stream.png").read_bytes()[:8] == bytes([137, 80, 78, 71, 13, 10, 26, 10])'
+            adb exec-out run-as dev.leo.manager cat files/model-picker/reasoning.png > android/app/build/reports/reasoning-picker.png
+            python3 -c 'from pathlib import Path; p = Path("android/app/build/reports"); assert "OK (1 test)" in (p / "capture-instrumentation.txt").read_text(); assert all((p / name).read_bytes()[:8] == bytes([137, 80, 78, 71, 13, 10, 26, 10]) for name in ("pinned-stream.png", "reasoning-picker.png"))'
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -63,5 +64,6 @@ jobs:
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/
             android/app/build/reports/pinned-stream.png
+            android/app/build/reports/reasoning-picker.png
             android/app/build/reports/capture-instrumentation.txt
           retention-days: 14

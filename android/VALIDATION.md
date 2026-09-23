@@ -1,4 +1,17 @@
-# Android 0.8.0 — 1Password service accounts
+# Android 0.9.0 — model and reasoning controls
+
+`ModelPickerCases` runs in Robolectric and Android 16 instrumentation. It covers
+slider touch and accessibility actions, inherited defaults, model search and
+hidden models, resetting reasoning when switching models, saved-state restoration,
+unknown models, unsupported saved efforts and 160% font scaling.
+Both environments exercise slider touch directly and inside the modal sheet.
+`ChatJourneyTest` checks the model and reasoning in the actual HTTP message body.
+The Android workflow includes the new device suite alongside conversation checks.
+
+Development APK: **0.9.0 / code 20**. Debug APKs are development-signed;
+optimized release APKs remain unsigned. Current CI results are authoritative.
+
+## Previous validation: Android 0.8.0 — 1Password service accounts
 
 `OnePasswordJourneyTest` covers masked token entry, no grants by default,
 explicit agent selection, CSRF-protected writes and preserving the saved token

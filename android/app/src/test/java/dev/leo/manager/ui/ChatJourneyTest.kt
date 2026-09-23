@@ -215,7 +215,11 @@ class ChatJourneyTest {
                                                         displayName = "Modèle du serveur",
                                                         isDefault = true,
                                                         supportedReasoningEfforts =
-                                                            listOf(ReasoningOption("high")),
+                                                            listOf(
+                                                                ReasoningOption("low"),
+                                                                ReasoningOption("high"),
+                                                                ReasoningOption("max"),
+                                                            ),
                                                     )
                                                 )
                                         )
@@ -342,11 +346,13 @@ class ChatJourneyTest {
             compose
                 .onNode(hasSetTextAction())
                 .performTextInput("Examiner le projet et préparer un compte rendu")
-            compose.onNodeWithContentDescription("Options de la conversation").performClick()
-            compose.onNodeWithText("Modèle et préférences").performClick()
-            compose.onAllNodesWithText("Par défaut").onFirst().performClick()
+            compose.onNodeWithTag("model-picker").performClick()
             compose.onNodeWithText("Modèle du serveur").performClick()
-            compose.onNodeWithContentDescription("Fermer les préférences").performClick()
+            compose.onNodeWithTag("reasoning-picker").performClick()
+            compose.onNodeWithTag("reasoning-slider").performSemanticsAction(
+                androidx.compose.ui.semantics.SemanticsActions.SetProgress
+            ) { it(2f) }
+            compose.onNodeWithText("Terminé").performClick()
             compose.onNodeWithContentDescription("Envoyer").performClick()
             waitText("1 question · Répondre")
             assertTrue(calls.any { it.first == "POST" && it.second == "/api/chats" })
@@ -355,6 +361,7 @@ class ChatJourneyTest {
                     .parseToJsonElement(calls.first { it.second.endsWith("/messages") }.third)
                     .jsonObject
             assertEquals("gpt-fixture", sent["model"]?.jsonPrimitive?.content)
+            assertEquals("max", sent["reasoning"]?.jsonPrimitive?.content)
             assertEquals(
                 "Examiner le projet et préparer un compte rendu",
                 sent["text"]?.jsonPrimitive?.content,

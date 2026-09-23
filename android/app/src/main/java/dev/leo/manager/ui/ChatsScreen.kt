@@ -623,6 +623,9 @@ fun ChatScreen(
                             model,
                             reasoning,
                             selectedAgent?.model.orEmpty(),
+                            selectedAgent?.reasoning.orEmpty(),
+                            inherit = true,
+                            enabled = !state.busy,
                         ) { m, r ->
                             model = m
                             reasoning = r
@@ -846,6 +849,19 @@ fun ChatScreen(
                         color = MaterialTheme.colorScheme.surface,
                     ) {
                         Column(Modifier.padding(4.dp)) {
+                            ModelPicker(
+                                state.models,
+                                model,
+                                reasoning,
+                                selectedAgent?.model.orEmpty(),
+                                selectedAgent?.reasoning.orEmpty(),
+                                inherit = true,
+                                enabled = !state.busy,
+                            ) { m, r ->
+                                model = m
+                                reasoning = r
+                            }
+
                             if (attachments.isNotEmpty())
                                 Box(Modifier.heightIn(max = 140.dp)) {
                                     LazyColumn {

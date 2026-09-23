@@ -390,62 +390,6 @@ internal fun rememberHistoryPosition(
     return ready
 }
 
-@Composable
-fun ModelPicker(
-    catalog: ModelCatalog,
-    model: String,
-    reasoning: String,
-    defaultModel: String = "",
-    change: (String, String) -> Unit,
-) {
-    val models = catalog.models.filter { !it.hidden || it.model == model }
-    val choices =
-        listOf("" to "Par défaut") +
-            models.map { it.model to it.displayName.ifBlank { it.model } } +
-            if (model.isNotBlank() && models.none { it.model == model }) listOf(model to model)
-            else emptyList()
-    Choice("Modèle", model, choices.distinctBy { it.first }) { change(it, "") }
-    val selected =
-        catalog.models.find { it.model == model.ifBlank { defaultModel } }
-            ?: catalog.models.find { it.isDefault }
-    val efforts =
-        selected?.supportedReasoningEfforts.orEmpty().map {
-            it.reasoningEffort to it.reasoningEffort
-        }
-    if (efforts.isEmpty())
-        Field(
-            "Raisonnement (vide = par défaut)",
-            reasoning,
-            { change(model, it) },
-            keyboardOptions = InputKeyboards.Literal,
-        )
-    else
-        Choice(
-            "Raisonnement",
-            reasoning,
-            (listOf("" to "Par défaut") +
-                    efforts +
-                    if (reasoning.isNotEmpty() && efforts.none { it.first == reasoning })
-                        listOf(reasoning to reasoning)
-                    else emptyList())
-                .distinctBy { it.first },
-        ) {
-            change(model, it)
-        }
-    if (catalog.models.isEmpty())
-        Field(
-            "Nom du modèle",
-            model,
-            { change(it, reasoning) },
-            keyboardOptions = InputKeyboards.Literal,
-        )
-    if (catalog.stale || catalog.error.isNotBlank())
-        Text(
-            catalog.error.ifBlank { "Catalogue enregistré ; actualisation en attente." },
-            style = MaterialTheme.typography.bodySmall,
-        )
-}
-
 internal fun RunEvent.item(): JsonObject? = activityData()?.get("item") as? JsonObject
 
 internal fun JsonObject?.string(key: String) =

@@ -1,6 +1,8 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
+Version 0.9.0 exposes model selection and a discrete reasoning slider directly in
+the chat composer and shares these controls with agent settings.
 Version 0.8.0 adds 1Password service accounts with explicit agent grants.
 Version 0.7.0 introduced revocable public links for individual artifact versions, with
 native copying and Android link sharing from the file viewer. Files stay private
