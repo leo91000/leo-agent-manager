@@ -33,7 +33,7 @@ async function main() {
     return response
   }
   try {
-    for (const dir of ['data/runner-plans', 'state'])
+    for (const dir of ['data/runner-plans', 'data/claude', 'state'])
       await mkdir(path.join(root, dir), { recursive: true })
     await writeFile(path.join(root, 'data/runner-secret'), 'fixture-runner-token')
     await writeFile(path.join(root, 'data/private-manager-canary'), 'must-not-enter-guest')
@@ -41,9 +41,10 @@ async function main() {
     const runId = randomUUID()
     const runRoot = `/data/runs/${runId}`
     const source = path.join(root, 'data/runs', runId)
-    for (const dir of ['workspace', 'home/.codex', 'chat-input', 'output'])
+    for (const dir of ['workspace', 'home/.codex', 'home/.claude', 'chat-input', 'output'])
       await mkdir(path.join(source, dir), { recursive: true })
     await writeFile(path.join(source, 'home/.codex/leo-managed-auth'), '1')
+    await writeFile(path.join(source, 'home/.claude/.credentials.json'), JSON.stringify({ fixture: 'provisioned' }))
     await writeFile(path.join(source, 'chat-input/messages.json'), '[]')
     const fixture = `
 import assert from 'node:assert/strict';
@@ -60,7 +61,7 @@ assert.equal(process.env.RUNNER_TOKEN,undefined);
 if(mode==='first') {
   const env=JSON.parse(execFileSync('/usr/local/bin/leo',['toolkit-env'],{encoding:'utf8'}));
   assert.equal(env.LEO_TOOLKIT_DIR,'/opt/leo-toolkit');
-  for(const tool of ['cargo','rustc','pnpm','python','uv','rg','fd','gh','codex'])execFileSync(tool,['--version'],{env,timeout:30000});
+  for(const tool of ['cargo','rustc','pnpm','python','uv','rg','fd','gh','codex','claude'])execFileSync(tool,['--version'],{env,timeout:30000});
   const auth=await new Promise((resolve,reject)=>{const socket=net.connect('/run/leo-auth.sock',()=>socket.write('{"refresh":false}\\n'));let data='';socket.on('data',chunk=>{data+=chunk;if(data.includes('\\n')){socket.end();resolve(JSON.parse(data))}});socket.on('error',reject);});
   assert.equal(auth.accessToken,'fixture-access-token');
   assert.equal(fs.existsSync(project),false,'unopened project is absent');
@@ -91,6 +92,12 @@ if(mode==='cancel'||mode==='crash') {
   await new Promise(()=>{setInterval(()=>{},1000)});
 }
 if(mode==='recover')assert.equal(fs.readFileSync(root+'/workspace/interrupted','utf8'),'saved before interruption');
+if(mode.startsWith('claude')) {
+  const file='/home/node/.claude/.credentials.json';
+  assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).fixture,mode==='claude'?'provisioned':'rotated');
+  fs.writeFileSync(file,JSON.stringify({fixture:mode==='claude'?'rotated':'retained'}),{mode:0o600});
+  fs.writeFileSync('/home/node/.claude/.claude.json',JSON.stringify({fixture:mode}),{mode:0o600});
+}
 fs.writeFileSync(root+'/output/result.md','guest test passed '+mode);
 console.log('probe.done');
 `
@@ -110,7 +117,7 @@ console.log('probe.done');
     await until(async () => (await (await api('/health')).json()).pool.ready === 1)
     // The prepared VM is really suspended long enough to expose guest clock drift.
     await setTimeout(31000)
-    for (const mode of ['first', 'resume', 'cancel', 'crash', 'recover']) {
+    for (const mode of ['first', 'resume', 'cancel', 'crash', 'recover', 'claude', 'claude-resume']) {
       const id = randomUUID()
       const plan = {
         id,
@@ -126,6 +133,12 @@ console.log('probe.done');
           { source: `${runRoot}/output`, target: `${runRoot}/output`, readOnly: false },
           { source: `${runRoot}/chat-input`, target: '/run/leo-chat', readOnly: true },
         ],
+      }
+      if (mode.startsWith('claude')) {
+        plan.chat.provider = 'claude'
+        plan.claudeState = '/data/claude'
+        plan.claudeResumeState = mode === 'claude-resume'
+        await writeFile(path.join(root, 'data/claude/sync-required'), runId)
       }
       await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
       const start = Date.now()
@@ -209,6 +222,13 @@ console.log('probe.done');
       if (['cancel', 'crash'].includes(mode))
         assert.ok(text.includes('probe.pause'))
       else assert.equal(docker('exec', name, 'cat', `${runRoot}/output/result.md`), `guest test passed ${mode}`)
+      if (mode.startsWith('claude')) {
+        const state = JSON.parse(docker('exec', name, 'cat', '/data/claude/.credentials.json'))
+        assert.equal(state.fixture, mode === 'claude' ? 'rotated' : 'retained')
+        assert.equal(docker('exec', name, 'stat', '-c', '%a', '/data/claude/.credentials.json'), '600')
+        assert.equal(docker('exec', name, 'sh', '-c', 'test ! -e /data/claude/sync-required && echo cleared'), 'cleared')
+        assert.ok(!text.includes('"fixture":"rotated"') && !text.includes('"fixture":"retained"'), 'credential transfer stays out of run logs')
+      }
       assert.equal(await readFile(path.join(source, 'workspace/preserved'), 'utf8').catch(() => null), null, 'guest edits must not affect host checkout')
       await api(`/runs/${id}`, 'DELETE')
       process.stdout.write(`${JSON.stringify({ mode, durationMs: Date.now() - start, status: 'passed' })}\n`)
