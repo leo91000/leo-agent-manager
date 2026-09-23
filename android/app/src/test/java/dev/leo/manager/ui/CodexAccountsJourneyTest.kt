@@ -69,7 +69,8 @@ class CodexAccountsJourneyTest {
             compose.onNodeWithText("Enregistrer").assertIsEnabled().performClick()
             compose.waitUntil(10000) { updates.isNotEmpty() }
             assertEquals(12, updates.single()["maxConcurrentRuns"]?.jsonPrimitive?.int)
-            compose.waitUntil(10000) { compose.onAllNodesWithText("Modifier").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10000) { compose.onAllNodes(hasText("Modifier") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("0 / 12 exécutions parallèles", substring = true).assertExists()
             compose.onNodeWithText("Modifier").performScrollTo().performClick()
             compose.onNodeWithText("Exécutions parallèles (minimum 1)").assertTextContains("12")
         }
