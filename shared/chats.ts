@@ -13,7 +13,9 @@ export const chatMessageInput = z.object({
   attachmentIds: z.array(z.string().uuid()).max(8).default([]),
   mode: z.enum(['queue', 'steer']).default('queue'),
   provider: z.enum(['', 'codex', 'claude']).default(''),
-  model: z.string().trim().max(120).regex(/^[\w./:[\]-]*$/).default(''),
+  // Rust's JSON Schema regex parser requires the opening bracket to be escaped.
+  // eslint-disable-next-line regexp/no-useless-escape
+  model: z.string().trim().max(120).regex(/^[\w./:\[\]-]*$/).default(''),
   reasoning: reasoningEffort.default(''),
 }).refine(message => message.text.length > 0 || message.attachmentIds.length > 0, 'Write a message or attach a file')
 export interface ChatAttachment {
