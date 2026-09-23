@@ -1,4 +1,8 @@
-# Leo Android 0.10.0 — Claude Code
+# Leo Android 0.10.1 — Configurable parallel runs
+
+Codex accounts now accept parallel-run limits above four in Connections. The minimum remains one. Requires Léo server 0.24.1, whose global `CONCURRENCY` also accepts values above four (default four). Installable development APK: code 22.
+
+## Previous release: Leo Android 0.10.0 — Claude Code
 
 Connect Claude Code through its official browser sign-in, finish with an authorization code, and cancel or retry from Connections. Choose Codex or Claude Code per agent; chat model and effort choices follow that provider. Existing agents remain on Codex. Requires Léo server 0.24.0.
 

@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
       <div class="grid gap-4 p-6">
         <UiAlert v-if="error">
           {{ error }}
-        </UiAlert><label v-if="editing">Parallel runs<input v-model.number="maxConcurrentRuns" type="number" min="1" max="4" required><span class="text-xs text-muted">The server’s overall limit also applies. Lowering this lets current runs finish.</span></label><label>Account name<input v-model="name" required maxlength="100" placeholder="e.g. Personal" autocomplete="off"></label><p v-if="!editing" class="text-sm text-muted">
+        </UiAlert><label v-if="editing">Parallel runs<input v-model.number="maxConcurrentRuns" type="number" min="1" step="1" required><span class="text-xs text-muted">The server’s overall limit also applies. Lowering this lets current runs finish.</span></label><label>Account name<input v-model="name" required maxlength="100" placeholder="e.g. Personal" autocomplete="off"></label><p v-if="!editing" class="text-sm text-muted">
           Sign in with ChatGPT using a one-time device code.
         </p>
       </div><footer class="flex justify-end gap-3 border-t border-line p-4">

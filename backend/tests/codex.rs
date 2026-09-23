@@ -640,7 +640,7 @@ async fn parallel_capacity_prefers_usage_and_lowering_limits_does_not_stop_runs(
         .unwrap()
         .unwrap();
     assert_eq!(third.account_id, ids[1]);
-    for invalid in [json!(0), json!(5), json!(1.5), json!("2"), Value::Null] {
+    for invalid in [json!(0), json!(-1), json!(1.5), json!("2"), Value::Null] {
         assert!(
             service
                 .accounts
@@ -654,6 +654,37 @@ async fn parallel_capacity_prefers_usage_and_lowering_limits_does_not_stop_runs(
         );
     }
     for lease in [first, second, third] {
+        service.accounts.release(&service, &lease).await.unwrap();
+    }
+    service
+        .accounts
+        .update(
+            &service,
+            &ids[0],
+            json!({"name":"more","maxConcurrentRuns":12}),
+        )
+        .await
+        .unwrap();
+    let mut leases = Vec::new();
+    for _ in 0..12 {
+        let lease = service
+            .accounts
+            .acquire(&service, &leo_agent_manager::config::id(), "")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(lease.account_id, ids[0]);
+        leases.push(lease);
+    }
+    let overflow = service
+        .accounts
+        .acquire(&service, &leo_agent_manager::config::id(), "")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(overflow.account_id, ids[1]);
+    leases.push(overflow);
+    for lease in leases {
         service.accounts.release(&service, &lease).await.unwrap();
     }
 }

@@ -39,9 +39,8 @@ export function config(overrides: Partial<Config> = {}): Config {
   if (
     !Number.isInteger(settings.concurrency)
     || settings.concurrency < 1
-    || settings.concurrency > 4
   ) {
-    throw new Error('CONCURRENCY must be an integer between 1 and 4.')
+    throw new Error('CONCURRENCY must be a positive integer.')
   }
   if (
     !Number.isInteger(settings.port)

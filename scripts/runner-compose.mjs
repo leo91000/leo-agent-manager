@@ -111,6 +111,12 @@ export function firecrackerRunnerCompose(compose) {
   const state = mounts.find(mount => typeof mount === 'string' && /:\/runner-state(?::ro|:rw)?$/.test(mount))
   if (!data || !state)
     throw new Error('Runner data and persistent disk storage are required.')
+  const managerEnvironment = document.getIn(['services', 'manager', 'environment'])?.toJSON()
+  const configuredConcurrency = Array.isArray(managerEnvironment)
+    ? managerEnvironment.find(value => typeof value === 'string' && value.startsWith('CONCURRENCY='))?.slice('CONCURRENCY='.length)
+    : managerEnvironment?.CONCURRENCY
+  // eslint-disable-next-line no-template-curly-in-string -- Preserve the Compose environment expression.
+  const concurrency = configuredConcurrency ?? '${CONCURRENCY:-4}'
   const values = {
     user: '0:0',
     entrypoint: ['/usr/local/bin/leo', 'runner-broker'],
@@ -122,7 +128,7 @@ export function firecrackerRunnerCompose(compose) {
     devices: ['/dev/kvm:/dev/kvm', '/dev/net/tun:/dev/net/tun'],
     sysctls: { 'net.ipv4.ip_forward': '1', 'net.ipv6.conf.all.disable_ipv6': '1' },
     tmpfs: ['/run', '/tmp'],
-    environment: { DATA_DIR: '/data' },
+    environment: { DATA_DIR: '/data', CONCURRENCY: concurrency },
     volumes: [data.replace(/:(ro|rw)$/, ''), state.replace(/:(ro|rw)$/, '')],
     mem_limit: '20g',
     cpus: 8,

@@ -260,15 +260,30 @@ struct Network {
     chain: String,
     guest: String,
     gateway: String,
+    mac: String,
 }
 impl Network {
-    fn new(slot: u8) -> Self {
-        Self {
+    fn new(slot: usize) -> Result<Self> {
+        // Each live slot owns a distinct /30 in private 10.0.0.0/8. Check
+        // address exhaustion instead of truncating slot IDs above one byte.
+        let subnet = u32::try_from(slot)
+            .ok()
+            .filter(|slot| *slot > 0)
+            .and_then(|slot| slot.checked_mul(4))
+            .filter(|subnet| *subnet < (1 << 24))
+            .ok_or_else(|| Error::new(503, "VM private IPv4 address space is exhausted."))?;
+        let base = u32::from(std::net::Ipv4Addr::new(10, 0, 0, 0)) + subnet;
+        let bytes = (slot as u32).to_be_bytes();
+        Ok(Self {
             tap: format!("leo{slot}"),
             chain: format!("LEO{slot}"),
-            guest: format!("10.231.{slot}.2"),
-            gateway: format!("10.231.{slot}.1"),
-        }
+            guest: std::net::Ipv4Addr::from(base + 2).to_string(),
+            gateway: std::net::Ipv4Addr::from(base + 1).to_string(),
+            mac: format!(
+                "06:00:{:02x}:{:02x}:{:02x}:{:02x}",
+                bytes[0], bytes[1], bytes[2], bytes[3]
+            ),
+        })
     }
     async fn create(&self, uid: u32) -> Result<()> {
         command(
@@ -489,9 +504,10 @@ impl Vm {
         state: &Path,
         image: &Path,
         disk_dir: PathBuf,
-        slot: u8,
+        slot: usize,
         stop: &CancellationToken,
     ) -> Result<Self> {
+        let network = Network::new(slot)?;
         private_dir(&disk_dir).await?;
         let lock = std::fs::OpenOptions::new()
             .create(true)
@@ -518,9 +534,8 @@ impl Vm {
             .await?;
             tokio::fs::rename(disk_dir.join("data.partial"), &disk).await?;
         }
-        let uid = 40000 + u32::from(slot);
+        let uid = 40000 + slot as u32;
         let jail = state.join("jails/firecracker").join(&id).join("root");
-        let network = Network::new(slot);
         let socket = jail.join("v.sock");
 
         let mut vm = Self {
@@ -550,8 +565,8 @@ impl Vm {
                 "boot-source":{"kernel_image_path":"vmlinux","boot_args":format!("console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro init=/sbin/leo-init ip={}::{}:255.255.255.252:leo:eth0:off",network.guest,network.gateway)},
                 "drives":[{"drive_id":"root","path_on_host":"root.ext4","is_root_device":true,"is_read_only":true},{"drive_id":"data","path_on_host":"data.ext4","is_root_device":false,"is_read_only":false}],
                 "machine-config":{"vcpu_count":2,"mem_size_mib":4096,"smt":false},
-                "network-interfaces":[{"iface_id":"net","host_dev_name":network.tap,"guest_mac":format!("06:00:ac:10:{slot:02x}:02")}],
-                "vsock":{"guest_cid":u32::from(slot)+3,"uds_path":"v.sock"}
+                "network-interfaces":[{"iface_id":"net","host_dev_name":network.tap,"guest_mac":network.mac}],
+                "vsock":{"guest_cid":slot+3,"uds_path":"v.sock"}
             });
             atomic_write(&jail.join("config.json"), &serde_json::to_vec(&config)?).await?;
             std::os::unix::fs::chown(jail.join("config.json"), Some(uid), Some(uid))?;
@@ -948,6 +963,28 @@ fn rename_new(source: &Path, target: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn slot_networks_remain_distinct_above_four_and_one_byte() {
+        let mut addresses = std::collections::HashSet::new();
+        let mut macs = std::collections::HashSet::new();
+        for slot in [1, 4, 5, 12, 255, 256, 257, 65536, (1 << 22) - 1] {
+            let network = Network::new(slot).unwrap();
+            assert!(addresses.insert(network.guest.clone()));
+            assert!(addresses.insert(network.gateway.clone()));
+            assert!(macs.insert(network.mac.clone()));
+            assert!(network.tap.len() < 16);
+            assert_eq!(network.mac.split(':').count(), 6);
+            assert!(network.mac.split(':').all(|octet| octet.len() == 2));
+            let guest: std::net::Ipv4Addr = network.guest.parse().unwrap();
+            let gateway: std::net::Ipv4Addr = network.gateway.parse().unwrap();
+            assert!(guest.is_private());
+            assert_eq!(u32::from(guest) - u32::from(gateway), 1);
+            assert_eq!(u32::from(guest) / 4, u32::from(gateway) / 4);
+        }
+        for slot in [0, 1 << 22, usize::MAX] {
+            assert!(Network::new(slot).is_err());
+        }
+    }
     #[test]
     fn adoption_never_replaces_a_workspace_or_its_lock() {
         let root = tempfile::tempdir().unwrap();

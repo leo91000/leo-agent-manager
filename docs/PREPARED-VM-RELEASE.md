@@ -4,7 +4,7 @@ Version 0.17.0 implements the anonymous prepared-VM strategy investigated in
 [the comparative benchmark](STARTUP-STRATEGIES-BENCHMARK.md) and
 [the authenticated follow-up](AUTHENTICATED-STARTUP-BENCHMARK.md).
 
-One spare is prepared and paused within the existing four-slot budget. Its disk
+One spare is prepared and paused within the configured `CONCURRENCY` budget (default four). Its disk
 is assigned exactly once. Every attempt starts a fresh Codex process with current
 credentials and MCP grants. Used VMs are destroyed; existing conversations retain
 their disks and boot cleanly. Retaining used memory would preserve background

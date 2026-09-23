@@ -30,7 +30,7 @@ impl Config {
                     "publicUrl":get("PUBLIC_URL","http://localhost:4310"),"host":get("HOST","127.0.0.1"),
                     "port":get("PORT","4310").parse::<u16>().map_err(|_|Error::bad("PORT must be a valid port number."))?,
                     "setupToken":get("SETUP_TOKEN",""),"codexBin":get("CODEX_BIN","codex"),"claudeBin":get("CLAUDE_BIN","claude"),"ghBin":get("GH_BIN","gh"),
-                    "concurrency":get("CONCURRENCY","4").parse::<usize>().map_err(|_|Error::bad("Invalid concurrency"))?,
+                    "concurrency":concurrency()?,
                     "logger":get("NODE_ENV","")!="test", "workerEnabled":get("WORKER_ENABLED","true")!="false", "runnerUrl":get("RUNNER_URL","")
                 }
         );
@@ -44,10 +44,8 @@ impl Config {
             );
         }
         let mut config: Self = serde_json::from_value(value)?;
-        if !(1..=4).contains(&config.concurrency) {
-            return Err(Error::bad(
-                "CONCURRENCY must be an integer between 1 and 4.",
-            ));
+        if config.concurrency == 0 {
+            return Err(Error::bad("CONCURRENCY must be a positive integer."));
         }
         let url =
             url::Url::parse(&config.public_url).map_err(|_| Error::bad("Invalid PUBLIC_URL"))?;
@@ -80,4 +78,13 @@ pub const MAIN_AGENT_ID: &str = "00000000-0000-4000-8000-000000000001";
 
 fn default_claude_bin() -> String {
     "claude".into()
+}
+
+pub fn concurrency() -> Result<usize> {
+    let value = env::var("CONCURRENCY").unwrap_or_else(|_| "4".into());
+    value
+        .parse::<usize>()
+        .ok()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| Error::bad("CONCURRENCY must be a positive integer."))
 }

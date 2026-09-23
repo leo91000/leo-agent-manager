@@ -104,7 +104,7 @@ console.log('probe.done');
     await writeFile(path.join(source, 'workspace/probe.mjs'), fixture)
     auth = createServer(socket => socket.once('data', () => socket.end('{"accessToken":"fixture-access-token"}\n')))
     await new Promise(resolve => auth.listen(path.join(source, 'home/.codex/leo-auth.sock'), resolve))
-    docker('run', '-d', '--name', name, '--user', '0:0', '--read-only', '--cap-drop', 'ALL', ...['SYS_ADMIN', 'NET_ADMIN', 'SYS_CHROOT', 'SETUID', 'SETGID', 'MKNOD', 'CHOWN', 'FOWNER', 'KILL', 'DAC_OVERRIDE'].flatMap(cap => ['--cap-add', cap]), '--security-opt', 'apparmor=unconfined', '--security-opt', 'seccomp=unconfined', '--device', '/dev/kvm', '--device', '/dev/net/tun', '--sysctl', 'net.ipv4.ip_forward=1', '--sysctl', 'net.ipv6.conf.all.disable_ipv6=1', '--tmpfs', '/run', '--tmpfs', '/tmp', '-v', `${root}/data:/data`, '-v', `${root}/state:/runner-state`, '-p', '127.0.0.1::4311', '--memory', '6g', '--cpus', '3', '--entrypoint', '/usr/local/bin/leo', image, 'runner-broker')
+    docker('run', '-d', '--name', name, '--user', '0:0', '--read-only', '--cap-drop', 'ALL', ...['SYS_ADMIN', 'NET_ADMIN', 'SYS_CHROOT', 'SETUID', 'SETGID', 'MKNOD', 'CHOWN', 'FOWNER', 'KILL', 'DAC_OVERRIDE'].flatMap(cap => ['--cap-add', cap]), '--security-opt', 'apparmor=unconfined', '--security-opt', 'seccomp=unconfined', '--device', '/dev/kvm', '--device', '/dev/net/tun', '--sysctl', 'net.ipv4.ip_forward=1', '--sysctl', 'net.ipv6.conf.all.disable_ipv6=1', '--tmpfs', '/run', '--tmpfs', '/tmp', '-v', `${root}/data:/data`, '-v', `${root}/state:/runner-state`, '-p', '127.0.0.1::4311', '--memory', '6g', '--cpus', '3', '-e', 'CONCURRENCY=5', '--entrypoint', '/usr/local/bin/leo', image, 'runner-broker')
     url = `http://${await until(() => {
       try {
         return docker('port', name, '4311/tcp')
@@ -311,7 +311,7 @@ console.log('probe.done');
     const status = await (await api(`/runs/${resumedId}/wait`, 'POST')).json()
     assert.equal(status.StatusCode, 0, 'lazy read-only policy survives VM restart')
     process.stdout.write(`${JSON.stringify({ mode: 'read-only-resume', status: 'passed' })}\n`)
-    // Prepared VMs share the same four slots as active work. A fifth run cannot enter.
+    // Prepared VMs share the configured five slots with active work. A sixth run cannot enter.
     await until(async () => {
       const health = await (await api('/health')).json()
       return health.activeRuns === 0 && health.pool.ready === 1
@@ -320,7 +320,7 @@ console.log('probe.done');
     // back before executing the user command, without leaking the occupied slot.
     docker('exec', name, 'pkill', '-KILL', '-x', 'firecracker')
     const held = []
-    for (let index = 0; index < 5; index++) {
+    for (let index = 0; index < 6; index++) {
       const id = randomUUID()
       const runId = randomUUID()
       const cwd = `/data/runs/${runId}/workspace`
@@ -329,8 +329,8 @@ console.log('probe.done');
       const plan = { id, runId, expires: Date.now() + 60000, sandbox: 'yolo', cwd, command: ['/usr/local/bin/node', '-e', 'console.log("slot.ready");setInterval(()=>{},1000)'], imports: [{ source: cwd, target: cwd }] }
       await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
       const response = await fetch(`${url}/runs/${id}`, { method: 'POST', headers })
-      assert.equal(response.status, index < 4 ? 200 : 503)
-      if (index < 4)
+      assert.equal(response.status, index < 5 ? 200 : 503)
+      if (index < 5)
         held.push(id)
       if (index === 0) {
         const duplicate = randomUUID()
@@ -339,11 +339,13 @@ console.log('probe.done');
         assert.equal(denied.status, 409, 'same disk cannot enter twice')
       }
     }
-    assert.equal((await (await api('/health')).json()).pool.occupied, 4)
+    assert.equal((await (await api('/health')).json()).pool.occupied, 5)
     await until(async () => {
       try {
-        const logs = docker('exec', name, 'cat', `/runner-state/${held[0]}.log`)
-        return logs.split('\n').filter(Boolean).some(line => Buffer.from(JSON.parse(line).data || '', 'base64').toString().includes('slot.ready'))
+        return held.every((id) => {
+          const logs = docker('exec', name, 'cat', `/runner-state/${id}.log`)
+          return logs.split('\n').filter(Boolean).some(line => Buffer.from(JSON.parse(line).data || '', 'base64').toString().includes('slot.ready'))
+        })
       }
       catch {
         return false
@@ -354,7 +356,7 @@ console.log('probe.done');
       const health = await (await api('/health')).json()
       return health.activeRuns === 0 && health.pool.ready === 1 && health.pool.occupied === 1
     })
-    process.stdout.write(`${JSON.stringify({ mode: 'pool-capacity-cancel-refill', status: 'passed' })}\n`)
+    process.stdout.write(`${JSON.stringify({ mode: 'pool-capacity-cancel-refill', capacity: 5, status: 'passed' })}\n`)
   }
   catch (error) {
     console.error(error)

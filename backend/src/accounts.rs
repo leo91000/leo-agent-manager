@@ -924,10 +924,10 @@ impl Accounts {
         let max = input.get("maxConcurrentRuns").cloned();
         if max
             .as_ref()
-            .is_some_and(|v| v.as_u64().is_none_or(|n| !(1..=4).contains(&n)))
+            .is_some_and(|v| v.as_u64().is_none_or(|n| n == 0))
         {
             return Err(Error::bad(
-                "Choose between 1 and 4 concurrent runs per account.",
+                "Concurrent runs per account must be a positive integer.",
             ));
         }
         let mut a = self.get(s, id).await?;

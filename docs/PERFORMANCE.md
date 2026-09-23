@@ -39,7 +39,7 @@ at approximately 5 MB and result-file reads at 100,000 bytes. Per-run event rete
 and 30-day finished-event expiry bound log growth; preserved worktree disk usage
 still depends on projects and requires deliberate cleanup.
 
-SQLite WAL, task uniqueness constraints, project serialization, and a 1–4 worker
-limit avoid accidental unbounded execution. This is a single-process architecture,
+SQLite WAL, task uniqueness constraints, project serialization, and a configurable positive worker
+limit (default 4) avoid accidental unbounded execution. This is a single-process architecture,
 not a distributed scheduler. Measurements establish behavior at the stated workload;
 they do not imply unlimited scale or optimal performance on every VPS.

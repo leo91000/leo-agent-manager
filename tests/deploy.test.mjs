@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { parse, stringify } from 'yaml'
 import { deploy } from '../scripts/deploy-coolify.mjs'
 import { firecrackerRunnerCompose, nativeRunnerCompose, persistentRunnerCompose } from '../scripts/runner-compose.mjs'
 
@@ -128,6 +129,16 @@ describe('coolify deployment over HTTP', () => {
     expect(firecrackerRunnerCompose(compose)).toBe(compose)
     expect(requests.some(request => request.path.endsWith('/restart'))).toBe(true)
     expect(nativeRunnerCompose(compose)).toBe(compose)
+  })
+
+  it.each([{ CONCURRENCY: '12' }, ['CONCURRENCY=12']])('shares configured manager concurrency with the VM runner (%j)', (environment) => {
+    const document = parse(compose)
+    document.services.manager.environment = environment
+    const migrated = firecrackerRunnerCompose(stringify(document))
+    const result = parse(migrated)
+    expect(result.services.manager.environment).toEqual(environment)
+    expect(result.services.runner.environment.CONCURRENCY).toBe('12')
+    expect(firecrackerRunnerCompose(migrated)).toBe(migrated)
   })
 
   it('does not deploy when the mount migration was not persisted', async () => {

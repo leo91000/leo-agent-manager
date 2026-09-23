@@ -31,6 +31,7 @@ services:
     stop_grace_period: 30s
     environment:
       DATA_DIR: /data
+      CONCURRENCY: ${CONCURRENCY:-4}
     read_only: true
     cap_drop: [ALL]
     cap_add: [SYS_ADMIN, NET_ADMIN, SYS_CHROOT, SETUID, SETGID, MKNOD, CHOWN, FOWNER, KILL, DAC_OVERRIDE]

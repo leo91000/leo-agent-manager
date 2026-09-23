@@ -17,7 +17,7 @@ bridges the existing Rust chat/task process inside the VM. `microvm/wire.rs` bou
 protocol messages and rejects truncated frames. Output reads retain partial frames
 while live inbox updates are delivered.
 
-`microvm/pool.rs` owns reservations within the same four-slot budget. It prepares
+`microvm/pool.rs` owns reservations within the configured `CONCURRENCY` budget (default four). It prepares
 one anonymous VM in the background, warms the toolkit and Codex initialization,
 closes Codex, then pauses the VM through Firecracker's local jailed API socket.
 No account, project, inference or run-scoped MCP is used during preparation.
@@ -120,9 +120,14 @@ Firecracker runs through jailer as an unprivileged UID, with its default seccomp
 filters. The controller's AppArmor/seccomp allowances are needed for jailer mount
 namespaces and privilege setup; they are not granted to agents on the host.
 
-There are four execution slots, with 2 vCPUs and 4 GiB guest RAM each. The controller
+Execution slots follow `CONCURRENCY` (any positive integer, default 4), shared by
+the manager and runner in Compose. Slots are allocated on demand and include the
+anonymous spare. Each VM has 2 vCPUs and 4 GiB guest RAM. The controller
 container is capped at 8 CPUs, 20 GiB RAM and 256 host processes. Guest process counts
-are not host process counts. Disk ownership is protected by an exclusive file lock;
+are not host process counts. Increasing `CONCURRENCY` does not raise these resource
+budgets; size the host and controller budgets for the intended workload. VM networks
+use distinct /30 subnets in private 10.0.0.0/8; address exhaustion is reported rather
+than reusing another slot’s network. Disk ownership is protected by an exclusive file lock;
 one writable disk cannot be opened by two attempts. Console and execution output
 are bounded independently of the guest disk.
 

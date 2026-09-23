@@ -11,20 +11,34 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, Notify, OnceCell};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-const CAPACITY: usize = 4;
 #[derive(Default)]
 struct Slots {
-    occupied: [bool; CAPACITY],
-    spare: Option<(u8, Vm)>,
+    occupied: Vec<bool>,
+    spare: Option<(usize, Vm)>,
     preparation_stop: Option<CancellationToken>,
+}
+impl Slots {
+    fn reserve(&mut self, capacity: usize) -> Option<usize> {
+        let index = match self.occupied.iter().position(|v| !v) {
+            Some(index) => index,
+            None if self.occupied.len() < capacity => {
+                self.occupied.push(false);
+                self.occupied.len() - 1
+            }
+            None => return None,
+        };
+        self.occupied[index] = true;
+        Some(index + 1)
+    }
 }
 pub struct Reservation {
     pool: Arc<Pool>,
     released: bool,
-    slot: u8,
+    slot: usize,
     spare: Option<Vm>,
 }
 pub struct Pool {
+    capacity: usize,
     state: PathBuf,
     image: PathBuf,
     slots: Mutex<Slots>,
@@ -33,7 +47,15 @@ pub struct Pool {
     cleanup: TaskTracker,
 }
 impl Pool {
-    pub async fn new(state: PathBuf, image: PathBuf, stop: CancellationToken) -> Result<Arc<Self>> {
+    pub async fn new(
+        state: PathBuf,
+        image: PathBuf,
+        stop: CancellationToken,
+        capacity: usize,
+    ) -> Result<Arc<Self>> {
+        if capacity == 0 {
+            return Err(Error::bad("VM concurrency must be a positive integer."));
+        }
         // The controller lock and PID namespace fence all previous owners before this cleanup.
         let prepared = state.join("prepared");
         if prepared.exists() {
@@ -42,6 +64,7 @@ impl Pool {
         private_dir(&prepared).await?;
         private_dir(&state.join("disks")).await?;
         Ok(Arc::new(Self {
+            capacity,
             state,
             image,
             slots: Mutex::new(Slots::default()),
@@ -52,7 +75,7 @@ impl Pool {
     }
     pub async fn health(&self) -> Value {
         let slots = self.slots.lock().await;
-        json!({"capacity":CAPACITY,"occupied":slots.occupied.iter().filter(|v| **v).count(),"ready":usize::from(slots.spare.is_some()),"preparing":slots.preparation_stop.is_some()})
+        json!({"capacity":self.capacity,"occupied":slots.occupied.iter().filter(|v| **v).count(),"ready":usize::from(slots.spare.is_some()),"preparing":slots.preparation_stop.is_some()})
     }
     pub async fn reserve(self: &Arc<Self>, run_id: &str) -> Result<Reservation> {
         loop {
@@ -65,9 +88,9 @@ impl Pool {
                 if self.stop.is_cancelled() {
                     return Err(Error::new(503, "VM controller is stopping."));
                 }
-                let free = slots.occupied.iter().position(|v| !v);
-                let preserve_spare =
-                    free.is_some() && self.state.join("disks").join(run_id).exists();
+                let free =
+                    slots.occupied.len() < self.capacity || slots.occupied.iter().any(|v| !v);
+                let preserve_spare = free && self.state.join("disks").join(run_id).exists();
                 if !preserve_spare && let Some((slot, vm)) = slots.spare.take() {
                     return Ok(Reservation {
                         pool: self.clone(),
@@ -76,12 +99,11 @@ impl Pool {
                         spare: Some(vm),
                     });
                 }
-                if let Some(index) = slots.occupied.iter().position(|v| !v) {
-                    slots.occupied[index] = true;
+                if let Some(slot) = slots.reserve(self.capacity) {
                     return Ok(Reservation {
                         pool: self.clone(),
                         released: false,
-                        slot: index as u8 + 1,
+                        slot,
                         spare: None,
                     });
                 }
@@ -110,11 +132,10 @@ impl Pool {
                 if slots.spare.is_some() || tokio::time::Instant::now() < retry_at {
                     None
                 } else {
-                    slots.occupied.iter().position(|v| !v).map(|index| {
-                        slots.occupied[index] = true;
+                    slots.reserve(self.capacity).map(|slot| {
                         let cancel = self.stop.child_token();
                         slots.preparation_stop = Some(cancel.clone());
-                        (index as u8 + 1, cancel)
+                        (slot, cancel)
                     })
                 }
             };
@@ -136,7 +157,7 @@ impl Pool {
                     Err(error) => {
                         retry_at = tokio::time::Instant::now() + Duration::from_secs(30);
                         tracing::warn!(message=%error.message,"VM spare preparation failed; cold boot remains available");
-                        slots.occupied[usize::from(slot - 1)] = false;
+                        slots.occupied[slot - 1] = false;
                         drop(slots);
                         let _ = tokio::fs::remove_dir_all(disk).await;
                     }
@@ -149,7 +170,7 @@ impl Pool {
         if let Some((slot, mut vm)) = spare {
             vm.shutdown().await;
             vm.discard_prepared().await;
-            self.slots.lock().await.occupied[usize::from(slot - 1)] = false;
+            self.slots.lock().await.occupied[slot - 1] = false;
         }
         self.changed.notify_waiters();
     }
@@ -206,7 +227,7 @@ impl Reservation {
             vm.shutdown().await;
             vm.discard_prepared().await;
         }
-        self.pool.slots.lock().await.occupied[usize::from(self.slot - 1)] = false;
+        self.pool.slots.lock().await.occupied[self.slot - 1] = false;
         self.released = true;
         self.pool.changed.notify_waiters();
     }
@@ -224,7 +245,7 @@ impl Drop for Reservation {
                 vm.shutdown().await;
                 vm.discard_prepared().await;
             }
-            pool.slots.lock().await.occupied[usize::from(slot - 1)] = false;
+            pool.slots.lock().await.occupied[slot - 1] = false;
             pool.changed.notify_waiters();
         });
     }
@@ -237,30 +258,63 @@ mod tests {
     async fn abandoned_reservations_release_capacity_and_shutdown_rejects_work() {
         let root = tempfile::tempdir().unwrap();
         let stop = CancellationToken::new();
-        let pool = Pool::new(root.path().into(), root.path().into(), stop.clone())
+        let pool = Pool::new(root.path().into(), root.path().into(), stop.clone(), 12)
             .await
             .unwrap();
         let mut reservations = Vec::new();
-        for _ in 0..CAPACITY {
+        assert_eq!(pool.health().await["capacity"], 12);
+        for _ in 0..12 {
             reservations.push(pool.reserve("run").await.unwrap());
         }
-        assert_eq!(pool.health().await["occupied"], 4);
+        assert_eq!(pool.health().await["occupied"], 12);
         assert!(pool.reserve("run").await.is_err());
         drop(reservations.pop());
         tokio::time::timeout(Duration::from_secs(1), async {
-            while pool.health().await["occupied"] == 4 {
+            while pool.health().await["occupied"] == 12 {
                 tokio::task::yield_now().await;
             }
         })
         .await
         .unwrap();
         reservations.push(pool.reserve("run").await.unwrap());
-        assert_eq!(pool.health().await["occupied"], 4);
+        assert_eq!(pool.health().await["occupied"], 12);
         stop.cancel();
         assert!(pool.reserve("run").await.is_err());
         drop(reservations);
         pool.drain().await;
         assert_eq!(pool.health().await["occupied"], 0);
+    }
+    #[tokio::test]
+    async fn large_capacity_allocates_slots_on_demand_without_truncation() {
+        let root = tempfile::tempdir().unwrap();
+        let pool = Pool::new(
+            root.path().into(),
+            root.path().into(),
+            CancellationToken::new(),
+            usize::MAX,
+        )
+        .await
+        .unwrap();
+        assert!(pool.slots.lock().await.occupied.is_empty());
+        let mut reservations = Vec::new();
+        for slot in 1..=300 {
+            let reservation = pool.reserve("run").await.unwrap();
+            assert_eq!(reservation.slot, slot);
+            reservations.push(reservation);
+        }
+        drop(reservations);
+        pool.drain().await;
+        assert_eq!(pool.health().await["occupied"], 0);
+        assert!(
+            Pool::new(
+                root.path().into(),
+                root.path().into(),
+                CancellationToken::new(),
+                0
+            )
+            .await
+            .is_err()
+        );
     }
     #[tokio::test]
     async fn restart_removes_only_unassigned_disks() {
@@ -277,6 +331,7 @@ mod tests {
             root.path().into(),
             root.path().into(),
             CancellationToken::new(),
+            4,
         )
         .await
         .unwrap();

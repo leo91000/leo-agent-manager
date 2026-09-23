@@ -68,7 +68,7 @@ lives in `backend/schemas/mcp-tools.json`; keep it aligned with tool dispatch.
 `prepare-execution` are local administrative commands used by the container checks;
 their output can contain private environment values and must not be logged publicly.
 `LEO_HTTP_THREADS` can override the bounded HTTP executor size. It does not change
-the separately configured agent concurrency of 1–4.
+the separately configured agent concurrency (any positive integer, default 4).
 
 ## Deployment and rollback
 

@@ -427,6 +427,7 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
 }
 
 pub async fn serve(stop: CancellationToken) -> Result<()> {
+    let concurrency = crate::config::concurrency()?;
     let data = PathBuf::from(std::env::var("DATA_DIR").unwrap_or_else(|_| "/data".into()));
     let state =
         PathBuf::from(std::env::var("RUNNER_STATE_DIR").unwrap_or_else(|_| "/runner-state".into()));
@@ -450,7 +451,8 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
             tokio::fs::remove_file(file.path()).await?;
         }
     }
-    let pool = crate::microvm::pool::Pool::new(state.clone(), image, stop.clone()).await?;
+    let pool =
+        crate::microvm::pool::Pool::new(state.clone(), image, stop.clone(), concurrency).await?;
     let preparing = pool.clone();
     let preparation = tokio::spawn(async move { preparing.maintain().await });
     let broker = Broker {

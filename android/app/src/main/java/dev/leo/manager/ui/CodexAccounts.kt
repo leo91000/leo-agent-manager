@@ -265,12 +265,12 @@ fun CodexAccounts(vm: LeoViewModel, state: Workspace, openRun: (String) -> Unit)
                     load()
                 }
             },
-            valid = name.isNotBlank() && name.length <= 100 && concurrency.toIntOrNull() in 1..4,
+            valid = name.isNotBlank() && name.length <= 100 && (concurrency.toIntOrNull() ?: 0) >= 1,
         ) {
             Field("Nom du compte", name, { name = it })
             if (initial != null)
                 Field(
-                    "Exécutions parallèles (1–4)",
+                    "Exécutions parallèles (minimum 1)",
                     concurrency,
                     { concurrency = it },
                     keyboardOptions = InputKeyboards.Number,
