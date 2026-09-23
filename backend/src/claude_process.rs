@@ -201,7 +201,7 @@ pub async fn run(
         let _ = tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await;
     });
     let operation=async {
-        let mut initial=json!({"id":initial_id,"text":plan["execution"]["text"],"attachments":plan["execution"]["attachments"]});
+        let mut initial=json!({"id":initial_id,"text":crate::chats::execution_text(&plan),"attachments":plan["execution"]["attachments"]});
         if plan["execution"]["recovery"]==true {initial["text"]=format!("Continue the interrupted request. Preserve completed work and verify external effects before repeating an action.\n{}",text(&initial,"text")).into();}
         send(&mut stdin,input(&initial,inbox).await?).await?;
         let mut submitted=HashSet::from([initial_id.to_owned()]);let mut delivered=HashSet::<String>::new();

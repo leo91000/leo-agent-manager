@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -20,7 +21,7 @@ export function chatFixture() {
     if (!active)
       return
     const text = `I reviewed the workspace. **The approach looks good.**\n\n${active.items.filter(item => item.type === 'userMessage').map(item => item.content[0].text).join('\n\n')}\n\nReady for the next step.`
-    const item = { id: `reply-${active.id}`, type: 'agentMessage', text }
+    const item = { id: `reply-${thread.fixtureGeneration || 'legacy'}-${active.id}`, type: 'agentMessage', text }
     active.items.push(item)
     active.status = 'completed'
     save()
@@ -47,7 +48,7 @@ export function chatFixture() {
     if (!['thread/start', 'thread/resume', 'turn/start', 'turn/steer', 'thread/turns/list', 'thread/items/list'].includes(method))
       return false
     if (method === 'thread/start') {
-      thread = { id: 'fixture-chat', cwd: params.cwd, historyMode: 'paginated', turns: [], parentThreadId: null }
+      thread = { fixtureGeneration: randomUUID(), id: 'fixture-chat', cwd: params.cwd, historyMode: 'paginated', turns: [], parentThreadId: null }
       save()
       emit({ id: request.id, result: { thread } })
     }

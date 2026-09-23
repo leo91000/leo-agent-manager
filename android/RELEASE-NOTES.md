@@ -1,5 +1,13 @@
 # Leo Android 0.10.2 — Fresh model catalogs
 
+## 0.11.0
+
+- Choose Codex or Claude Code directly in the composer or chat preferences.
+- Continue in the same chat and workspace after a provider switch (server 0.25.0).
+- Reset incompatible model/effort defaults, preserve provider selection through recreation, and retain the provider when editing queued messages.
+- Accept Claude model aliases with context suffixes such as `opus[1m]`.
+
+
 Opening model or reasoning settings reloads the selected provider's catalog, including in an existing chat. The open picker also refreshes on foreground return and every five minutes. **Actualiser les modèles** retries without changing the selected model or effort. Network failures retain the last catalog, including for Claude. Installable development APK: code 23.
 
 Server 0.24.2 updates the manager and guest Codex CLI to 0.156.1, whose catalog includes GPT-6 Sol and Luna. Actual options still come from the connected accounts, without hard-coded additions or an inference request.

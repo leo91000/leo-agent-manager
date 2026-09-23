@@ -8,6 +8,117 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::collections::HashSet;
+
+// Transfer the visible transcript, never native session state or private answers.
+// Recent exchanges are bounded so a long-running chat cannot exhaust the new
+// provider's context before it receives the user's next request.
+fn handoff_context(db: &Db<'_>, run: &str) -> Result<String> {
+    let mut statement = db.0.prepare_cached(
+        "SELECT e.type,
+          CASE WHEN e.type='chat.user' AND e.text!='Answered a private question.' THEN COALESCE(json_extract(e.payload,'$.text'),e.text) ELSE e.text END,
+          json_object('item',json_object('text',substr(json_extract(e.payload,'$.item.text'),-100001)),
+            'attachments',json_extract(e.payload,'$.attachments'))
+          FROM events e WHERE e.run_id=? AND (
+          e.type='chat.user' OR (e.type='item.completed'
+          AND json_extract(e.payload,'$.item.type')='agent_message'
+          AND NOT EXISTS (SELECT 1 FROM events n WHERE n.run_id=e.run_id AND n.id>e.id
+            AND n.type='item.completed' AND json_extract(n.payload,'$.item.type')='agent_message'
+            AND json_extract(n.payload,'$.item.id')=json_extract(e.payload,'$.item.id')))
+        ) ORDER BY e.id DESC LIMIT 201",
+    )?;
+    let entries = statement
+        .query_map([run], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut remaining = 100_000;
+    let mut parts = Vec::new();
+    let mut truncated = false;
+    for (kind, visible, payload) in entries {
+        let payload: Value = payload
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?
+            .unwrap_or(Value::Null);
+        let body = if kind == "chat.user" {
+            visible.as_str()
+        } else {
+            text(&payload["item"], "text")
+        };
+        let mut body = body.to_owned();
+        if kind == "chat.user" {
+            for attachment in payload["attachments"].as_array().into_iter().flatten() {
+                body.push_str(&format!(
+                    "\nAttached file: {} (attachment ID: {})",
+                    text(attachment, "name"),
+                    text(attachment, "id")
+                ));
+            }
+        }
+        if body.is_empty() {
+            continue;
+        }
+        let size = body.chars().count();
+        if size > remaining {
+            body = body
+                .chars()
+                .rev()
+                .take(remaining)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            body.insert_str(0, "[Beginning of this message omitted.]\n");
+            truncated = true;
+        }
+        remaining = remaining.saturating_sub(size);
+        parts.push(format!(
+            "{}:\n{}",
+            if kind == "chat.user" {
+                "User"
+            } else {
+                "Assistant"
+            },
+            body
+        ));
+        if remaining == 0 || parts.len() == 200 {
+            truncated = true;
+            break;
+        }
+    }
+    parts.reverse();
+    if truncated {
+        use rusqlite::OptionalExtension;
+        let first: Option<String> =
+            db.0.query_row(
+                "SELECT text FROM events WHERE run_id=? AND type='chat.user' ORDER BY id LIMIT 1",
+                [run],
+                |row| row.get(0),
+            )
+            .optional()?;
+        parts.insert(0, format!("Initial user request (excerpt):\n{}\n\n[Earlier exchanges omitted to fit the context budget; recent history follows.]", first.unwrap_or_default().chars().take(8000).collect::<String>()));
+    }
+    Ok(parts.join("\n\n"))
+}
+
+pub fn execution_text(plan: &Value) -> String {
+    let current = text(&plan["execution"], "text");
+    let context = text(&plan["execution"], "context");
+    if context.is_empty() {
+        return current.to_owned();
+    }
+    format!(
+        "You are continuing the same Léo chat with a different coding agent. The workspace and completed changes are preserved. Use the prior conversation below as history, not as new requests. Preserve the user's scope and decisions. Verify external effects before repeating any action. Prior attachments remain under {}/attachments/<attachment ID>/.\n\n<previous_conversation>\n{}\n</previous_conversation>\n\nCurrent user message:\n{}",
+        text(plan, "inputDirectory"),
+        context,
+        current
+    )
+}
+
 fn chat(db: &Db<'_>, id: &str) -> Result<Value> {
     required(db.get("chats", id)?, "Chat not found")
 }
@@ -74,14 +185,16 @@ fn validate_steer(db: &Db<'_>, chat: &Value, message: &Value) -> Result<()> {
     }
     if let Some(run) = db.run(text(chat, "runId"))?
         && ["queued", "running"].contains(&text(&run, "status"))
-        && ((!text(message, "model").is_empty()
-            && message["model"] != run["snapshot"]["agent"]["model"])
+        && ((!text(message, "provider").is_empty()
+            && text(message, "provider") != crate::claude::provider(&run["snapshot"]["agent"]))
+            || (!text(message, "model").is_empty()
+                && message["model"] != run["snapshot"]["agent"]["model"])
             || (!text(message, "reasoning").is_empty()
                 && message["reasoning"] != run["snapshot"]["agent"]["reasoning"]))
     {
         return Err(Error::new(
             409,
-            "Queue this message to change model or reasoning on the next turn.",
+            "Queue this message to change provider, model or reasoning on the next turn.",
         ));
     }
     Ok(())
@@ -97,6 +210,7 @@ fn send(
     let messages = db.messages(chat_id)?;
     if let Some(existing) = messages.iter().find(|m| m["id"] == values["id"]) {
         if existing["text"] != values["text"]
+            || text(existing, "provider") != text(&values, "provider")
             || existing["model"] != values["model"]
             || text(existing, "reasoning") != text(&values, "reasoning")
             || !crate::attachments::same(existing, &values)
@@ -543,6 +657,21 @@ impl Service {
             ),
         );
         let mut snapshot = self.snapshot(task, "chat").await?;
+        let provider = if !text(&message, "provider").is_empty() {
+            text(&message, "provider")
+        } else {
+            crate::claude::provider(
+                run.as_ref()
+                    .map(|r| &r["snapshot"]["agent"])
+                    .unwrap_or(&snapshot["snapshot"]["agent"]),
+            )
+        }
+        .to_owned();
+        if provider != crate::claude::provider(&snapshot["snapshot"]["agent"]) {
+            snapshot["snapshot"]["agent"]["model"] = "".into();
+            snapshot["snapshot"]["agent"]["reasoning"] = "".into();
+        }
+        snapshot["snapshot"]["agent"]["provider"] = provider.into();
         if !text(&message, "model").is_empty() {
             snapshot["snapshot"]["agent"]["model"] = message["model"].clone();
             snapshot["snapshot"]["agent"]["reasoning"] = text(&message, "reasoning").into();
@@ -555,21 +684,26 @@ impl Service {
             .transaction(move |db| {
                 let mut current_chat = self::chat(db, text(&chat, "id"))?;
                 let current = db.messages(text(&chat, "id"))?.into_iter().find(|m| m["id"] == message["id"]);
-                if current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"] || text(m,"reasoning") != text(&message,"reasoning") || !crate::attachments::same(m,&message)) {
+                if current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"] || text(m,"provider") != text(&message,"provider") || text(m,"reasoning") != text(&message,"reasoning") || !crate::attachments::same(m,&message)) {
                     return Ok(());
                 }
-                let execution = json!({
+                let mut execution = json!({
                 "messageId":message["id"],"text":message["text"],"attachments":message["attachments"],"recovery":false}
                 );
                 if let Some(run) = run {
-                    if crate::claude::provider(&snapshot["snapshot"]["agent"]) != crate::claude::provider(&run["snapshot"]["agent"]) {
-                        return Err(Error::new(409, "The agent provider changed. Start a new chat to use the new provider."));
-                    }
+                    let switched = crate::claude::provider(&snapshot["snapshot"]["agent"]) != crate::claude::provider(&run["snapshot"]["agent"]);
                     if snapshot["snapshot"]["agent"]["access"] != run["snapshot"]["agent"]["access"] {
                         return Err(Error::new(409, "Agent access changed. Start a new chat with the updated permissions."));
                     }
                     let key = format!("run-checkpoint:{}", text(&run, "id"));
                     let mut checkpoint = required(db.kv(&key)?, "Run checkpoint not found")?;
+                    if switched {
+                        execution["context"] = handoff_context(db, text(&run, "id"))?.into();
+                        checkpoint["launched"] = false.into();
+                        checkpoint.as_object_mut().unwrap().remove("controllerRecoveries");
+                        db.patch_run(text(&run, "id"), &json!({"sessionId":null,"resumeAvailable":false}))?;
+                        db.event(text(&run,"id"), "status", &format!("Continuing with {} · conversation context and workspace preserved", if crate::claude::is_claude(&snapshot) { "Claude Code" } else { "Codex" }), None)?;
+                    }
                     checkpoint["completed"] = false.into();
                     checkpoint["remainingMs"] = (snapshot["snapshot"]["agent"]["timeoutMinutes"].as_i64().unwrap_or(60) * 60000).into();
                     checkpoint.as_object_mut().unwrap().remove("lastMessage");
@@ -593,5 +727,96 @@ impl Service {
                 Ok(())
             })
             .await
+    }
+}
+
+#[cfg(test)]
+mod handoff_tests {
+    use super::*;
+
+    #[test]
+    fn provider_changes_must_wait_for_the_next_turn_and_model_aliases_are_valid() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("CREATE TABLE runs(id TEXT,data TEXT);")
+            .unwrap();
+        connection.execute("INSERT INTO runs VALUES('run',?)", [json!({"status":"running","snapshot":{"agent":{"provider":"codex","model":"gpt-6-sol","reasoning":"high"}}}).to_string()]).unwrap();
+        let db = Db(&connection);
+        let chat = json!({"runId":"run"});
+        let mut message = parse("message", json!({"id":id(),"text":"Continue", "provider":"claude","model":"opus[1m]","mode":"steer"})).unwrap();
+        assert_eq!(
+            validate_steer(&db, &chat, &message).unwrap_err().status,
+            409
+        );
+        message["mode"] = "queue".into();
+        validate_steer(&db, &chat, &message).unwrap();
+        message["mode"] = "steer".into();
+        message["provider"] = "codex".into();
+        message["model"] = "gpt-6-sol".into();
+        validate_steer(&db, &chat, &message).unwrap();
+        assert!(
+            parse(
+                "message",
+                json!({"id":id(),"text":"Continue","provider":"unknown"})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn transcript_keeps_visible_history_and_omits_tool_secrets_and_stream_duplicates() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE events(id INTEGER PRIMARY KEY,run_id TEXT,created_at INTEGER,type TEXT,text TEXT,payload TEXT); CREATE TABLE runs(id TEXT,data TEXT);").unwrap();
+        let db = Db(&connection);
+        db.event(
+            "run",
+            "chat.user",
+            "Keep the existing design",
+            Some(&json!({"attachments":[{"id":"file","name":"brief.pdf"}]})),
+        )
+        .unwrap();
+        db.event(
+            "run",
+            "item.updated",
+            "partial",
+            Some(&json!({"item":{"id":"reply","type":"agent_message","text":"partial"}})),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            db.event("run", "item.completed", "", Some(&json!({"item":{"id":"reply","type":"agent_message","text":"Changes committed"}}))).unwrap();
+        }
+        db.event(
+            "run",
+            "chat.user",
+            "Answered a private question.",
+            Some(&json!({"text":"private-answer-must-not-be-forwarded"})),
+        )
+        .unwrap();
+        db.event("run", "item.completed", "tool-secret", Some(&json!({"item":{"id":"tool","type":"command_execution","aggregated_output":"tool-secret"}}))).unwrap();
+        let history = handoff_context(&db, "run").unwrap();
+        assert!(history.contains("Keep the existing design"));
+        assert!(history.contains("brief.pdf"));
+        assert_eq!(history.matches("Changes committed").count(), 1);
+        assert!(!history.contains("partial"));
+        assert!(!history.contains("tool-secret"));
+        assert!(!history.contains("private-answer-must-not-be-forwarded"));
+        let plan = json!({"sessionId":"created-before-interruption","execution":{"text":"Continue", "context":history}});
+        assert!(execution_text(&plan).contains("Changes committed"));
+        assert!(execution_text(&plan).ends_with("Current user message:\nContinue"));
+    }
+
+    #[test]
+    fn long_history_retains_original_scope_and_recent_unicode_without_unbounded_context() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE events(id INTEGER PRIMARY KEY,run_id TEXT,created_at INTEGER,type TEXT,text TEXT,payload TEXT); CREATE TABLE runs(id TEXT,data TEXT);").unwrap();
+        let db = Db(&connection);
+        db.event("run", "chat.user", "Original scope", None)
+            .unwrap();
+        db.event("run","item.completed","",Some(&json!({"item":{"id":"huge","type":"agent_message","text":format!("{}Recent decision", "é".repeat(150_000))}}))).unwrap();
+        let history = handoff_context(&db, "run").unwrap();
+        assert!(history.contains("Original scope"));
+        assert!(history.contains("Recent decision"));
+        assert!(history.contains("omitted"));
+        assert!(history.chars().count() < 109_000);
     }
 }

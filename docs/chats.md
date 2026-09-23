@@ -1,5 +1,7 @@
 # Agent and project chats
 
+The composer lets you choose **Codex** or **Claude Code** per message. Changing providers preserves the same chat and files, and starts a fresh native session with the visible conversation context. Queued messages retain their provider; the current turn finishes before a switch. See [Claude Code](CLAUDE-CODE.md) for context limits and recovery behavior.
+
 Agents can now publish [persistent deliverables](DELIVERABLES.md): screenshots, videos, audio, PDFs, Markdown, code and downloadable files. Open a card beside a response, or **Files** for the complete gallery. Versions, image comparison and a mobile fullscreen reader remain available after the VM stops.
 
 Chats and task activity use [resumable live streams](STREAMING.md). Multiple browsers can follow the same conversation; refresh and network recovery replay missed events without restarting the agent.

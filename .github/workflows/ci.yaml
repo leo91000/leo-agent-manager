@@ -67,7 +67,7 @@ jobs:
           git diff --exit-code -- backend/schemas/inputs.json
           cargo fmt --all --check
           cargo clippy --locked --workspace --all-targets -- -D warnings
-          cargo test --locked --workspace
+          node scripts/test-backend.mjs
           cargo build --locked --bin leo
       - uses: actions/upload-artifact@v7.0.1
         with:

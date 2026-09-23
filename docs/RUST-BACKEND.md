@@ -51,7 +51,7 @@ Web Push subscriptions and VAPID keys retain their encrypted storage format.
 ```sh
 pnpm install --frozen-lockfile
 pnpm dev
-cargo test --locked --workspace
+pnpm test:backend
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 pnpm check

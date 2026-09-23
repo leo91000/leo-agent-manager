@@ -117,7 +117,7 @@ console.log('probe.done');
     await until(async () => (await (await api('/health')).json()).pool.ready === 1)
     // The prepared VM is really suspended long enough to expose guest clock drift.
     await setTimeout(31000)
-    for (const mode of ['first', 'resume', 'cancel', 'crash', 'recover', 'claude', 'claude-resume']) {
+    for (const mode of ['first', 'resume', 'cancel', 'crash', 'recover', 'claude', 'claude-resume', 'codex-return']) {
       const id = randomUUID()
       const plan = {
         id,

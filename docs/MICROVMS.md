@@ -164,7 +164,7 @@ No task is allowed to silently switch to host execution when VM setup fails.
 
 ## Validation
 
-Run `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`
+Run `pnpm test:backend`, `cargo clippy --workspace --all-targets -- -D warnings`
 and `pnpm check`. The real KVM test runs with `node tests/runner-smoke.mjs IMAGE` on
 the Docker host. It uses synthetic credentials and temporary storage to exercise
 kernel isolation, the authentication relay, live steering, Docker and disk reuse.

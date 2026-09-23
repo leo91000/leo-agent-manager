@@ -94,7 +94,7 @@ runs (`.env` is used by Compose, not loaded automatically by the development ser
 
 ```sh
 pnpm check                       # ESLint, rustfmt, types, JS tests and frontend build
-cargo test --workspace           # Native backend integration and migration tests
+pnpm test:backend                # Native backend integration and migration tests
 cargo clippy --all-targets -- -D warnings
 cargo build --bin leo            # Native binary used by every browser fixture
 pnpm exec playwright install chromium
@@ -103,6 +103,10 @@ pnpm build:backend               # Optimized native production binary
 node --import tsx scripts/benchmark-backend.mjs # Node/Rust comparison
 pnpm lint:fix                    # ESLint fixes and Rust formatting
 ```
+
+Use `pnpm test:backend` inside a coding-agent environment: the test launcher clears
+inherited authentication sockets and credential overrides. Vitest and Playwright
+apply the same isolation before starting their fixtures.
 
 Browser tests start a separate application, isolated home, and fixture project;
 they never use your Codex credentials. The fixture runner is only in the test suite

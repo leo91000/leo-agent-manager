@@ -181,6 +181,7 @@ fun ChatScreen(
     val draftKey = id ?: "new:$initialAgent:$initialProject"
     val savedDraft = remember(draftKey) { vm.chatDrafts[draftKey] ?: ChatDraft() }
     var draft by rememberSaveable(id) { mutableStateOf(savedDraft.text) }
+    var provider by rememberSaveable(id) { mutableStateOf(savedDraft.provider) }
     var model by rememberSaveable(id) { mutableStateOf(savedDraft.model) }
     var reasoning by rememberSaveable(id) { mutableStateOf(savedDraft.reasoning) }
     var options by rememberSaveable(id) { mutableStateOf(false) }
@@ -208,6 +209,7 @@ fun ChatScreen(
                     editing,
                     submissionId,
                     submissionKey,
+                    provider,
                 )
     }
     SideEffect { persistDraft() }
@@ -263,6 +265,17 @@ fun ChatScreen(
         }
     val active = chat?.run?.active == true
     val selectedAgent = state.agents.find { it.id == (chat?.agentId ?: agent) }
+    val currentProvider = chat?.run?.snapshot?.agent?.provider ?: selectedAgent?.provider ?: "codex"
+    val chosenProvider = provider.ifBlank { currentProvider }
+    val switchingProvider = chat?.run != null && chosenProvider != currentProvider
+    val inheritAgentModel = chosenProvider == (selectedAgent?.provider ?: "codex")
+    val defaultModel = if (inheritAgentModel) selectedAgent?.model.orEmpty() else ""
+    val defaultReasoning = if (inheritAgentModel) selectedAgent?.reasoning.orEmpty() else ""
+    fun chooseProvider(value: String) {
+        provider = value
+        model = ""
+        reasoning = ""
+    }
     val projects =
         state.projects.filter {
             selectedAgent?.access?.projects == null ||
@@ -332,6 +345,7 @@ fun ChatScreen(
             val content = buildJsonObject {
                 put("text", draft.trim())
                 put("mode", mode)
+                put("provider", chosenProvider)
                 put("model", model)
                 put("reasoning", reasoning)
                 put(
@@ -357,6 +371,7 @@ fun ChatScreen(
                         "sending",
                         System.currentTimeMillis(),
                         attachments.map { it.attachment },
+                        provider = chosenProvider,
                     )
             try {
                 api.request(
@@ -384,6 +399,7 @@ fun ChatScreen(
         }
         editing = message.id
         draft = message.text
+        provider = message.provider.ifBlank { currentProvider }
         model = message.model
         reasoning = message.reasoning
         attachments = message.attachments.map { DraftAttachment(it) }
@@ -481,7 +497,7 @@ fun ChatScreen(
                                         enabled = !state.busy && live.error == null,
                                         onClick = {
                                             menu = false
-                                            send("steer")
+                                            send(if (switchingProvider) "queue" else "steer")
                                         },
                                     )
                                 current.runId?.let { runId ->
@@ -618,15 +634,16 @@ fun ChatScreen(
                                 options = false
                             }
                         }
+                        ChatProviderPicker(chosenProvider, switchingProvider, !state.busy, ::chooseProvider)
                         ModelPicker(
-                            if (selectedAgent?.provider == "claude") state.claudeModels else state.models,
+                            if (chosenProvider == "claude") state.claudeModels else state.models,
                             model,
                             reasoning,
-                            selectedAgent?.model.orEmpty(),
-                            selectedAgent?.reasoning.orEmpty(),
-                            inherit = true,
+                            defaultModel,
+                            defaultReasoning,
+                            inherit = inheritAgentModel,
                             enabled = !state.busy,
-                            refresh = { vm.refreshModels(selectedAgent?.provider ?: "codex") },
+                            refresh = { vm.refreshModels(chosenProvider) },
                         ) { m, r ->
                             model = m
                             reasoning = r
@@ -790,6 +807,7 @@ fun ChatScreen(
                                                                                     message.text,
                                                                                 )
                                                                                 put("mode", "steer")
+                                                                                put("provider", message.provider)
                                                                                 put(
                                                                                     "model",
                                                                                     message.model,
@@ -850,15 +868,16 @@ fun ChatScreen(
                         color = MaterialTheme.colorScheme.surface,
                     ) {
                         Column(Modifier.padding(4.dp)) {
+                            ChatProviderPicker(chosenProvider, switchingProvider, !state.busy, ::chooseProvider)
                             ModelPicker(
-                                if (selectedAgent?.provider == "claude") state.claudeModels else state.models,
+                                if (chosenProvider == "claude") state.claudeModels else state.models,
                                 model,
                                 reasoning,
-                                selectedAgent?.model.orEmpty(),
-                                selectedAgent?.reasoning.orEmpty(),
-                                inherit = true,
+                                defaultModel,
+                                defaultReasoning,
+                                inherit = inheritAgentModel,
                                 enabled = !state.busy,
-                                refresh = { vm.refreshModels(selectedAgent?.provider ?: "codex") },
+                                refresh = { vm.refreshModels(chosenProvider) },
                             ) { m, r ->
                                 model = m
                                 reasoning = r
@@ -947,8 +966,8 @@ fun ChatScreen(
                                         editing == null &&
                                         (draft.isNotBlank() || attachments.isNotEmpty())
                                 )
-                                    ActionIcon("Intervenir maintenant", LeoIcons.Steer, canSend) {
-                                        send("steer")
+                                    ActionIcon("Intervenir maintenant", LeoIcons.Steer, canSend && !switchingProvider) {
+                                        send(if (switchingProvider) "queue" else "steer")
                                     }
                                 if (active && draft.isBlank() && attachments.isEmpty())
                                     ActionIcon("Arrêter", LeoIcons.Stop, !state.busy) {

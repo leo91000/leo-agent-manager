@@ -1,4 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
+import { isolateTestCredentials } from './scripts/test-environment.mjs'
+
+isolateTestCredentials()
 
 export default defineConfig({
   testDir: './tests/e2e',

@@ -447,7 +447,7 @@ impl Chat {
                 text(&plan["execution"], "text")
             )
         } else {
-            text(&plan["execution"], "text").to_owned()
+            crate::chats::execution_text(plan)
         };
         let mut params = json!({
         "threadId":self.thread,"input":crate::attachments::input(&message, &plan["execution"]["attachments"], Path::new(text(plan,"inputDirectory")))}

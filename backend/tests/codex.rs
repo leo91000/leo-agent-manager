@@ -509,17 +509,24 @@ async fn parallel_runs_share_one_refresh_and_cannot_overwrite_or_reuse_released_
     let _second_broker = account_tokens::serve(&service, &second).await.unwrap();
     let mut a = Client::new(&first.home).unwrap();
     let mut b = Client::new(&second.home).unwrap();
-    assert_eq!(a.tokens(false).await.unwrap()["accessToken"], "synthetic");
-    assert_eq!(b.tokens(false).await.unwrap()["accessToken"], "synthetic");
+    assert!(
+        a.tokens(false).await.unwrap()["accessToken"] == "synthetic",
+        "Expected fixture credentials"
+    );
+    assert!(
+        b.tokens(false).await.unwrap()["accessToken"] == "synthetic",
+        "Expected fixture credentials"
+    );
     // Simulate a slow quota monitor owning the rotation lock. Valid token reads
     // still finish, while refresh requests remain serialized behind that owner.
     let monitoring = service.accounts.lock(id).await;
-    assert_eq!(
+    assert!(
         tokio::time::timeout(std::time::Duration::from_millis(500), a.tokens(false))
             .await
             .unwrap()
-            .unwrap()["accessToken"],
-        "synthetic"
+            .unwrap()["accessToken"]
+            == "synthetic",
+        "Expected fixture credentials"
     );
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(30), b.tokens(true))
@@ -537,11 +544,14 @@ async fn parallel_runs_share_one_refresh_and_cannot_overwrite_or_reuse_released_
     );
     drop(monitoring);
     let (a_refreshed, b_refreshed) = tokio::join!(a.tokens(true), b.tokens(true));
-    assert_eq!(
-        a_refreshed.as_ref().unwrap()["accessToken"],
-        "synthetic-refreshed"
+    assert!(
+        a_refreshed.as_ref().unwrap()["accessToken"] == "synthetic-refreshed",
+        "Expected refreshed fixture credentials"
     );
-    assert_eq!(a_refreshed.unwrap(), b_refreshed.unwrap());
+    assert!(
+        a_refreshed.unwrap() == b_refreshed.unwrap(),
+        "Fixture refreshes must match"
+    );
     // A run can neither roll credentials back nor inject another identity.
     std::fs::write(
         first.home.join("auth.json"),
@@ -550,9 +560,9 @@ async fn parallel_runs_share_one_refresh_and_cannot_overwrite_or_reuse_released_
     .unwrap();
     service.accounts.release(&service, &first).await.unwrap();
     assert!(a.tokens(false).await.is_err());
-    assert_eq!(
-        b.tokens(false).await.unwrap()["accessToken"],
-        "synthetic-refreshed"
+    assert!(
+        b.tokens(false).await.unwrap()["accessToken"] == "synthetic-refreshed",
+        "Expected refreshed fixture credentials"
     );
     assert_eq!(service.accounts.active(id).await.len(), 1);
     assert!(service.account_login("Shared", Some(id)).await.is_err());

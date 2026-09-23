@@ -15,19 +15,30 @@ unavailable rather than inventing current model capabilities.
 
 Claude agents support scheduled tasks, chats, streaming text and tool results,
 image/file attachments, queued follow-ups, steering, native questions, cancellation,
-and resumption. Changing a model applies to the next queued turn. Changing an
-agent’s provider requires a new conversation; Claude and Codex session IDs cannot
-be mixed. Completion receipts prevent a finished request from being repeated after
-a worker restart. Interrupted requests tell the agent to inspect completed work
-and verify external effects before continuing.
+and resumption. Changing a model applies to the next queued turn. The chat composer
+also switches between Codex and Claude Code without creating another visible chat.
+The server waits for the current turn to finish, starts a fresh native session,
+and transfers visible conversation context while retaining the same workspace.
+Switching back also starts a fresh session so the intervening work is included.
+Native session IDs, pending tool calls and hidden reasoning are not transferred.
+Private question answers and raw tool outputs are excluded from the transfer.
+For long chats, the transfer includes up to 200 recent transcript entries and
+100,000 characters, plus an excerpt of the initial request when earlier history
+is omitted. The full visible history stays available in Léo. Previous attachments
+remain in the retained input directory. Model and effort defaults are reset when
+changing providers; the agent's global configuration is unchanged.
 
-This provider boundary is a current Léo implementation constraint. Within one
-provider, the chat model control already changes the next message's model. A
-cross-provider handoff could keep the same visible chat by creating a new native
-session and providing conversation text or a summary plus the retained workspace.
-It cannot directly resume the other provider's session ID, tool-call state or
-checkpoint. That handoff is not implemented; connecting a Claude account does not
-change existing Codex agents or conversations.
+An explicit provider choice is saved with each queued message. Steering cannot
+change the running turn's provider. Older clients that omit the provider continue
+with the chat's current provider. Completion receipts prevent finished requests
+from being repeated after a worker restart. Interrupted requests preserve completed
+work and verify external effects before continuing.
+
+The design review used [T3 Code](https://github.com/pingdotgg/t3code/tree/f5ef0ddb90a8c36584e181b1913e7b8a5df30ffc),
+under its MIT license. Its provider reactor separates visible threads from native
+sessions, but explicitly rejects switching drivers on an existing thread. Léo's
+context transfer is an independent implementation, not a port of a T3 Code feature.
+No T3 Code runtime dependency or source code is included.
 
 ## Installation and authentication
 

@@ -25,6 +25,7 @@ data class ChatMessage(
     val createdAt: Long = 0,
     val attachments: List<ChatAttachment> = emptyList(),
     val questionId: String? = null,
+    val provider: String = "",
 )
 
 @Serializable data class QuestionOption(val label: String, val description: String = "")

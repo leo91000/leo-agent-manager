@@ -33,6 +33,7 @@ const deliverables = computed(() => live.snapshot.value?.artifacts ?? [])
 const draft = ref('')
 const model = ref('')
 const reasoning = ref('')
+const provider = ref<'' | 'codex' | 'claude'>('')
 const options = ref(false)
 const notifications = ref(false)
 const history = ref(false)
@@ -134,6 +135,14 @@ watch(events, (items) => {
 })
 const selectedAgent = computed(() => state.agents.find(agent => agent.id === (detail.value?.agentId || agentId.value)))
 const agents = computed(() => state.agents.map(agent => ({ value: agent.id, label: agent.name, icon: Bot, description: agent.id === MAIN_AGENT_ID ? 'Full access' : agent.description })))
+const currentProvider = computed(() => detail.value?.run?.snapshot.agent.provider || selectedAgent.value?.provider || 'codex')
+const chosenProvider = computed({ get: () => provider.value || currentProvider.value, set: (value: 'codex' | 'claude') => {
+  provider.value = value
+  model.value = ''
+  reasoning.value = ''
+} })
+const switchingProvider = computed(() => !!detail.value?.run && chosenProvider.value !== currentProvider.value)
+const inheritAgentModel = computed(() => chosenProvider.value === (selectedAgent.value?.provider || 'codex'))
 const projects = computed(() => [{ value: '', label: 'No project', description: 'Use the agent’s available workspaces', icon: FolderGit2 }, ...state.projects.filter(project => selectedAgent.value?.access.projects === null || selectedAgent.value?.access.projects.includes(project.id)).map(project => ({ value: project.id, label: project.name, icon: FolderGit2 }))])
 const draftKey = `leo-chat-draft:${route.params.id || `new:${agentId.value}:${projectId.value}`}`
 draft.value = sessionStorage.getItem(draftKey) ?? ''
@@ -151,7 +160,7 @@ watch(live.error, (value) => {
     error.value = value
 })
 onBeforeUnmount(clearAttachments)
-let submission: { id: string, text: string, mode: 'queue' | 'steer', model: string, reasoning: string, attachmentIds: string[] } | undefined
+let submission: { id: string, text: string, mode: 'queue' | 'steer', provider: 'codex' | 'claude', model: string, reasoning: string, attachmentIds: string[] } | undefined
 let createdChat: Chat | undefined
 function newConversation() {
   outgoing.value = null
@@ -159,6 +168,9 @@ function newConversation() {
   detailsOpen.value = false
   draft.value = ''
   clearAttachments()
+  provider.value = ''
+  model.value = ''
+  reasoning.value = ''
   agentId.value = MAIN_AGENT_ID
   projectId.value = ''
   createdChat = undefined
@@ -189,8 +201,8 @@ async function send(mode: 'queue' | 'steer' = 'queue') {
     uploadProgress.value = ''
     const attachmentIds = attachments.value.map(attachment => attachment.id)
     // Retain the id after a network failure so retry cannot duplicate a message.
-    if (!submission || submission.text !== text || submission.mode !== mode || submission.model !== model.value || submission.reasoning !== reasoning.value || submission.attachmentIds.join() !== attachmentIds.join())
-      submission = { id: crypto.randomUUID(), text, mode, model: model.value, reasoning: reasoning.value, attachmentIds }
+    if (!submission || submission.text !== text || submission.mode !== mode || submission.provider !== chosenProvider.value || submission.model !== model.value || submission.reasoning !== reasoning.value || submission.attachmentIds.join() !== attachmentIds.join())
+      submission = { id: crypto.randomUUID(), text, mode, provider: chosenProvider.value, model: model.value, reasoning: reasoning.value, attachmentIds }
     if (direct)
       outgoing.value = { ...submission, chatId: chat.id, status: 'queued', createdAt: Date.now(), attachments: [...attachments.value] }
     await api(`/chats/${chat.id}/messages${editing.value ? `/${editing.value}` : ''}`, { method: editing.value ? 'PUT' : 'POST', body: JSON.stringify(submission) })
@@ -242,6 +254,7 @@ function edit(message: ChatMessage) {
   clearAttachments()
   attachments.value = [...(message.attachments ?? [])]
   draft.value = message.text
+  provider.value = message.provider || currentProvider.value
   model.value = message.model
   reasoning.value = message.reasoning || ''
   textarea.value?.focus()
@@ -253,7 +266,7 @@ function key(event: KeyboardEvent) {
   if (window.matchMedia('(pointer: coarse)').matches && !event.ctrlKey && !event.metaKey)
     return
   event.preventDefault()
-  void send(event.altKey && active.value ? 'steer' : 'queue')
+  void send(event.altKey && active.value && !switchingProvider.value ? 'steer' : 'queue')
 }
 </script>
 
@@ -433,8 +446,9 @@ function key(event: KeyboardEvent) {
             </div>
             <textarea ref="textarea" v-model="draft" aria-label="Message" :placeholder="responding ? 'Add a follow-up…' : 'Message your agent…'" rows="2" maxlength="50000" class="block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!" @keydown="key" />
             <div v-if="options" class="mb-3 border-t border-line pt-3">
-              <ModelSettings v-model:model="model" v-model:reasoning="reasoning" :provider="selectedAgent?.provider" inherit :default-model="selectedAgent?.model" :default-reasoning="selectedAgent?.reasoning" :disabled="busy" /><p class="my-1! text-[10px] text-muted">
-                Model and reasoning changes apply to the next turn.
+              <VirtualSelect v-model="chosenProvider" label="Coding agent" :options="[{ value: 'codex', label: 'Codex' }, { value: 'claude', label: 'Claude Code' }]" :disabled="busy" class="mb-3" />
+              <ModelSettings v-model:model="model" v-model:reasoning="reasoning" :provider="chosenProvider" :inherit="inheritAgentModel" :default-model="inheritAgentModel ? selectedAgent?.model : ''" :default-reasoning="inheritAgentModel ? selectedAgent?.reasoning : ''" :disabled="busy" /><p class="my-2! text-xs text-muted" role="status">
+                {{ switchingProvider ? 'The next message starts a new agent session with this chat’s context and existing files.' : 'Model and reasoning changes apply to the next turn.' }}
               </p>
             </div>
             <div class="flex items-center justify-between gap-2 pt-2">
@@ -444,14 +458,14 @@ function key(event: KeyboardEvent) {
                   <Icon :name="Paperclip" :size="18" />
                 </button>
                 <button type="button" class="flex items-center gap-1.5 rounded-md px-1 py-1 text-[10px] text-muted hover:text-accent" :aria-expanded="options" aria-label="Message options" @click="options = !options">
-                  <Icon :name="Settings" :size="14" /><span class="max-w-28 truncate phone:hidden">{{ model || 'Agent default' }}</span>
+                  <Icon :name="Settings" :size="14" /><span class="max-w-36 truncate">{{ chosenProvider === 'claude' ? 'Claude' : 'Codex' }} · {{ model || 'Default' }}</span>
                 </button>
               </div>
               <div class="flex items-center gap-2">
                 <button v-if="active && !editing" type="button" :class="iconButton" aria-label="Stop response" title="Stop response and pause queue" :disabled="busy" @click="action('stop')">
                   <Icon :name="Square" :size="14" />
                 </button>
-                <UiButton v-if="active && !editing" type="button" size="small" :disabled="busy || !canSend" aria-label="Steer now" title="Send into the current turn (Alt + Enter)" @click="send('steer')">
+                <UiButton v-if="active && !editing" type="button" size="small" :disabled="busy || !canSend || switchingProvider" aria-label="Steer now" title="Send into the current turn (Alt + Enter)" @click="send('steer')">
                   <Icon :name="Zap" :size="14" /><span class="phone:hidden">Steer now</span><span class="hidden phone:inline">Steer</span>
                 </UiButton>
                 <UiButton type="submit" variant="primary" size="small" :disabled="busy || !canSend">

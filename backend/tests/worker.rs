@@ -15,6 +15,90 @@ struct Fixture {
     service: Arc<Service>,
     process: Option<Child>,
 }
+
+#[tokio::test]
+async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replaying_turns() {
+    let mut fixture = Fixture::new().await;
+    let s = &fixture.service;
+    let claude_home = leo_agent_manager::claude::home(&s.config);
+    std::fs::create_dir_all(&claude_home).unwrap();
+    std::fs::write(claude_home.join(".credentials.json"), "{\"fixture\":true}").unwrap();
+    let chat = s.chat_create(json!({})).await.unwrap();
+    let chat_id = text(&chat, "id");
+    s.chat_send(
+        chat_id,
+        json!({"id":id(),"text":"Keep the existing design and inspect the workspace."}),
+    )
+    .await
+    .unwrap();
+    let run_id = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let detail = s.chat_detail(chat_id).await.unwrap();
+            if let Some(id) = detail["runId"].as_str() {
+                break id.to_owned();
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let first = fixture.until(&run_id, |r| r["status"] == "succeeded").await;
+    let marker = std::path::Path::new(text(&first, "workspace")).join("preserved.txt");
+    std::fs::write(&marker, "completed work").unwrap();
+    let message =
+        json!({"id":id(),"text":"Continue with Claude.","provider":"claude","model":"opus[1m]"});
+    s.chat_send(chat_id, message.clone()).await.unwrap();
+    let second = fixture
+        .until(&run_id, |r| {
+            r["status"] == "succeeded" && r["chatExecution"]["messageId"] == message["id"]
+        })
+        .await;
+    assert_eq!(second["snapshot"]["agent"]["provider"], "claude");
+    assert_eq!(second["workspace"], first["workspace"]);
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "completed work");
+    let messages = std::fs::read_to_string(claude_home.join("user-messages.jsonl")).unwrap();
+    assert!(messages.contains("Keep the existing design"));
+    assert!(messages.contains("The approach looks good"));
+    assert!(messages.contains("Continue with Claude"));
+    let invocations = std::fs::read_to_string(claude_home.join("invocations.jsonl")).unwrap();
+    assert!(!invocations.contains("--resume"));
+    // Retry the same delivery after the provider changed: it stays one message.
+    s.chat_send(chat_id, message.clone()).await.unwrap();
+    assert_eq!(
+        s.chat_detail(chat_id).await.unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let continuation = json!({"id":id(),"text":"Keep using Claude."});
+    s.chat_send(chat_id, continuation.clone()).await.unwrap();
+    fixture
+        .until(&run_id, |r| {
+            r["status"] == "succeeded" && r["chatExecution"]["messageId"] == continuation["id"]
+        })
+        .await;
+    assert!(
+        std::fs::read_to_string(claude_home.join("invocations.jsonl"))
+            .unwrap()
+            .contains("--resume")
+    );
+    let back =
+        json!({"id":id(),"text":"Return to Codex and preserve the decisions.","provider":"codex"});
+    s.chat_send(chat_id, back.clone()).await.unwrap();
+    let last = fixture
+        .until(&run_id, |r| {
+            r["status"] == "succeeded" && r["chatExecution"]["messageId"] == back["id"]
+        })
+        .await;
+    assert_eq!(last["snapshot"]["agent"]["provider"], "codex");
+    assert_eq!(last["workspace"], first["workspace"]);
+    assert!(text(&last, "summary").contains("Claude fixture completed"));
+    assert!(text(&last, "summary").contains("Keep the existing design"));
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "completed work");
+    assert_eq!(s.chat_detail(chat_id).await.unwrap()["runId"], run_id);
+    fixture.stop(false).await;
+}
 impl Fixture {
     async fn new() -> Self {
         let root = TempDir::new().unwrap();
@@ -31,7 +115,10 @@ impl Fixture {
                 .join("../tests/fixtures/codex.mjs")
                 .to_string_lossy()
                 .into_owned(),
-            claude_bin: "claude".into(),
+            claude_bin: std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tests/fixtures/claude.mjs")
+                .to_string_lossy()
+                .into_owned(),
             gh_bin: "gh".into(),
             concurrency: 2,
             logger: false,

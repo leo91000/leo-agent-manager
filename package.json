@@ -1,7 +1,7 @@
 {
   "name": "leo-agent-manager",
   "type": "module",
-  "version": "0.24.2",
+  "version": "0.25.0",
   "private": true,
   "packageManager": "pnpm@12.3.4",
   "description": "A private control room for your coding agents, scheduled work, and shared skills.",
@@ -21,7 +21,7 @@
     "lint": "eslint . && cargo fmt --all --check",
     "lint:fix": "eslint . --fix && cargo fmt --all",
     "build:backend": "cargo build --release --bin leo",
-    "test:backend": "cargo test --workspace"
+    "test:backend": "node scripts/test-backend.mjs"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "5.3.0",

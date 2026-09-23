@@ -293,4 +293,5 @@ data class ChatDraft(
     val editing: String? = null,
     val submissionId: String = "",
     val submissionKey: String = "",
+    val provider: String = "",
 )

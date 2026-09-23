@@ -54,6 +54,8 @@ else {
   }
   lines.on('line', (line) => {
     const value = JSON.parse(line)
+    if (value.type === 'user')
+      appendFileSync(path.join(home, 'user-messages.jsonl'), `${JSON.stringify(value)}\n`)
     if (value.type === 'control_request') {
       out({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response: { models: [{ value: 'sonnet', displayName: 'Sonnet', description: 'Balanced Claude model', supportedEffortLevels: ['low', 'medium', 'high'] }, { value: 'opus', displayName: 'Opus', description: 'Deep reasoning', supportedEffortLevels: ['low', 'medium', 'high', 'max'] }] } } })
       return
