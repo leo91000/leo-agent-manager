@@ -88,7 +88,7 @@ test('switching coding agents preserves one chat, context and provider selection
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
     await expectSingleScroll(page)
-    await page.screenshot({ path: testInfo.outputPath(`chat-provider-${width}.png`) })
+    await page.screenshot({ path: testInfo.outputPath(`chat-provider-${width}.png`), animations: 'disabled' })
   }
   await page.getByLabel('Message', { exact: true }).fill('Continue with Claude using the previous decisions.')
   await page.getByRole('button', { name: 'Send', exact: true }).click()

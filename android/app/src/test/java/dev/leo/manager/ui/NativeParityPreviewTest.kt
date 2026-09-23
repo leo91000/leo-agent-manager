@@ -226,8 +226,10 @@ class NativeParityPreviewTest {
                     awaitMarkdown(activity, "La nouvelle interface")
                     if (compact) {
                         val composer = compose.onNodeWithTag("conversation-composer")
-                        // Model/effort controls now stay visible above the message field.
-                        composer.assertIsDisplayed().assertCompactHeight(if (largeText) 184.dp else 120.dp)
+                        // Provider chips add one 48dp touch row above the model/effort controls.
+                        composer.assertIsDisplayed().assertCompactHeight(if (largeText) 232.dp else 168.dp)
+                        compose.onNodeWithText("Codex").assertIsDisplayed()
+                        compose.onNodeWithText("Claude Code").assertIsDisplayed()
                         compose.onNodeWithTag("model-picker").assertIsDisplayed()
                         compose.onNodeWithTag("reasoning-picker").assertIsDisplayed()
                         compose.onNodeWithTag("conversation-header").assertCompactHeight(if (largeText) 80.dp else 64.dp)
