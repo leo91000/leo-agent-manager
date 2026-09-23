@@ -119,7 +119,10 @@ function close() {
   removeEventListener('resize', place)
   trigger.value?.focus({ preventScroll: true })
 }
-watch(provider, () => void reload(), { immediate: true })
+watch(provider, () => {
+  if (open.value)
+    void reload()
+})
 onBeforeUnmount(() => removeEventListener('resize', place))
 </script>
 
