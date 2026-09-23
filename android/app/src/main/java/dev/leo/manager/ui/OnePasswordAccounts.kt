@@ -1,11 +1,9 @@
 package dev.leo.manager.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import dev.leo.manager.data.*
 import kotlinx.serialization.Serializable
@@ -108,7 +106,7 @@ fun OnePasswordEditor(vm: LeoViewModel, state: Workspace, initial: OnePasswordAc
         OutlinedTextField(token, { token = it }, Modifier.fillMaxWidth(),
             label = { Text("Token de compte de service") }, singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), enabled = !state.busy)
+            keyboardOptions = InputKeyboards.Password, enabled = !state.busy)
         Text(if (initial.id.isBlank()) "Token ops_… chiffré sur le serveur, jamais réaffiché." else "Laissez vide pour conserver le token enregistré.")
         Text("Les agents disposent uniquement de la lecture. Les coffres accessibles dépendent des permissions du compte dans 1Password.")
         Toggle("Activer ce compte", enabled) { if (!state.busy) enabled = it }

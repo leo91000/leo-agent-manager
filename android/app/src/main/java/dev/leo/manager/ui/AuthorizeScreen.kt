@@ -40,6 +40,7 @@ fun AuthorizeScreen(vm: LeoViewModel, state: Workspace, sharedUrl: String, consu
                 preview = null
                 redirect = ""
             },
+            keyboardOptions = InputKeyboards.Uri,
         )
         Button(
             onClick = {

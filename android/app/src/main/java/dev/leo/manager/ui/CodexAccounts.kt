@@ -269,7 +269,12 @@ fun CodexAccounts(vm: LeoViewModel, state: Workspace, openRun: (String) -> Unit)
         ) {
             Field("Nom du compte", name, { name = it })
             if (initial != null)
-                Field("Exécutions parallèles (1–4)", concurrency, { concurrency = it })
+                Field(
+                    "Exécutions parallèles (1–4)",
+                    concurrency,
+                    { concurrency = it },
+                    keyboardOptions = InputKeyboards.Number,
+                )
             else
                 Text("La connexion s’effectue avec votre compte ChatGPT et un code à usage unique.")
         }

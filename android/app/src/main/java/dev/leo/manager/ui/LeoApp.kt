@@ -6,7 +6,6 @@
 package dev.leo.manager.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -16,7 +15,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -271,7 +269,7 @@ private fun LoginScreen(vm: LeoViewModel, state: Workspace) {
                                 label = { Text("Adresse du serveur") },
                                 placeholder = { Text("https://leo.exemple.fr") },
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                                keyboardOptions = InputKeyboards.Uri,
                             )
                             Button(
                                 onClick = { vm.perform { connect(origin) } },
@@ -291,6 +289,7 @@ private fun LoginScreen(vm: LeoViewModel, state: Workspace) {
                                     { setupToken = it },
                                     Modifier.fillMaxWidth(),
                                     label = { Text("Jeton d’installation") },
+                                    keyboardOptions = InputKeyboards.Password,
                                     visualTransformation = PasswordVisualTransformation(),
                                     singleLine = true,
                                 )
@@ -308,8 +307,7 @@ private fun LoginScreen(vm: LeoViewModel, state: Workspace) {
                                 },
                                 visualTransformation = PasswordVisualTransformation(),
                                 singleLine = true,
-                                keyboardOptions =
-                                    KeyboardOptions(keyboardType = KeyboardType.Password),
+                                keyboardOptions = InputKeyboards.Password,
                             )
                             Button(
                                 onClick = {

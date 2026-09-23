@@ -210,6 +210,7 @@ internal fun SearchField(label: String, value: String, change: (String) -> Unit)
         change,
         Modifier.fillMaxWidth(),
         placeholder = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        keyboardOptions = InputKeyboards.Search,
         singleLine = true,
         shape = RoundedCornerShape(12.dp),
         textStyle = MaterialTheme.typography.bodyMedium,

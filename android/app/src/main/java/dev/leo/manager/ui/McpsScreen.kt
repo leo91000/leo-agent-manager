@@ -274,7 +274,12 @@ internal fun McpEditor(vm: LeoViewModel, state: Workspace, initial: Mcp, close: 
             form = form.copy(transport = it)
         }
         if (form.transport == "http") {
-            Field("Adresse du MCP", form.url, { form = form.copy(url = it) })
+            Field(
+                "Adresse du MCP",
+                form.url,
+                { form = form.copy(url = it) },
+                keyboardOptions = InputKeyboards.Uri,
+            )
             Toggle("Autoriser les adresses du réseau privé", form.allowPrivateNetwork) {
                 form = form.copy(allowPrivateNetwork = it)
             }
@@ -297,6 +302,7 @@ internal fun McpEditor(vm: LeoViewModel, state: Workspace, initial: Mcp, close: 
                     "Identifiant du client (facultatif)",
                     form.clientId,
                     { form = form.copy(clientId = it) },
+                    keyboardOptions = InputKeyboards.Literal,
                 )
                 SecretField(
                     if (initial.hasClientSecret) "Nouveau secret (vide = conserver)"
@@ -305,7 +311,12 @@ internal fun McpEditor(vm: LeoViewModel, state: Workspace, initial: Mcp, close: 
                 ) {
                     secret = it
                 }
-                Field("Scopes (facultatifs)", form.scopes, { form = form.copy(scopes = it) })
+                Field(
+                    "Scopes (facultatifs)",
+                    form.scopes,
+                    { form = form.copy(scopes = it) },
+                    keyboardOptions = InputKeyboards.Literal,
+                )
                 if (initial.callbackUrl.isNotBlank()) {
                     Text("Adresse de retour")
                     Code(initial.callbackUrl)
@@ -313,13 +324,19 @@ internal fun McpEditor(vm: LeoViewModel, state: Workspace, initial: Mcp, close: 
                 }
             }
         } else {
-            Field("Commande", form.command, { form = form.copy(command = it) })
+            Field(
+                "Commande",
+                form.command,
+                { form = form.copy(command = it) },
+                keyboardOptions = InputKeyboards.Literal,
+            )
             args.forEachIndexed { index, value ->
                 Field(
                     "Argument ${index + 1}",
                     value,
                     { next -> args = args.toMutableList().also { it[index] = next } },
                     3,
+                    keyboardOptions = InputKeyboards.Literal,
                 )
                 TextButton(
                     onClick = { args = args.filterIndexed { position, _ -> position != index } }
@@ -339,6 +356,7 @@ internal fun McpEditor(vm: LeoViewModel, state: Workspace, initial: Mcp, close: 
                         env = env.toMutableList().also { it[index] = row.copy(key = value) }
                     },
                     enabled = !row.saved,
+                    keyboardOptions = InputKeyboards.Literal,
                 )
                 SecretField(if (row.saved) "Valeur (vide = conserver)" else "Valeur", row.value) {
                     value ->
@@ -364,6 +382,7 @@ internal fun SecretField(label: String, value: String, change: (String) -> Unit)
         Modifier.fillMaxWidth(),
         label = { Text(label) },
         visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = InputKeyboards.Password,
         singleLine = true,
     )
 }
@@ -392,7 +411,7 @@ private fun McpToolsEditor(vm: LeoViewModel, state: Workspace, initial: Mcp, clo
         },
     ) {
         Toggle("Tous les outils, y compris les futurs", all) { all = it }
-        Field("Rechercher un outil", query, { query = it })
+        Field("Rechercher un outil", query, { query = it }, keyboardOptions = InputKeyboards.Search)
         initial.tools
             .filter { "${it.name} ${it.description}".contains(query, true) }
             .forEach { tool ->

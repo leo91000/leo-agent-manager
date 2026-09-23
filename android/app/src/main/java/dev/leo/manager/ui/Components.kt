@@ -7,6 +7,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -179,12 +180,14 @@ fun Field(
     onChange: (String) -> Unit,
     lines: Int = 1,
     enabled: Boolean = true,
+    keyboardOptions: KeyboardOptions = InputKeyboards.Sentences,
 ) {
     OutlinedTextField(
         value,
         onChange,
         Modifier.fillMaxWidth(),
         label = { Text(label) },
+        keyboardOptions = keyboardOptions,
         minLines = lines,
         maxLines = if (lines == 1) 1 else 20,
         singleLine = lines == 1,

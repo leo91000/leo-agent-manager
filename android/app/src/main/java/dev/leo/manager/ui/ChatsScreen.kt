@@ -902,6 +902,7 @@ fun ChatScreen(
                                         androidx.compose.ui.graphics.SolidColor(
                                             MaterialTheme.colorScheme.primary
                                         ),
+                                    keyboardOptions = InputKeyboards.Sentences,
                                     maxLines = 4,
                                     enabled = !state.busy,
                                     decorationBox = { inner ->
@@ -1083,6 +1084,7 @@ private fun QuestionDialog(
                                     Modifier.fillMaxWidth(),
                                     label = { Text("Réponse privée") },
                                     visualTransformation = PasswordVisualTransformation(),
+                                    keyboardOptions = InputKeyboards.Password,
                                 )
                             else
                                 Field(

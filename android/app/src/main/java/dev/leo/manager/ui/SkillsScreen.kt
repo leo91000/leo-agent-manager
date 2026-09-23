@@ -131,7 +131,13 @@ private fun SkillEditor(vm: LeoViewModel, state: Workspace, initial: Skill?, clo
                 content.isNotBlank() &&
                 content.length <= 100000,
     ) {
-        Field("Nom du dossier", name, { name = it }, enabled = initial == null)
+        Field(
+            "Nom du dossier",
+            name,
+            { name = it },
+            enabled = initial == null,
+            keyboardOptions = InputKeyboards.Literal,
+        )
         if (initial == null)
             Choice(
                 "Portée",
@@ -141,7 +147,15 @@ private fun SkillEditor(vm: LeoViewModel, state: Workspace, initial: Skill?, clo
                 scope = it
             }
         Toggle("Aperçu Markdown", preview) { preview = it }
-        if (preview) Markdown(content) else Field("SKILL.md", content, { content = it }, 12)
+        if (preview) Markdown(content)
+        else
+            Field(
+                "SKILL.md",
+                content,
+                { content = it },
+                12,
+                keyboardOptions = InputKeyboards.Literal,
+            )
         if (initial != null) {
             Text("Fichiers de support", style = MaterialTheme.typography.titleMedium)
             files
@@ -215,9 +229,18 @@ private fun SupportingFileEditor(
             path,
             { path = it },
             enabled = initialPath.isEmpty(),
+            keyboardOptions = InputKeyboards.Literal,
         )
         Toggle("Aperçu Markdown", preview) { preview = it }
         if (preview) Markdown(content)
-        else Field("Contenu", content, { content = it }, 15, enabled = ready)
+        else
+            Field(
+                "Contenu",
+                content,
+                { content = it },
+                15,
+                enabled = ready,
+                keyboardOptions = InputKeyboards.Literal,
+            )
     }
 }

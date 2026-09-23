@@ -183,7 +183,12 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
             form = form.copy(model = model, reasoning = reasoning)
         }
         Field("Instructions", form.instructions, { form = form.copy(instructions = it) }, 6)
-        Field("Limite en minutes (1–720)", timeout, { timeout = it })
+        Field(
+            "Limite en minutes (1–720)",
+            timeout,
+            { timeout = it },
+            keyboardOptions = InputKeyboards.Number,
+        )
         Text("Accès de l’agent", style = MaterialTheme.typography.titleMedium)
         Choice(
             "Environnement",
@@ -363,8 +368,18 @@ private fun ProjectEditor(vm: LeoViewModel, state: Workspace, initial: Project, 
             else "Utilise les fichiers commités de la branche locale.",
             style = MaterialTheme.typography.bodySmall,
         )
-        Field("Chemin sur le serveur", form.path, { form = form.copy(path = it) })
-        Field("Branche de base", form.baseBranch, { form = form.copy(baseBranch = it) })
+        Field(
+            "Chemin sur le serveur",
+            form.path,
+            { form = form.copy(path = it) },
+            keyboardOptions = InputKeyboards.Literal,
+        )
+        Field(
+            "Branche de base",
+            form.baseBranch,
+            { form = form.copy(baseBranch = it) },
+            keyboardOptions = InputKeyboards.Literal,
+        )
     }
 }
 

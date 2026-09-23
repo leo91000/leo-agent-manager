@@ -536,8 +536,14 @@ internal fun TaskEditor(
                     form = form.copy(cron = it)
                     cadence = "custom"
                 },
+                keyboardOptions = InputKeyboards.Literal,
             )
-            Field("Fuseau horaire", form.timezone, { form = form.copy(timezone = it) })
+            Field(
+                "Fuseau horaire",
+                form.timezone,
+                { form = form.copy(timezone = it) },
+                keyboardOptions = InputKeyboards.Literal,
+            )
             OutlinedButton(
                 onClick = {
                     vm.perform {
@@ -557,7 +563,12 @@ internal fun TaskEditor(
             occurrences.forEach { Text(date(it)) }
         }
         Toggle("Planification active", form.enabled) { form = form.copy(enabled = it) }
-        Field("Étiquettes séparées par des virgules", tags, { tags = it })
+        Field(
+            "Étiquettes séparées par des virgules",
+            tags,
+            { tags = it },
+            keyboardOptions = InputKeyboards.Literal,
+        )
         Text("Skills", style = MaterialTheme.typography.titleMedium)
         Toggle("Tous les skills autorisés", form.skills == null) {
             form = form.copy(skills = if (it) null else emptyList())

@@ -413,7 +413,12 @@ fun ModelPicker(
             it.reasoningEffort to it.reasoningEffort
         }
     if (efforts.isEmpty())
-        Field("Raisonnement (vide = par défaut)", reasoning, { change(model, it) })
+        Field(
+            "Raisonnement (vide = par défaut)",
+            reasoning,
+            { change(model, it) },
+            keyboardOptions = InputKeyboards.Literal,
+        )
     else
         Choice(
             "Raisonnement",
@@ -427,7 +432,13 @@ fun ModelPicker(
         ) {
             change(model, it)
         }
-    if (catalog.models.isEmpty()) Field("Nom du modèle", model, { change(it, reasoning) })
+    if (catalog.models.isEmpty())
+        Field(
+            "Nom du modèle",
+            model,
+            { change(it, reasoning) },
+            keyboardOptions = InputKeyboards.Literal,
+        )
     if (catalog.stale || catalog.error.isNotBlank())
         Text(
             catalog.error.ifBlank { "Catalogue enregistré ; actualisation en attente." },
