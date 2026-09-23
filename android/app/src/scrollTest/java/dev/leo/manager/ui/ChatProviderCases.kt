@@ -46,7 +46,7 @@ abstract class ChatProviderCases {
                 }
             }
             server.start()
-            val vm = LeoViewModel(ApplicationProvider.getApplicationContext<Application>(), MemoryVault())
+            val vm = LeoViewModel(ApplicationProvider.getApplicationContext<Application>(), ProviderVault())
             val restoration = StateRestorationTester(compose)
             restoration.setContent {
                 val state by vm.state.collectAsStateWithLifecycle()
@@ -78,5 +78,13 @@ abstract class ChatProviderCases {
             assertEquals("codex", sent[1]["provider"]?.jsonPrimitive?.content)
             assertNotEquals(sent[0]["id"], sent[1]["id"])
         }
+    }
+}
+
+private class ProviderVault : SessionVault {
+    private val values = mutableMapOf<String, String>()
+    override fun read(origin: String) = values[origin]
+    override fun write(origin: String, cookie: String?) {
+        if (cookie == null) values.remove(origin) else values[origin] = cookie
     }
 }

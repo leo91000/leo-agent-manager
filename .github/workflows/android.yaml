@@ -28,7 +28,7 @@ jobs:
       - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - name: Test, lint and build debug
         working-directory: android
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --no-daemon
       - name: Build optimized release
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
