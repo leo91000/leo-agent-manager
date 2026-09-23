@@ -1,4 +1,10 @@
-# Leo Android 0.10.1 — Configurable parallel runs
+# Leo Android 0.10.2 — Fresh model catalogs
+
+Opening model or reasoning settings reloads the selected provider's catalog, including in an existing chat. The open picker also refreshes on foreground return and every five minutes. **Actualiser les modèles** retries without changing the selected model or effort. Network failures retain the last catalog, including for Claude. Installable development APK: code 23.
+
+Server 0.24.2 updates the manager and guest Codex CLI to 0.156.1, whose catalog includes GPT-6 Sol and Luna. Actual options still come from the connected accounts, without hard-coded additions or an inference request.
+
+## Previous release: Leo Android 0.10.1 — Configurable parallel runs
 
 Codex accounts now accept parallel-run limits above four in Connections. The minimum remains one. Requires Léo server 0.24.1, whose global `CONCURRENCY` also accepts values above four (default four). Installable development APK: code 22.
 

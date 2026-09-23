@@ -30,6 +30,8 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.leo.manager.data.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 internal fun effortLabel(value: String): String =
@@ -66,9 +68,23 @@ fun ModelPicker(
     defaultReasoning: String = "",
     inherit: Boolean = false,
     enabled: Boolean = true,
+    refresh: (suspend () -> Unit)? = null,
     change: (String, String) -> Unit,
 ) {
     var sheet by rememberSaveable { mutableStateOf("") }
+    var refreshing by remember { mutableStateOf(false) }
+    var refreshError by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    suspend fun reload() {
+        if (refreshing || refresh == null) return
+        refreshing = true
+        refreshError = ""
+        try { refresh() }
+        catch (e: Exception) {
+            if (e is CancellationException) throw e
+            refreshError = "Catalogue temporairement indisponible. Réessayez."
+        } finally { refreshing = false }
+    }
     val selected = selectedModel(catalog, model, defaultModel)
     val inheritedEffort =
         if (inherit && model.isBlank())
@@ -105,6 +121,7 @@ fun ModelPicker(
             onDismissRequest = { sheet = "" },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
+            if (refresh != null) Poll(sheet, 300_000) { reload() }
             Column(
                 Modifier.fillMaxWidth()
                     .testTag("model-settings-sheet")
@@ -126,6 +143,14 @@ fun ModelPicker(
                         "Ces réglages s’appliquent au prochain message.",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                if (refresh != null) {
+                    TextButton(
+                        onClick = { scope.launch { reload() } },
+                        enabled = !refreshing,
+                        modifier = Modifier.testTag("refresh-models"),
+                    ) { Text(if (refreshing) "Actualisation des modèles…" else "Actualiser les modèles") }
+                }
+                if (refreshError.isNotBlank()) Text(refreshError, color = MaterialTheme.colorScheme.error)
                 if (sheet == "model") {
                     var query by rememberSaveable { mutableStateOf("") }
                     OutlinedTextField(

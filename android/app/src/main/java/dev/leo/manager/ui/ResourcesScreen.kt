@@ -182,7 +182,7 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
         Choice("Assistant de code", form.provider, listOf("codex" to "Codex", "claude" to "Claude Code")) {
             form = form.copy(provider = it, model = "", reasoning = "")
         }
-        ModelPicker(if (form.provider == "claude") state.claudeModels else state.models, form.model, form.reasoning, enabled = !state.busy) { model, reasoning ->
+        ModelPicker(if (form.provider == "claude") state.claudeModels else state.models, form.model, form.reasoning, enabled = !state.busy, refresh = { vm.refreshModels(form.provider) }) { model, reasoning ->
             form = form.copy(model = model, reasoning = reasoning)
         }
         Field("Instructions", form.instructions, { form = form.copy(instructions = it) }, 6)

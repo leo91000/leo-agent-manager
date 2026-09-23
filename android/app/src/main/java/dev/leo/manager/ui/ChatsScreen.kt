@@ -626,6 +626,7 @@ fun ChatScreen(
                             selectedAgent?.reasoning.orEmpty(),
                             inherit = true,
                             enabled = !state.busy,
+                            refresh = { vm.refreshModels(selectedAgent?.provider ?: "codex") },
                         ) { m, r ->
                             model = m
                             reasoning = r
@@ -857,6 +858,7 @@ fun ChatScreen(
                                 selectedAgent?.reasoning.orEmpty(),
                                 inherit = true,
                                 enabled = !state.busy,
+                                refresh = { vm.refreshModels(selectedAgent?.provider ?: "codex") },
                             ) { m, r ->
                                 model = m
                                 reasoning = r

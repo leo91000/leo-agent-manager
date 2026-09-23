@@ -35,7 +35,7 @@ ARG PLAYWRIGHT_VERSION=1.63.0
 RUN npm exec --yes --package="playwright@${PLAYWRIGHT_VERSION}" -- playwright install-deps chromium firefox webkit \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 ARG GH_VERSION=2.100.0
-ARG CODEX_VERSION=0.154.0
+ARG CODEX_VERSION=0.156.1
 ARG CLAUDE_VERSION=2.1.280
 ARG TARGETARCH
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4310 DATA_DIR=/data AGENT_HOME=/home/node WORKSPACE_ROOTS=/workspaces

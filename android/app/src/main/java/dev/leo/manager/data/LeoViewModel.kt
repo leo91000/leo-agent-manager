@@ -212,7 +212,7 @@ constructor(
             try { api.get<ModelCatalog>("/claude/models") }
             catch (e: Exception) {
                 if (e is CancellationException || (e is ApiException && e.status == 401)) throw e
-                ModelCatalog(error = "Claude Code nécessite une mise à jour du serveur.")
+                state.value.claudeModels.copy(stale = true, error = "Catalogue Claude temporairement indisponible.")
             }
         }
         val overview = async { api.get<Overview>("/overview") }
@@ -238,6 +238,33 @@ constructor(
                 models = updated.models,
                 claudeModels = updated.claudeModels,
             )
+        }
+    }
+
+    suspend fun refreshModels(provider: String) {
+        require(provider in listOf("codex", "claude"))
+        val target = api
+        try {
+            val catalog = target.get<ModelCatalog>("/$provider/models")
+            // A request started before sign-out or a server change must not restore old data.
+            if (connection === target && state.value.session.authenticated)
+                mutable.update {
+                    if (provider == "claude") it.copy(claudeModels = catalog)
+                    else it.copy(models = catalog)
+                }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            if (connection !== target || !state.value.session.authenticated) return
+            if (e is ApiException && e.status == 401) {
+                report(e)
+                return
+            }
+            mutable.update {
+                val cached = if (provider == "claude") it.claudeModels else it.models
+                val unavailable = cached.copy(stale = true, error = "Catalogue temporairement indisponible. Réessayez.")
+                if (provider == "claude") it.copy(claudeModels = unavailable)
+                else it.copy(models = unavailable)
+            }
         }
     }
 

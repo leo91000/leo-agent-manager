@@ -21,6 +21,14 @@ be mixed. Completion receipts prevent a finished request from being repeated aft
 a worker restart. Interrupted requests tell the agent to inspect completed work
 and verify external effects before continuing.
 
+This provider boundary is a current Léo implementation constraint. Within one
+provider, the chat model control already changes the next message's model. A
+cross-provider handoff could keep the same visible chat by creating a new native
+session and providing conversation text or a summary plus the retained workspace.
+It cannot directly resume the other provider's session ID, tool-call state or
+checkpoint. That handoff is not implemented; connecting a Claude account does not
+change existing Codex agents or conversations.
+
 ## Installation and authentication
 
 The manager and guest images include unmodified Claude Code **2.1.280**.
