@@ -20,6 +20,19 @@ Tool results containing secrets enter the authorized agent's context and may be
 stored in run history; avoid asking
 agents to print secrets in messages, logs or artifacts.
 
+Agent instructions advertise the integration automatically in isolated tasks and
+chats. Agents discover their current grants with `accounts` when credentials are
+needed; the CLI runs on the server, not as an authenticated CLI in the task VM.
+The same guidance is included in the tool description.
+
+Passkeys cannot be retrieved or used through this integration. If a sign-in
+requires one, agents must stop and ask the user to enable TOTP on that website
+and save its configuration in the matching 1Password item, when supported.
+They wait for confirmation before retrying, rather than changing authentication
+settings or bypassing the passkey requirement. If TOTP is unavailable, they ask
+how to proceed; unattended tasks report the required user action. Passwords,
+TOTP seeds and recovery codes must not be requested in chat.
+
 Tokens are encrypted using the application's existing AES-GCM credential vault.
 They are never returned by the management API, copied into a run/VM environment,
 or included in audit records. Back up `mcp-encryption-key` together with the

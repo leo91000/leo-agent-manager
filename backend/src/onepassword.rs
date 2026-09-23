@@ -12,6 +12,8 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 const KIND: &str = "onepassword";
+pub const AGENT_INSTRUCTIONS: &str = "1Password: When a task needs credentials, use leo_workspace.onepassword, backed by the server-side 1Password CLI. Start with accounts to discover the enabled service accounts explicitly authorized for this agent, then vaults, items, fields and read as needed. Service account tokens stay on the server; do not expect an authenticated op CLI in the task environment. Some website accounts require a passkey. This integration cannot retrieve or use passkeys. If a sign-in requires a passkey, stop that sign-in and ask the user to enable a TOTP authenticator on the website and save its one-time password configuration in the matching 1Password item, if the website supports it. Wait for the user to confirm setup before retrying. Do not try to bypass the passkey requirement or change authentication settings yourself. If TOTP is unavailable, report the blocked sign-in and ask the user how to proceed. For unattended tasks, report the required user action instead of retrying. Never ask the user to paste passwords, TOTP seeds or recovery codes into chat, and never print credentials in messages, logs or artifacts.";
+
 fn secret_key(id: &str) -> String {
     format!("onepassword:{id}")
 }
@@ -129,7 +131,7 @@ pub async fn routes(s: &Service, input: &Input) -> Result<Value> {
 }
 
 pub fn tool() -> Value {
-    json!({"name":"onepassword","description":"Read secrets from explicitly authorized 1Password service accounts. Start with accounts, then vaults or items (requires vault), then fields (requires vault and item) for field references without values. read resolves an op://vault/item/field reference. Read-only; service tokens stay on the server. Retrieved secrets are sensitive: do not print them in commentary, logs or artifacts.","inputSchema":{"type":"object","properties":{"operation":{"type":"string","enum":["accounts","vaults","items","fields","read"]},"accountId":{"type":"string","format":"uuid"},"vault":{"type":"string","minLength":1,"maxLength":200},"item":{"type":"string","minLength":1,"maxLength":200},"reference":{"type":"string","pattern":"^op://","maxLength":2000}},"required":["operation"],"additionalProperties":false}})
+    json!({"name":"onepassword","description":format!("Read-only secret access. items requires vault; fields requires vault and item and returns field references without values; read resolves an op://vault/item/field reference. {AGENT_INSTRUCTIONS}"),"inputSchema":{"type":"object","properties":{"operation":{"type":"string","enum":["accounts","vaults","items","fields","read"]},"accountId":{"type":"string","format":"uuid"},"vault":{"type":"string","minLength":1,"maxLength":200},"item":{"type":"string","minLength":1,"maxLength":200},"reference":{"type":"string","pattern":"^op://","maxLength":2000}},"required":["operation"],"additionalProperties":false}})
 }
 
 fn permitted(account: &Value, agent_id: &str) -> bool {
