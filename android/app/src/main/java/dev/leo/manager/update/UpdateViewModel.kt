@@ -82,6 +82,9 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
                 launch(client.installationIntent(file, update))
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
+                // Android may evict cached APKs while the permission screen is open.
+                // Offer a fresh download instead of repeatedly installing a missing file.
+                mutable.update { it.copy(ready = null) }
                 report(e)
             } finally {
                 mutable.update { it.copy(installing = false) }
