@@ -117,7 +117,7 @@ fun ClaudeConnection(vm: LeoViewModel, state: Workspace) {
         Button(onClick = {
             val limit = concurrency.toIntOrNull() ?: return@Button
             vm.perform {
-                account = api.send("PATCH", "/claude/connection", body("maxConcurrent" to limit))
+                account = api.send("PATCH", "/claude/connection", kotlinx.serialization.json.buildJsonObject { put("maxConcurrent", kotlinx.serialization.json.JsonPrimitive(limit)) })
                 concurrencyDirty = false
                 concurrency = account.maxConcurrent.toString()
             }
