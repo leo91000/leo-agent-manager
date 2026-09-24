@@ -24,6 +24,17 @@ test('Claude sign-in, provider selection and resumed chats work on desktop and m
   await section.getByRole('button', { name: 'Finish sign-in' }).click()
   await expect(section.getByText('Connected', { exact: true })).toBeVisible()
   await expect(section).not.toContainText('never-return-this-secret')
+  await expect(section.getByRole('progressbar', { name: 'Claude Code 5-hour window remaining' })).toHaveAttribute('aria-valuenow', '75')
+  await expect(section.getByRole('progressbar', { name: 'Claude Code Weekly remaining' })).toHaveAttribute('aria-valuenow', '40')
+  await expect(section.getByRole('progressbar', { name: 'Claude Code Weekly · Sonnet remaining' })).toHaveAttribute('aria-valuenow', '90')
+  await expect(section.getByText('Usage checked', { exact: false })).toBeVisible()
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expectSingleScroll(page)
+    await expect(section.getByRole('progressbar').first()).toBeVisible()
+    await section.screenshot({ path: testInfo.outputPath(`claude-usage-${width}.png`) })
+  }
+
   await page.goto('/agents')
   await page.getByRole('button', { name: 'New agent', exact: true }).click()
   await page.getByLabel('Name', { exact: true }).fill('Claude engineer')
@@ -69,7 +80,8 @@ test('switching coding agents preserves one chat, context and provider selection
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   const section = page.getByRole('region', { name: 'Claude Code', exact: true })
-  await expect(section).toBeVisible()
+  // Password verification can be slow in an unoptimized native test build.
+  await expect(section).toBeVisible({ timeout: 30000 })
   if (await section.getByRole('button', { name: 'Connect Claude Code', exact: true }).isVisible()) {
     await section.getByRole('button', { name: 'Connect Claude Code', exact: true }).click()
     await section.getByLabel('Claude authorization code').fill('fixture-code')
@@ -135,4 +147,29 @@ test('switching coding agents preserves one chat, context and provider selection
   expect(last.runId).toBe(first.runId)
   expect(last.run.chatExecution.context).toContain('Claude fixture completed')
   expect(workspace.service.store.chatMessages(chat.id)).toHaveLength(3)
+})
+
+test('Claude usage distinguishes stale limits, unknown usage and disconnected accounts', async ({ page }) => {
+  test.setTimeout(60000)
+  let usage: object | null = { windows: [{ id: 'five_hour', label: '5-hour window', usedPercent: 105, resetsAt: null }], stale: true, checkedAt: 1700000000000, error: 'Claude Code usage is temporarily unavailable.' }
+  let connected = true
+  await page.route('**/api/claude/connection', route => route.fulfill({ json: { connected, busy: false, login: null, usage } }))
+  await page.goto('/connections')
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  const section = page.getByRole('region', { name: 'Claude Code', exact: true })
+  await expect(section).toBeVisible({ timeout: 30000 })
+  await expect(section.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0')
+  await expect(section.getByText('Last known usage', { exact: false })).toBeVisible()
+  await expect(section.getByText('Reset time unavailable')).toBeVisible()
+  await expect(section.getByText('Connected', { exact: true })).toBeVisible()
+  usage = { windows: [], checkedAt: null, stale: true, error: null }
+  await page.reload()
+  await expect(section.getByText('Usage limits unavailable.', { exact: true })).toBeVisible()
+  await expect(section.getByRole('progressbar')).toHaveCount(0)
+  connected = false
+  usage = null
+  await page.reload()
+  await expect(section.getByRole('button', { name: 'Connect Claude Code', exact: true })).toBeVisible()
+  await expect(section.getByText('Usage limits unavailable.', { exact: true })).toHaveCount(0)
 })

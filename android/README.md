@@ -1,6 +1,7 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
+Version 0.14.0 displays Claude Code usage limits and reset dates in Connections (server 0.28.0).
 Version 0.13.0 adds the GitHub repository picker and automatic project imports (server 0.27.0).
 Version 0.11.0 adds Codex/Claude selection directly to the chat composer and preferences, with provider-aware drafts and queued messages. Server 0.25.0 preserves the chat and workspace when changing providers.
 Version 0.10.2 refreshes model catalogs when opening the picker, returning to it, or choosing **Actualiser les modèles**. Server 0.24.2 includes Codex 0.156.1 for GPT-6 Sol and Luna discovery.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Synthetic official-CLI protocol fixture. Never connects to a model provider.
-import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
@@ -64,6 +64,26 @@ else {
     if (value.type === 'user')
       appendFileSync(path.join(home, 'user-messages.jsonl'), `${JSON.stringify(value)}\n`)
     if (value.type === 'control_request') {
+      if (value.request.subtype === 'get_usage') {
+        appendFileSync(path.join(home, 'usage-requests.jsonl'), `${JSON.stringify(value.request)}\n`)
+        const custom = path.join(home, 'fixture-usage.json')
+        const response = existsSync(custom)
+          ? JSON.parse(readFileSync(custom, 'utf8'))
+          : {
+              rate_limits_available: true,
+              rate_limits: {
+                five_hour: { utilization: 25, resets_at: '2030-01-01T12:00:00Z' },
+                seven_day: { utilization: 60, resets_at: '2030-01-07T12:00:00Z' },
+                seven_day_sonnet: { utilization: 10, resets_at: '2030-01-07T12:00:00Z' },
+              },
+              accessToken: 'never-return-this-secret',
+            }
+        if (response.fixtureError)
+          out({ type: 'control_response', response: { subtype: 'error', request_id: value.request_id, error: 'never-return-this-secret' } })
+        else
+          out({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response } })
+        return
+      }
       out({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response: { models: [{ value: 'sonnet', displayName: 'Sonnet', description: 'Balanced Claude model', supportedEffortLevels: ['low', 'medium', 'high'] }, { value: 'opus', displayName: 'Opus', description: 'Deep reasoning', supportedEffortLevels: ['low', 'medium', 'high', 'max'] }, { value: 'default', displayName: 'Default (recommended)', description: 'Opus with 1M context · Best for everyday tasks', supportedEffortLevels: ['low', 'medium', 'high'] }] } } })
       return
     }

@@ -35,7 +35,7 @@ class ClaudeJourneyTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val result = when (request.path) {
                         "/api/session" -> """{"authenticated":true,"csrf":"fixture"}"""
-                        "/api/claude/connection" -> """{"connected":$connected,"email":"claude@example.test","login":${if (pending) """{"id":"attempt","state":"pending","url":"https://claude.ai/oauth/authorize?fixture=1"}""" else "null"}}"""
+                        "/api/claude/connection" -> """{"connected":$connected,"email":"claude@example.test","usage":{"windows":[{"id":"five_hour","label":"5-hour window","usedPercent":25,"resetsAt":1893499200},{"id":"seven_day","label":"Weekly","usedPercent":60,"resetsAt":1894017600}],"stale":false,"checkedAt":1700000000000},"login":${if (pending) """{"id":"attempt","state":"pending","url":"https://claude.ai/oauth/authorize?fixture=1"}""" else "null"}}"""
                         "/api/claude/login" -> { pending = true; "{}" }
                         "/api/claude/login/code" -> {
                             assertEquals("fixture", request.getHeader("X-CSRF-Token"))
@@ -66,6 +66,8 @@ class ClaudeJourneyTest {
             assertTrue(codes.single().contains("attempt"))
             compose.waitUntil(10000) { compose.onAllNodesWithText("Reconnecter Claude Code").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Connecté").assertExists()
+            compose.onNodeWithText("Fenêtre de 5 heures · 75 % restants").assertExists()
+            compose.onNodeWithText("Semaine · 40 % restants").assertExists()
         }
     }
     @Test fun `old agents default to Codex and Claude provider survives serialization`() {

@@ -84,7 +84,8 @@ pub fn models() -> Value {
     let rows = [("sonnet", "Sonnet"), ("opus", "Opus"), ("haiku", "Haiku")].iter().map(|(model, name)| json!({"model":model,"displayName":name,"description":"Claude Code alias · connect to load account capabilities","hidden":false,"isDefault":false,"defaultReasoningEffort":"","supportedReasoningEfforts":[]})).collect::<Vec<_>>();
     json!({"models":rows,"checkedAt":null,"stale":true,"error":"Connect Claude Code to load available models and effort levels."})
 }
-async fn discover_models(s: &Service) -> Result<Value> {
+// Metadata queries never submit a user message or start a model turn.
+async fn query_metadata(s: &Service, request: Option<Value>) -> Result<Value> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
     let directory = home(&s.config);
     private_dir(&directory).await?;
@@ -119,24 +120,146 @@ async fn discover_models(s: &Service) -> Result<Value> {
     let drain = tokio::spawn(async move {
         let _ = tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await;
     });
-    let result=tokio::time::timeout(Duration::from_secs(20),async {
-        stdin.write_all(b"{\"type\":\"control_request\",\"request_id\":\"models\",\"request\":{\"subtype\":\"initialize\"}}\n").await?;
-        let mut line=String::new();
+    let result = tokio::time::timeout(Duration::from_secs(20), async {
+        stdin.write_all(b"{\"type\":\"control_request\",\"request_id\":\"initialize\",\"request\":{\"subtype\":\"initialize\"}}\n").await?;
+        let mut expected = "initialize";
+        let mut line = String::new();
         loop {
-            line.clear();if stdout.read_line(&mut line).await?==0 {return Err(Error::new(502,"Claude model discovery stopped."));}
-            let value:Value=serde_json::from_str(&line)?;
-            if value["type"]!="control_response" || value["response"]["request_id"]!="models" {continue;}
-            let rows=value["response"]["response"]["models"].as_array().ok_or_else(||Error::new(502,"Update Claude Code to load its model catalog."))?;
-            let models=rows.iter().filter(|row|!text(row,"value").is_empty()).map(|row|json!({"model":row["value"],"displayName":row["displayName"],"description":row["description"],"hidden":false,"isDefault":row["value"]=="default","defaultReasoningEffort":"","supportedReasoningEfforts":row["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|effort|json!({"reasoningEffort":effort,"description":""})).collect::<Vec<_>>()})).collect::<Vec<_>>();
-            if models.is_empty(){return Err(Error::new(502,"Claude Code returned no available models."));}
-            return Ok(json!({"models":models,"checkedAt":now(),"stale":false,"error":""}));
+            line.clear();
+            if stdout.read_line(&mut line).await? == 0 {
+                return Err(Error::new(502, "Claude Code metadata query stopped."));
+            }
+            let value: Value = serde_json::from_str(&line)?;
+            if value["type"] != "control_response" || value["response"]["request_id"] != expected {
+                continue;
+            }
+            if value["response"]["subtype"] != "success" {
+                // CLI error text can contain private state. Never forward it.
+                return Err(Error::new(502, "Claude Code could not load account data. Check the connection and CLI version."));
+            }
+            if expected == "initialize" && let Some(request) = &request {
+                let message = json!({"type":"control_request","request_id":"metadata","request":request});
+                stdin.write_all(format!("{message}\n").as_bytes()).await?;
+                expected = "metadata";
+                continue;
+            }
+            return Ok(value["response"]["response"].clone());
         }
-    }).await.unwrap_or_else(|_|Err(Error::new(504,"Claude model discovery timed out.")));
+    }).await.unwrap_or_else(|_| Err(Error::new(504, "Claude Code metadata query timed out.")));
     let _ = child.kill().await;
     let _ = child.wait().await;
     drain.abort();
     result
 }
+async fn discover_models(s: &Service) -> Result<Value> {
+    let value = query_metadata(s, None).await?;
+    let rows = value["models"]
+        .as_array()
+        .ok_or_else(|| Error::new(502, "Update Claude Code to load its model catalog."))?;
+    let models = rows.iter().filter(|row| !text(row, "value").is_empty()).map(|row| json!({"model":row["value"],"displayName":row["displayName"],"description":row["description"],"hidden":false,"isDefault":row["value"]=="default","defaultReasoningEffort":"","supportedReasoningEfforts":row["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|effort|json!({"reasoningEffort":effort,"description":""})).collect::<Vec<_>>()})).collect::<Vec<_>>();
+    if models.is_empty() {
+        return Err(Error::new(502, "Claude Code returned no available models."));
+    }
+    Ok(json!({"models":models,"checkedAt":now(),"stale":false,"error":""}))
+}
+
+const USAGE_TTL: i64 = 300_000;
+fn usage_windows(value: &Value) -> Result<Vec<Value>> {
+    if value["rate_limits_available"] != true {
+        return Err(Error::new(
+            502,
+            "Usage limits are unavailable for this Claude account.",
+        ));
+    }
+    let limits = &value["rate_limits"];
+    let mut windows = Vec::new();
+    let mut add = |id: String, label: &str, row: &Value| {
+        let Some(used) = row["utilization"]
+            .as_f64()
+            .filter(|n| n.is_finite() && *n >= 0.0)
+        else {
+            return;
+        };
+        let resets_at = row["resets_at"]
+            .as_str()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|date| date.timestamp());
+        windows.push(json!({"id":id,"label":label,"usedPercent":used,"resetsAt":resets_at}));
+    };
+    for (key, label) in [
+        ("five_hour", "5-hour window"),
+        ("seven_day", "Weekly"),
+        ("seven_day_opus", "Weekly · Opus"),
+        ("seven_day_sonnet", "Weekly · Sonnet"),
+        ("seven_day_oauth_apps", "Weekly · OAuth apps"),
+    ] {
+        add(key.into(), label, &limits[key]);
+    }
+    for (index, row) in limits["model_scoped"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(20)
+        .enumerate()
+    {
+        if let Some(name) = row["display_name"]
+            .as_str()
+            .filter(|s| !s.is_empty() && s.len() <= 100)
+        {
+            add(format!("model_{index}"), &format!("Weekly · {name}"), row);
+        }
+    }
+    if windows.is_empty() {
+        return Err(Error::new(
+            502,
+            "Claude Code has not returned usage limits yet.",
+        ));
+    }
+    Ok(windows)
+}
+
+// Called under the account gate: never refresh CLI credentials while a guest owns them.
+async fn usage(s: &Service, can_query: bool) -> Result<Value> {
+    let mut cached = s
+        .store
+        .kv("claude-usage")
+        .await?
+        .unwrap_or(json!({"windows":[],"checkedAt":null,"stale":true,"error":null}));
+    let recent = cached["attemptedAt"]
+        .as_i64()
+        .is_some_and(|at| now() - at < USAGE_TTL);
+    if can_query && !recent {
+        cached["attemptedAt"] = now().into();
+        match query_metadata(
+            s,
+            Some(json!({"subtype":"get_usage","skip_behaviors":true})),
+        )
+        .await
+        .and_then(|v| usage_windows(&v))
+        {
+            Ok(windows) => {
+                cached["windows"] = windows.into();
+                cached["checkedAt"] = now().into();
+                cached["error"] = Value::Null;
+                cached["stale"] = false.into();
+            }
+            Err(_) => {
+                cached["error"] = "Claude Code usage is temporarily unavailable. It will be checked again automatically.".into();
+                cached["stale"] = true.into();
+            }
+        }
+        s.store.set("claude-usage", cached.clone(), None).await?;
+    }
+    if !can_query
+        || cached["checkedAt"]
+            .as_i64()
+            .is_none_or(|at| now() - at >= USAGE_TTL)
+    {
+        cached["stale"] = true.into();
+    }
+    Ok(cached)
+}
+
 async fn model_catalog(s: &Service) -> Result<Value> {
     let _guard = s.claude.gate.lock().await;
     let mut cached = s.store.kv("claude-models").await?.unwrap_or_else(models);
@@ -243,6 +366,7 @@ impl Claude {
         }
     }
     async fn view(&self, s: &Service) -> Result<Value> {
+        let _gate = self.gate.lock().await;
         let busy = active(s).await?;
         let mut account = if busy {
             s.store
@@ -270,6 +394,18 @@ impl Claude {
             .as_ref()
             .map(|l| l.view.clone())
             .unwrap_or(Value::Null);
+        account["usage"] = if account["connected"] == true {
+            usage(
+                s,
+                !busy
+                    && account["login"]["state"] != "pending"
+                    && !home(&s.config).join("sync-required").exists(),
+            )
+            .await?
+        } else {
+            s.store.delete("claude-usage").await?;
+            Value::Null
+        };
         Ok(account)
     }
     async fn start(self: &Arc<Self>, s: &Arc<Service>) -> Result<Value> {
@@ -287,6 +423,7 @@ impl Claude {
                 "Finish or cancel the current Claude sign-in.",
             ));
         }
+        s.store.delete("claude-usage").await?;
         let directory = home(&s.config);
         private_dir(&directory).await?;
         let mut cmd = command(
@@ -452,6 +589,7 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
                 .set("claude-status", json!({"connected":false}), None)
                 .await?;
             s.store.delete("claude-models").await?;
+            s.store.delete("claude-usage").await?;
             Ok(json!({"disconnected":true}))
         }
         _ => Err(Error::new(404, "Unknown Claude operation.")),

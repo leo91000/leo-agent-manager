@@ -400,3 +400,151 @@ async fn merged_prompts_need_only_one_correlated_result() {
         "Both prompts processed"
     );
 }
+
+#[tokio::test]
+async fn usage_is_sanitized_cached_and_preserved_on_failure_without_changing_connection() {
+    let root = TempDir::new().unwrap();
+    let c = config(&root);
+    let home = claude::home(&c);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join(".credentials.json"), "fixture").unwrap();
+    let s = Service::new(c).await.unwrap();
+    let first = route(&s, "GET", "connection", Value::Null).await.unwrap();
+    assert_eq!(first["connected"], true);
+    assert_eq!(first["usage"]["windows"][0]["usedPercent"], 25.0);
+    assert_eq!(first["usage"]["windows"][0]["resetsAt"], 1893499200i64);
+    assert_eq!(first["usage"]["windows"][2]["label"], "Weekly · Sonnet");
+    assert_eq!(first["usage"]["stale"], false);
+    assert!(!first.to_string().contains("never-return"));
+    assert!(
+        !home.join("user-messages.jsonl").exists(),
+        "Quota reads must not submit a prompt"
+    );
+    let (a, b) = tokio::join!(
+        route(&s, "GET", "connection", Value::Null),
+        route(&s, "GET", "connection", Value::Null)
+    );
+    assert_eq!(a.unwrap()["usage"], first["usage"]);
+    assert_eq!(b.unwrap()["usage"], first["usage"]);
+    assert_eq!(
+        std::fs::read_to_string(home.join("usage-requests.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    assert!(
+        std::fs::read_to_string(home.join("usage-requests.jsonl"))
+            .unwrap()
+            .contains("\"skip_behaviors\":true")
+    );
+
+    // A failed refresh keeps dated values, backs off, and does not disconnect.
+    let mut old = first["usage"].clone();
+    old["attemptedAt"] = 0.into();
+    s.store.set("claude-usage", old, None).await.unwrap();
+    std::fs::write(home.join("fixture-usage.json"), "{\"fixtureError\":true}").unwrap();
+    let failed = route(&s, "GET", "connection", Value::Null).await.unwrap();
+    assert_eq!(failed["connected"], true);
+    assert_eq!(failed["usage"]["stale"], true);
+    assert_eq!(failed["usage"]["windows"], first["usage"]["windows"]);
+    assert_eq!(failed["usage"]["checkedAt"], first["usage"]["checkedAt"]);
+    assert!(failed["usage"]["error"].is_string());
+    assert!(!failed.to_string().contains("never-return"));
+    route(&s, "GET", "connection", Value::Null).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(home.join("usage-requests.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+
+    // Credential synchronization must block new CLI queries even when overdue.
+    let mut old = first["usage"].clone();
+    old["attemptedAt"] = 0.into();
+    s.store.set("claude-usage", old, None).await.unwrap();
+    s.store.write(|db| db.add_run(&json!({"id":"busy-claude","taskId":"fixture","status":"running","createdAt":1,"snapshot":{"agent":{"provider":"claude"}}}), None)).await.unwrap();
+    let busy = route(&s, "GET", "connection", Value::Null).await.unwrap();
+    assert_eq!(busy["busy"], true);
+    assert_eq!(busy["usage"]["stale"], true);
+    assert_eq!(busy["usage"]["windows"], first["usage"]["windows"]);
+    assert_eq!(
+        std::fs::read_to_string(home.join("usage-requests.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+    s.store
+        .patch_run("busy-claude", json!({"status":"succeeded"}))
+        .await
+        .unwrap();
+    std::fs::write(home.join("sync-required"), "run").unwrap();
+    let blocked = route(&s, "GET", "connection", Value::Null).await.unwrap();
+    assert_eq!(blocked["usage"]["stale"], true);
+    assert_eq!(
+        std::fs::read_to_string(home.join("usage-requests.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+    std::fs::remove_file(home.join("sync-required")).unwrap();
+    std::fs::remove_file(home.join("fixture-usage.json")).unwrap();
+    let recovered = route(&s, "GET", "connection", Value::Null).await.unwrap();
+    assert_eq!(recovered["usage"]["stale"], false);
+    assert!(recovered["usage"]["error"].is_null());
+
+    route(&s, "DELETE", "connection", Value::Null)
+        .await
+        .unwrap();
+    assert!(s.store.kv("claude-usage").await.unwrap().is_none());
+    assert!(route(&s, "GET", "connection", Value::Null).await.unwrap()["usage"].is_null());
+}
+
+#[tokio::test]
+async fn usage_handles_partial_invalid_and_unavailable_windows_and_reconnect() {
+    let root = TempDir::new().unwrap();
+    let c = config(&root);
+    let home = claude::home(&c);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join(".credentials.json"), "fixture").unwrap();
+    let s = Service::new(c).await.unwrap();
+    let payload = json!({"rate_limits_available":true,"rate_limits":{
+        "five_hour":{"utilization":0,"resets_at":null},
+        "seven_day":{"utilization":105,"resets_at":"invalid"},
+        "seven_day_opus":{"utilization":null},
+        "seven_day_sonnet":{"utilization":-1},
+        "model_scoped":[{"display_name":"Fable","utilization":42,"resets_at":"2030-01-07T12:00:00Z","secret":"never-return"}],
+        "unknown_secret":"never-return"
+    }});
+    std::fs::write(home.join("fixture-usage.json"), payload.to_string()).unwrap();
+    let view = route(&s, "GET", "connection", Value::Null).await.unwrap();
+    let windows = view["usage"]["windows"].as_array().unwrap();
+    assert_eq!(windows.len(), 3);
+    assert_eq!(windows[0]["usedPercent"], 0.0);
+    assert_eq!(windows[1]["usedPercent"], 105.0);
+    assert!(windows[1]["resetsAt"].is_null());
+    assert_eq!(windows[2]["label"], "Weekly · Fable");
+    assert!(!view.to_string().contains("never-return"));
+
+    for payload in [
+        json!({"rate_limits_available":false,"rate_limits":null}),
+        json!({"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":"25"}}}),
+    ] {
+        s.store.delete("claude-usage").await.unwrap();
+        std::fs::write(home.join("fixture-usage.json"), payload.to_string()).unwrap();
+        let view = route(&s, "GET", "connection", Value::Null).await.unwrap();
+        assert_eq!(view["connected"], true);
+        assert_eq!(view["usage"]["windows"], json!([]));
+        assert!(view["usage"]["checkedAt"].is_null());
+        assert_eq!(view["usage"]["stale"], true);
+    }
+    route(&s, "POST", "login", json!({})).await.unwrap();
+    assert!(s.store.kv("claude-usage").await.unwrap().is_none());
+    let pending = route(&s, "GET", "connection", Value::Null).await.unwrap();
+    assert_eq!(pending["usage"]["windows"], json!([]));
+    route(&s, "DELETE", "login", json!({})).await.unwrap();
+    wait_login(&s, "cancelled").await;
+}

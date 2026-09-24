@@ -1,5 +1,7 @@
 package dev.leo.manager.ui
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Modifier
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import dev.leo.manager.data.*
@@ -22,7 +24,30 @@ data class ClaudeConnectionState(
     val subscriptionType: String? = null,
     val error: String? = null,
     val login: ClaudeLogin? = null,
+    val usage: ClaudeUsage? = null,
 )
+
+@Serializable
+data class ClaudeUsageWindow(
+    val id: String = "",
+    val label: String = "",
+    val usedPercent: Double = 0.0,
+    val resetsAt: Long? = null,
+)
+
+@Serializable
+data class ClaudeUsage(
+    val windows: List<ClaudeUsageWindow> = emptyList(),
+    val checkedAt: Long? = null,
+    val stale: Boolean = true,
+    val error: String? = null,
+)
+
+private fun usageLabel(window: ClaudeUsageWindow): String = when (window.id) {
+    "five_hour" -> "Fenêtre de 5 heures"
+    "seven_day" -> "Semaine"
+    else -> window.label.replace("Weekly", "Semaine")
+}
 
 @Composable
 fun ClaudeConnection(vm: LeoViewModel, state: Workspace) {
@@ -44,6 +69,34 @@ fun ClaudeConnection(vm: LeoViewModel, state: Workspace) {
         Status(if (account.connected) "Connecté" else "Non connecté")
         account.email?.let { Text(it) }
         account.subscriptionType?.let { Text("Abonnement $it") }
+        if (account.connected) {
+            val usage = account.usage
+            if (usage == null || usage.windows.isEmpty()) {
+                Text("Limites d’utilisation indisponibles.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                usage.windows.forEach { window ->
+                    val remaining = (100.0 - window.usedPercent).coerceIn(0.0, 100.0)
+                    Text("${usageLabel(window)} · ${kotlin.math.round(remaining).toInt()} % restants")
+                    LinearProgressIndicator(
+                        progress = { (remaining / 100).toFloat() },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = when {
+                            usage.stale -> MaterialTheme.colorScheme.outline
+                            remaining < 5 -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                    )
+                    Text(
+                        window.resetsAt?.let { "Renouvellement : ${date(it * 1000)}" } ?: "Date de renouvellement indisponible",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            usage?.checkedAt?.let {
+                Text("${if (usage.stale) "Dernières limites connues" else "Limites vérifiées"} · ${date(it)}", style = MaterialTheme.typography.bodySmall)
+            }
+            if (usage?.error != null) Text("Les limites Claude sont temporairement indisponibles. Une nouvelle vérification sera effectuée automatiquement.", style = MaterialTheme.typography.bodySmall)
+        }
         Text("Connectez votre compte Claude pour utiliser Claude Code avec vos agents.")
         if (login?.state == "pending") {
             LinearProgressIndicator()

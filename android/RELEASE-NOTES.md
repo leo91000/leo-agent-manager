@@ -1,4 +1,11 @@
-# Leo Android 0.13.0 — GitHub project picker
+# Leo Android 0.14.0 — Claude Code usage limits
+
+- Connections shows remaining Claude Code usage for the five-hour, weekly and available model-specific windows, with progress bars and reset dates.
+- Last known values stay visible during active runs or temporary errors, with their check date. Reconnecting or disconnecting clears the cached limits.
+- Requires server 0.28.0. Installable development APK: code 28.
+- Tracks WW-4965.
+
+## Leo Android 0.13.0 — GitHub project picker
 
 - Projects → Add project → GitHub lists repositories accessible to the shared GitHub connection, including private and organization repositories.
 - Filter loaded repositories, load additional pages, see already registered repositories and retry connection errors.

@@ -74,6 +74,22 @@ Léo clears inherited Anthropic API-key, bearer-token, cloud-provider, and alter
 OAuth environment overrides from subscription executions. Sign-in and logout are
 performed with `claude auth login --claudeai` and `claude auth logout`.
 
+## Usage limits
+
+Connections shows the remaining percentage and reset date for the five-hour,
+weekly, and model-specific windows returned by Claude Code, on web and Android.
+Léo reads the CLI's `get_usage` control response (`skip_behaviors: true`) without
+sending a prompt. The pinned CLI 2.1.280 defines utilization as a percentage
+(0–100) and reset dates as ISO 8601 timestamps. This experimental protocol may
+change; unsupported versions and unavailable quotas produce an unavailable state,
+never an invented zero or full allowance. Only allowlisted quota fields are exposed.
+
+Reads are cached for five minutes, including failures. While a run, sign-in, or
+credential recovery owns the account, Connections shows the last known values
+as stale and waits to refresh. Reconnecting or disconnecting clears the cache.
+Quota errors leave account connection status unchanged. No OAuth tokens are
+read by the usage integration, and no model request is made to check the limits.
+
 ## Permissions
 
 YOLO remains the default and runs within the existing private microVM boundary.
