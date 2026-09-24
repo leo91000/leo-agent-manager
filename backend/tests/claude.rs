@@ -176,6 +176,69 @@ async fn streaming_tools_receipts_resume_and_no_replay_after_completion() {
     assert_eq!(calls.lines().count(), 2);
 }
 #[tokio::test]
+async fn interrupted_resume_uses_a_fresh_wire_id_and_preserves_chat_receipts() {
+    for prompt in [
+        "fixture:resume-dedup",
+        "fixture:resume-dedup fixture:result-ack",
+    ] {
+        let root = TempDir::new().unwrap();
+        let c = setup(&root);
+        let mut p = plan(&root, prompt);
+        let stop = CancellationToken::new();
+        let (tx, mut rx) = mpsc::channel(64);
+        let first = tokio::spawn({
+            let c = c.clone();
+            let p = p.clone();
+            let stop = stop.clone();
+            async move { claude_process::run(&c, p, tx, stop).await }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            while let Some(event) = rx.recv().await {
+                if event["type"] == "chat.delivered" {
+                    assert_eq!(event["messageId"], "original");
+                    stop.cancel();
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(first.await.unwrap().is_err());
+        assert!(!root.path().join("result.claude-receipt.json").exists());
+
+        p["sessionId"] = "70f5e7a1-8d65-4f5f-a545-af6ee8c0e1ab".into();
+        let (tx, mut rx) = mpsc::channel(64);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            claude_process::run(&c, p, tx, CancellationToken::new()),
+        )
+        .await
+        .expect("replayed UUID must not leave the continuation waiting")
+        .unwrap();
+        let mut completed = false;
+        while let Some(event) = rx.recv().await {
+            if event["type"] == "chat.delivered" {
+                assert_eq!(event["messageId"], "original");
+            }
+            completed |= event["type"] == "turn.completed";
+        }
+        assert!(completed);
+        let inputs = std::fs::read_to_string(c.home.join(".claude/user-messages.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(inputs[0]["uuid"], "original");
+        assert_ne!(inputs[1]["uuid"], inputs[0]["uuid"]);
+        let receipt: Value = serde_json::from_slice(
+            &std::fs::read(root.path().join("result.claude-receipt.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(receipt["messageId"], "original");
+        assert_eq!(receipt["delivered"], json!(["original"]));
+    }
+}
+#[tokio::test]
 async fn reasoning_before_text_keeps_one_message_per_block() {
     let root = TempDir::new().unwrap();
     let c = setup(&root);

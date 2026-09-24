@@ -1,4 +1,9 @@
-# Leo Android 0.31.0 — Sélecteur de dépôts GitHub repensé
+# Leo Android 0.31.1 — Reprise des conversations Claude
+
+- Le serveur 0.31.1 corrige les conversations Claude qui restent bloquées après une interruption malgré une reprise demandée.
+- L’historique et le travail déjà terminé sont conservés. Ce correctif serveur s’applique aussi aux applications déjà installées.
+
+## Leo Android 0.31.0 — Sélecteur de dépôts GitHub repensé
 
 - Cartes de dépôts avec avatar du propriétaire, visibilité, langage, étoiles, branche par défaut et dernière activité, triées par activité récente.
 - Recherche surlignée sur le nom, la description et le langage ; les pages suivantes se chargent automatiquement pendant la recherche et le défilement.

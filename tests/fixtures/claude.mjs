@@ -40,6 +40,8 @@ else {
   }
   const session = '70f5e7a1-8d65-4f5f-a545-af6ee8c0e1ab'
   const log = path.join(home, 'invocations.jsonl')
+  const seenFile = path.join(home, 'seen-message-ids.json')
+  const seen = new Set(args.includes('--resume') && existsSync(seenFile) ? JSON.parse(readFileSync(seenFile, 'utf8')) : [])
   appendFileSync(log, `${JSON.stringify({ args })}\n`)
   out({ type: 'system', subtype: 'init', session_id: session })
   let question
@@ -97,9 +99,20 @@ else {
     }
     if (value.type !== 'user')
       return
+    // The real CLI replays duplicate UUIDs without starting a new model turn.
+    if (seen.has(value.uuid)) {
+      out(value)
+      return
+    }
+    seen.add(value.uuid)
+    writeFileSync(seenFile, JSON.stringify([...seen]))
     appendFileSync(path.join(home, 'inputs.jsonl'), `${JSON.stringify(value)}\n`)
     const prompt = value.message.content.filter(b => b.type === 'text').map(b => b.text).join('\n')
     const correlation = { user_message_uuid: value.uuid }
+    if (prompt.includes('fixture:resume-dedup') && !args.includes('--resume')) {
+      out(value)
+      return
+    }
     if (prompt.includes('fixture:startup-result')) {
       // Restored background work may finish before the new prompt is consumed.
       out({ type: 'result', subtype: 'success', is_error: false, result: '', origin: { kind: 'task-notification' } })

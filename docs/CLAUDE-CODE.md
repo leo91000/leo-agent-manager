@@ -22,6 +22,11 @@ and transfers visible conversation context while retaining the same workspace.
 Switching back also starts a fresh session so the intervening work is included.
 Native session IDs, pending tool calls and hidden reasoning are not transferred.
 
+Resuming a saved Claude session sends a fresh protocol message ID while keeping
+the original Léo message and completion receipt. Claude ignores IDs already in
+its transcript, so replaying the original ID would acknowledge the request without
+continuing it. Completed receipts are replayed without starting another model turn.
+
 Private question answers and raw tool outputs are excluded from the transfer.
 For long chats, the transfer includes up to 200 recent transcript entries and
 100,000 characters, plus an excerpt of the initial request when earlier history

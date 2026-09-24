@@ -165,6 +165,13 @@ pub async fn run(
     let inbox = Path::new(text(&plan, "inputDirectory"));
     let receipt = Path::new(text(&plan, "output")).with_extension("claude-receipt.json");
     let initial_id = text(&plan["execution"], "messageId");
+    // Claude acknowledges but does not execute UUIDs already in a resumed session.
+    // Keep the durable chat ID while giving each continuation a fresh wire ID.
+    let wire_id = if plan["sessionId"].is_string() {
+        crate::config::id()
+    } else {
+        initial_id.to_owned()
+    };
     if let Ok(bytes) = tokio::fs::read(&receipt).await
         && let Ok(saved) = serde_json::from_slice::<Value>(&bytes)
         && saved["messageId"] == initial_id
@@ -217,7 +224,7 @@ pub async fn run(
         let _ = tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await;
     });
     let operation=async {
-        let mut initial=json!({"id":initial_id,"text":crate::chats::execution_text(&plan),"attachments":plan["execution"]["attachments"]});
+        let mut initial=json!({"id":wire_id,"text":crate::chats::execution_text(&plan),"attachments":plan["execution"]["attachments"]});
         if plan["execution"]["recovery"]==true {initial["text"]=format!("Continue the interrupted request. Preserve completed work and verify external effects before repeating an action.\n{}",text(&initial,"text")).into();}
         send(&mut stdin,input(&initial,inbox).await?).await?;
         let mut submitted=HashSet::from([initial_id.to_owned()]);let mut delivered=HashSet::<String>::new();
@@ -270,7 +277,7 @@ pub async fn run(
                             for task in value["tasks"].as_array().into_iter().flatten().filter(|task|task["ambient"]==true){awaiting_background.remove(text(task,"task_id"));}
                         },
                         "user"=>{
-                            let id=text(&value,"uuid");if submitted.contains(id){consumed.insert(id.into());if delivered.insert(id.into()){emit(&events,json!({"type":"chat.delivered","messageId":id})).await?;}}
+                            let id=text(&value,"uuid");let id=if id==wire_id {initial_id}else{id};if submitted.contains(id){consumed.insert(id.into());if delivered.insert(id.into()){emit(&events,json!({"type":"chat.delivered","messageId":id})).await?;}}
                             if value["origin"]["kind"]=="task-notification"{background_replayed=true;}
                             for block in value["message"]["content"].as_array().into_iter().flatten(){if block["type"]=="tool_result" && let Some(mut item)=tools.remove(text(block,"tool_use_id")){
                                 item["status"]=if block["is_error"]==true {"failed"}else{"completed"}.into();
@@ -310,7 +317,7 @@ pub async fn run(
                             // A result belongs to a turn, not one stdin message. Claude can
                             // merge prompts and emit unrelated results while resuming tasks.
                             let ids=if value["user_message_uuids"].is_array(){value["user_message_uuids"].as_array().unwrap().iter().filter_map(Value::as_str).map(str::to_owned).collect::<HashSet<_>>()}else if let Some(id)=value["user_message_uuid"].as_str(){HashSet::from([id.to_owned()])}else if value["origin"]["kind"]=="task-notification"{HashSet::new()}else{consumed.clone()};
-                            for id in ids {if pending.remove(&id)&&delivered.insert(id.clone()){emit(&events,json!({"type":"chat.delivered","messageId":id})).await?;}}
+                            for id in ids {let id=if id==wire_id {initial_id.to_owned()}else{id};if pending.remove(&id)&&delivered.insert(id.clone()){emit(&events,json!({"type":"chat.delivered","messageId":id})).await?;}}
                             consumed.retain(|id|pending.contains(id));
                             if background_replayed||value["origin"]["kind"]=="task-notification"{awaiting_background.retain(|id|background.contains(id));}
                             background_replayed=false;
