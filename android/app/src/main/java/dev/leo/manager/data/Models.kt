@@ -226,6 +226,11 @@ data class GithubRepository(
     val defaultBranch: String = "",
     @kotlinx.serialization.SerialName("private") val isPrivate: Boolean = false,
     val archived: Boolean = false,
+    val fork: Boolean = false,
+    val owner: String = "",
+    val language: String = "",
+    val stars: Int = 0,
+    val pushedAt: String = "",
     val imported: Boolean = false,
 )
 

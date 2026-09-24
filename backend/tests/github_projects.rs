@@ -43,7 +43,7 @@ async fn fixture() -> (TempDir, Arc<Service>) {
     let gh = root.path().join("gh");
     std::fs::write(&gh, r##"#!/bin/sh
 case "$4" in
-  user/repos*) printf '%s' '[{"full_name":"fixture/repo","name":"repo","description":null,"default_branch":"trunk","private":true}]' ;;
+  user/repos*) printf '%s' '[{"full_name":"fixture/repo","name":"repo","description":null,"default_branch":"trunk","private":true,"fork":true,"owner":{"login":"fixture"},"language":"Rust","stargazers_count":42,"pushed_at":"2026-09-01T10:00:00Z"}]' ;;
   repos/fixture/repo) printf '%s' '{"name":"repo","description":"A fixture","default_branch":"trunk"}' ;;
   *) echo 'secret-must-not-leak' >&2; exit 1 ;;
 esac
@@ -75,6 +75,11 @@ async fn lists_imports_default_branch_and_reuses_existing_project() {
     let page = github_projects::list(&s, 1).await.unwrap();
     assert_eq!(page["repositories"][0]["description"], "");
     assert_eq!(page["repositories"][0]["private"], true);
+    assert_eq!(page["repositories"][0]["owner"], "fixture");
+    assert_eq!(page["repositories"][0]["language"], "Rust");
+    assert_eq!(page["repositories"][0]["stars"], 42);
+    assert_eq!(page["repositories"][0]["fork"], true);
+    assert_eq!(page["repositories"][0]["pushedAt"], "2026-09-01T10:00:00Z");
     assert_eq!(page["nextPage"], serde_json::Value::Null);
     let project = github_projects::import(&s, json!({"repository":"fixture/repo"}))
         .await

@@ -73,7 +73,7 @@ async fn existing(s: &Service, repo: &str) -> Result<Option<Value>> {
         .find(|p| matches_origin(text(p, "origin"), repo)))
 }
 pub async fn list(s: &Service, page: i64) -> Result<Value> {
-    let values = github(s, &format!("user/repos?per_page=100&page={page}&sort=full_name&direction=asc&affiliation=owner,collaborator,organization_member")).await?;
+    let values = github(s, &format!("user/repos?per_page=100&page={page}&sort=pushed&direction=desc&affiliation=owner,collaborator,organization_member")).await?;
     let values = values
         .as_array()
         .ok_or_else(|| Error::new(502, "Invalid GitHub repository list."))?;
@@ -81,6 +81,7 @@ pub async fn list(s: &Service, page: i64) -> Result<Value> {
     let repos = values.iter().filter(|r| repository(text(r, "full_name")).is_ok()).map(|r| {
         let full_name = text(r, "full_name");
         json!({"fullName": full_name, "name": text(r,"name"), "description": text(r,"description"), "defaultBranch": text(r,"default_branch"), "private": r["private"] == true, "archived": r["archived"] == true,
+            "fork": r["fork"] == true, "owner": text(&r["owner"], "login"), "language": text(r, "language"), "stars": r["stargazers_count"].as_u64().unwrap_or(0), "pushedAt": text(r, "pushed_at"),
             "imported": projects.iter().any(|p| matches_origin(text(p,"origin"), full_name))})
     }).collect::<Vec<_>>();
     Ok(

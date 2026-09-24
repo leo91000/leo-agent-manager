@@ -143,6 +143,11 @@ export interface GithubRepository {
   defaultBranch: string
   private: boolean
   archived: boolean
+  fork: boolean
+  owner: string
+  language: string
+  stars: number
+  pushedAt: string
   imported: boolean
 }
 export interface GithubRepositoryPage {

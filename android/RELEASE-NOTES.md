@@ -1,4 +1,11 @@
-# Leo Android 0.30.1 — Conversations en attente
+# Leo Android 0.31.0 — Sélecteur de dépôts GitHub repensé
+
+- Cartes de dépôts avec avatar du propriétaire, visibilité, langage, étoiles, branche par défaut et dernière activité, triées par activité récente.
+- Recherche surlignée sur le nom, la description et le langage ; les pages suivantes se chargent automatiquement pendant la recherche et le défilement.
+- Filtres Tous / Privés / Publics avec compteurs, rechargement, et squelettes pendant le chargement.
+- Le dépôt choisi se replie en résumé avec un bouton « Changer ». Nécessite le serveur 0.31.0 pour les nouvelles informations.
+
+## Leo Android 0.30.1 — Conversations en attente
 
 - La conversation indique clairement quand il faut reconnecter Claude Code, avec un bouton vers les connexions.
 - Le message en attente reste conservé ; une exécution en file d’attente n’est plus présentée comme un agent qui travaille.

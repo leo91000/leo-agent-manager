@@ -166,11 +166,14 @@ run in their own CI workflow. Native MCP OAuth uses the accompanying server brid
 ### Add a GitHub project
 
 In Projects → Add project, choose **GitHub** to browse repositories accessible to
-the shared connection configured in Connections. Filter loaded results or load
-more pages, then select a repository to fill its name, description and default
-branch. Saving clones that branch into a managed directory inside the first
+the shared connection configured in Connections. Repositories are listed by
+recent activity with their owner, visibility, language, stars, default branch
+and last push. Search highlights matches and fetches further pages until results
+appear; Private/Public filters, infinite scrolling and arrow keys plus Enter
+help choose quickly. Selecting a repository fills its name, description and
+default branch, and collapses the list into a summary that can be changed. Saving clones that branch into a managed directory inside the first
 configured workspace root. Existing registered repositories are marked as added;
 failed imports remove their temporary checkout. The server-directory option is
-still available. Web and Android 0.13.0 use the same API (server 0.27.0).
+still available. Web and Android 0.31.0 use the same API (server 0.31.0).
 
 Repository browsing uses GitHub's [authenticated repository listing](https://docs.github.com/en/rest/repos/repos#list-repositories-for-the-authenticated-user).
