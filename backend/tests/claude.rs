@@ -232,7 +232,7 @@ async fn question_answers_use_control_protocol() {
 }
 #[tokio::test]
 async fn cancellation_and_provider_errors_do_not_complete_the_turn() {
-    for prompt in ["fixture:hang", "fixture:fail"] {
+    for prompt in ["fixture:hang", "fixture:fail", "fixture:background"] {
         let root = TempDir::new().unwrap();
         let c = setup(&root);
         let p = plan(&root, prompt);
@@ -289,4 +289,114 @@ async fn steering_waits_for_both_responses_and_acknowledges_each_message() {
     }).await.unwrap();
     task.await.unwrap().unwrap();
     assert_eq!(delivered, vec![json!("original"), json!("steering")]);
+}
+
+#[tokio::test]
+async fn restored_background_results_cannot_complete_an_undelivered_prompt_or_receipt() {
+    let root = TempDir::new().unwrap();
+    let c = setup(&root);
+    std::fs::write(
+        root.path().join("result.claude-receipt.json"),
+        json!({"messageId":"original","delivered":[],"text":""}).to_string(),
+    )
+    .unwrap();
+    let events = run_events(&c, plan(&root, "fixture:startup-result")).await;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "chat.delivered" && e["messageId"] == "original")
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("result.md")).unwrap(),
+        "Actual requested response"
+    );
+}
+
+async fn run_events(c: &Config, p: Value) -> Vec<Value> {
+    let (tx, mut rx) = mpsc::channel(128);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        claude_process::run(c, p, tx, CancellationToken::new()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut events = Vec::new();
+    while let Some(e) = rx.recv().await {
+        events.push(e);
+    }
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "turn.completed")
+            .count(),
+        1
+    );
+    events
+}
+
+#[tokio::test]
+async fn background_work_and_its_followup_finish_before_the_run_completes() {
+    let root = TempDir::new().unwrap();
+    let c = setup(&root);
+    run_events(&c, plan(&root, "fixture:background")).await;
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("result.md")).unwrap(),
+        "Build checked and task finished"
+    );
+    let receipt: Value = serde_json::from_slice(
+        &std::fs::read(root.path().join("result.claude-receipt.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(receipt["text"], "Build checked and task finished");
+}
+
+#[tokio::test]
+async fn ambient_watchers_do_not_keep_the_run_alive() {
+    for prompt in [
+        "fixture:background-ambient",
+        "fixture:background-ambient-flip",
+    ] {
+        let root = TempDir::new().unwrap();
+        let c = setup(&root);
+        run_events(&c, plan(&root, prompt)).await;
+    }
+}
+
+#[tokio::test]
+async fn correlated_result_acknowledges_a_prompt_without_a_user_replay() {
+    let root = TempDir::new().unwrap();
+    let c = setup(&root);
+    let events = run_events(&c, plan(&root, "fixture:result-ack")).await;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "chat.delivered" && e["messageId"] == "original")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn merged_prompts_need_only_one_correlated_result() {
+    let root = TempDir::new().unwrap();
+    let c = setup(&root);
+    std::fs::write(
+        root.path().join("inbox/messages.json"),
+        json!([{"id":"steering","text":"fixture:batch second prompt","attachments":[]}])
+            .to_string(),
+    )
+    .unwrap();
+    let events = run_events(&c, plan(&root, "fixture:batch first prompt")).await;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "chat.delivered")
+            .count(),
+        2
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("result.md")).unwrap(),
+        "Both prompts processed"
+    );
 }

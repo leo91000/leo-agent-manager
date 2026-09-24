@@ -44,7 +44,7 @@ else {
   out({ type: 'system', subtype: 'init', session_id: session })
   let question
   let serial = 0
-  const complete = (text = 'Claude fixture completed', thinking = false) => {
+  const complete = (text = 'Claude fixture completed', thinking = false, correlation = {}) => {
     const id = `assistant-${process.pid}-${++serial}`
     out({ type: 'stream_event', event: { type: 'message_start', message: { id } } })
     // Like Claude Code, stream real block indexes but emit one assistant event per block.
@@ -57,7 +57,7 @@ else {
     out({ type: 'stream_event', event: { type: 'content_block_start', index, content_block: { type: 'text', text: '' } } })
     out({ type: 'stream_event', event: { type: 'content_block_delta', index, delta: { type: 'text_delta', text } } })
     out({ type: 'assistant', message: { id, content: [{ type: 'text', text }] } })
-    out({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: session })
+    out({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: session, ...correlation })
   }
   lines.on('line', (line) => {
     const value = JSON.parse(line)
@@ -78,8 +78,49 @@ else {
     if (value.type !== 'user')
       return
     appendFileSync(path.join(home, 'inputs.jsonl'), `${JSON.stringify(value)}\n`)
-    out(value)
     const prompt = value.message.content.filter(b => b.type === 'text').map(b => b.text).join('\n')
+    const correlation = { user_message_uuid: value.uuid }
+    if (prompt.includes('fixture:startup-result')) {
+      // Restored background work may finish before the new prompt is consumed.
+      out({ type: 'result', subtype: 'success', is_error: false, result: '', origin: { kind: 'task-notification' } })
+      setTimeout(() => {
+        out(value)
+        complete('Actual requested response', false, correlation)
+      }, 500)
+      return
+    }
+    if (prompt.includes('fixture:result-ack')) {
+      complete('Result acknowledges prompt', false, correlation)
+      return
+    }
+    out(value)
+    if (prompt.includes('fixture:background')) {
+      const ambient = prompt.includes('fixture:background-ambient')
+      if (prompt.includes('fixture:background-ambient-flip'))
+        out({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'build', task_type: 'local_bash', description: 'Wait for build' }] })
+      out({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'build', task_type: 'local_bash', description: 'Wait for build', ambient }] })
+      complete('Build is still running', false, correlation)
+      if (!ambient) {
+        setTimeout(() => {
+          out({ type: 'system', subtype: 'background_tasks_changed', tasks: [] })
+          out({ type: 'system', subtype: 'task_notification', task_id: 'build', status: 'completed' })
+          // Let the agent consume the notification before declaring the run done.
+          setTimeout(() => {
+            out({ type: 'user', uuid: 'notification', origin: { kind: 'task-notification' }, message: { role: 'user', content: [] } })
+            complete('Build checked and task finished', false, { origin: { kind: 'task-notification' } })
+          }, 200)
+        }, 500)
+      }
+      return
+    }
+    if (prompt.includes('fixture:batch')) {
+      if (!question) {
+        question = value.uuid
+        return
+      }
+      complete('Both prompts processed', false, { user_message_uuids: [question, value.uuid], user_message_uuid: value.uuid })
+      return
+    }
     if (prompt.includes('fixture:hang'))
       return
     if (prompt.includes('fixture:fail')) {
@@ -94,7 +135,7 @@ else {
     out({ type: 'assistant', message: { id: 'tool-message', content: [{ type: 'tool_use', id: `tool-${process.pid}`, name: 'Bash', input: { command: 'printf fixture' } }] } })
     out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `tool-${process.pid}`, content: 'fixture' }] } })
     if (prompt.includes('fixture:slow'))
-      setTimeout(complete, 1500)
-    else complete(undefined, prompt.includes('fixture:thinking'))
+      setTimeout(complete, 1500, undefined, false, correlation)
+    else complete(undefined, prompt.includes('fixture:thinking'), correlation)
   })
 }

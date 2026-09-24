@@ -21,12 +21,21 @@ The server waits for the current turn to finish, starts a fresh native session,
 and transfers visible conversation context while retaining the same workspace.
 Switching back also starts a fresh session so the intervening work is included.
 Native session IDs, pending tool calls and hidden reasoning are not transferred.
+
 Private question answers and raw tool outputs are excluded from the transfer.
 For long chats, the transfer includes up to 200 recent transcript entries and
 100,000 characters, plus an excerpt of the initial request when earlier history
 is omitted. The full visible history stays available in Léo. Previous attachments
 remain in the retained input directory. Model and effort defaults are reset when
 changing providers; the agent's global configuration is unchanged.
+
+Claude's turn results can cover several user messages, or background notifications
+unrelated to the current prompt. Léo correlates completion with consumed message
+IDs and keeps the process alive while non-ambient background tasks and their
+follow-up responses are pending. A background build or CI wait therefore remains
+part of the running conversation. Ambient watchers do not keep a run open.
+Resume ignores legacy completion receipts that never acknowledged the request,
+preventing an empty result from repeatedly restarting the same pending message.
 
 An explicit provider choice is saved with each queued message. Steering cannot
 change the running turn's provider. Older clients that omit the provider continue

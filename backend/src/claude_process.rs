@@ -168,6 +168,9 @@ pub async fn run(
     if let Ok(bytes) = tokio::fs::read(&receipt).await
         && let Ok(saved) = serde_json::from_slice::<Value>(&bytes)
         && saved["messageId"] == initial_id
+        // Older adapters could save an unrelated startup/background result before
+        // Claude consumed this request. Such a receipt must never complete it.
+        && saved["delivered"].as_array().is_some_and(|ids| ids.iter().any(|id| id == initial_id))
     {
         for id in saved["delivered"].as_array().into_iter().flatten() {
             emit(&events, json!({"type":"chat.delivered","messageId":id})).await?;
@@ -207,7 +210,8 @@ pub async fn run(
         let mut submitted=HashSet::from([initial_id.to_owned()]);let mut delivered=HashSet::<String>::new();
         let mut questions=HashMap::<String,(Value,Value)>::new();
         let mut tools=HashMap::<String,Value>::new();let mut streams=HashMap::<usize,Value>::new();let mut blocks=HashMap::<String,usize>::new();let mut stream_message=String::new();let mut last=String::new();let mut last_id=format!("{initial_id}-result");
-        let mut pending=1usize;let mut buffer=Vec::new();
+        let mut pending=HashSet::from([initial_id.to_owned()]);let mut consumed=HashSet::<String>::new();let mut buffer=Vec::new();
+        let mut background=HashSet::<String>::new();let mut awaiting_background=HashSet::<String>::new();let mut background_replayed=false;
         let mut timer=tokio::time::interval(Duration::from_millis(250));
         loop {
             // read_until is cancellation safe. Bound allocation using fill_buf below.
@@ -226,7 +230,7 @@ pub async fn run(
                                 submitted.insert(id.into());delivered.insert(id.into());emit(&events,json!({"type":"chat.delivered","messageId":id})).await?;
                                 emit(&events,json!({"type":"chat.question.closed","questionId":message["questionId"]})).await?;
                             }else{
-                                send(&mut stdin,input(&message,inbox).await?).await?;submitted.insert(id.into());pending+=1;
+                                send(&mut stdin,input(&message,inbox).await?).await?;submitted.insert(id.into());pending.insert(id.into());
                             }
                         }}
                     }
@@ -239,8 +243,14 @@ pub async fn run(
                     let value:Value=serde_json::from_slice(&buffer).map_err(|_|Error::new(502,"Claude Code returned an invalid streaming event."))?;buffer.clear();
                     match text(&value,"type") {
                         "system" if value["subtype"]=="init"=>{let session=text(&value,"session_id");crate::validation::uuid(session)?;emit(&events,json!({"type":"thread.started","thread_id":session})).await?;},
+                        "system" if value["subtype"]=="background_tasks_changed"=>{
+                            background=value["tasks"].as_array().into_iter().flatten().filter(|task|task["ambient"]!=true).map(|task|text(task,"task_id").to_owned()).collect();
+                            awaiting_background.extend(background.iter().cloned());
+                            for task in value["tasks"].as_array().into_iter().flatten().filter(|task|task["ambient"]==true){awaiting_background.remove(text(task,"task_id"));}
+                        },
                         "user"=>{
-                            let id=text(&value,"uuid");if submitted.contains(id)&&delivered.insert(id.into()){emit(&events,json!({"type":"chat.delivered","messageId":id})).await?;}
+                            let id=text(&value,"uuid");if submitted.contains(id){consumed.insert(id.into());if delivered.insert(id.into()){emit(&events,json!({"type":"chat.delivered","messageId":id})).await?;}}
+                            if value["origin"]["kind"]=="task-notification"{background_replayed=true;}
                             for block in value["message"]["content"].as_array().into_iter().flatten(){if block["type"]=="tool_result" && let Some(mut item)=tools.remove(text(block,"tool_use_id")){
                                 item["status"]=if block["is_error"]==true {"failed"}else{"completed"}.into();
                                 if item["type"]=="command_execution" {item["aggregated_output"]=if block["content"].is_string(){block["content"].clone()}else{block["content"].to_string().into()};}else{item["result"]=block["content"].clone();}
@@ -276,7 +286,14 @@ pub async fn run(
                         "result"=>{
                             if value["is_error"]==true||value["subtype"]!="success" {return Err(Error::new(502,if text(&value,"result").is_empty(){"Claude Code could not complete this turn. Check sign-in, model access, or usage limits."}else{text(&value,"result")}));}
                             if !text(&value,"result").is_empty(){last=text(&value,"result").into();}
-                            pending=pending.saturating_sub(1);if pending>0{continue;}
+                            // A result belongs to a turn, not one stdin message. Claude can
+                            // merge prompts and emit unrelated results while resuming tasks.
+                            let ids=if value["user_message_uuids"].is_array(){value["user_message_uuids"].as_array().unwrap().iter().filter_map(Value::as_str).map(str::to_owned).collect::<HashSet<_>>()}else if let Some(id)=value["user_message_uuid"].as_str(){HashSet::from([id.to_owned()])}else if value["origin"]["kind"]=="task-notification"{HashSet::new()}else{consumed.clone()};
+                            for id in ids {if pending.remove(&id)&&delivered.insert(id.clone()){emit(&events,json!({"type":"chat.delivered","messageId":id})).await?;}}
+                            consumed.retain(|id|pending.contains(id));
+                            if background_replayed||value["origin"]["kind"]=="task-notification"{awaiting_background.retain(|id|background.contains(id));}
+                            background_replayed=false;
+                            if !pending.is_empty()||!background.is_empty()||!awaiting_background.is_empty(){continue;}
                             // Save the receipt before completion so restart cannot repeat a finished request.
                             atomic_write(&receipt,&serde_json::to_vec(&json!({"messageId":initial_id,"delivered":delivered,"text":last,"itemId":last_id}))?).await?;
                             atomic_write(Path::new(text(&plan,"output")),last.as_bytes()).await?;
