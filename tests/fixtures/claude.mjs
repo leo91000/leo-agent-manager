@@ -64,7 +64,7 @@ else {
     if (value.type === 'user')
       appendFileSync(path.join(home, 'user-messages.jsonl'), `${JSON.stringify(value)}\n`)
     if (value.type === 'control_request') {
-      out({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response: { models: [{ value: 'sonnet', displayName: 'Sonnet', description: 'Balanced Claude model', supportedEffortLevels: ['low', 'medium', 'high'] }, { value: 'opus', displayName: 'Opus', description: 'Deep reasoning', supportedEffortLevels: ['low', 'medium', 'high', 'max'] }] } } })
+      out({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response: { models: [{ value: 'sonnet', displayName: 'Sonnet', description: 'Balanced Claude model', supportedEffortLevels: ['low', 'medium', 'high'] }, { value: 'opus', displayName: 'Opus', description: 'Deep reasoning', supportedEffortLevels: ['low', 'medium', 'high', 'max'] }, { value: 'default', displayName: 'Default (recommended)', description: 'Opus with 1M context · Best for everyday tasks', supportedEffortLevels: ['low', 'medium', 'high'] }] } } })
       return
     }
     if (value.type === 'control_response') {

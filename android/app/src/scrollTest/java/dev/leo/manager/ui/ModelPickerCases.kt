@@ -132,6 +132,28 @@ abstract class ModelPickerCases {
     }
 
     @Test
+    fun claudeDefaultAliasIsMergedIntoTheDefaultRow() {
+        val claude =
+            ModelCatalog(
+                listOf(
+                    CodexModel("default", "Default (recommended)", "Opus avec 1M de contexte", isDefault = true),
+                    CodexModel("sonnet", "Sonnet"),
+                )
+            )
+        compose.setContent {
+            LeoTheme("light") {
+                SurfaceForTest { ModelPicker(claude, "", "", provider = "claude") { _, _ -> } }
+            }
+        }
+        compose.onNodeWithTag("model-picker").performClick()
+        compose.onAllNodes(hasText("Default (recommended)") and isSelectable()).assertCountEquals(0)
+        compose.onNode(hasText("Modèle par défaut") and isSelectable())
+            .assertIsSelected()
+            .assert(hasText("Opus avec 1M de contexte"))
+        compose.onNodeWithText("Sonnet").assertExists()
+    }
+
+    @Test
     fun unknownModelDoesNotBorrowDefaultModelsEfforts() {
         compose.setContent {
             LeoTheme("light") {

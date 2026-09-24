@@ -39,7 +39,10 @@ const modelLabel = computed(() => selected.value?.displayName || selected.value?
 const defaultEffort = computed(() => (props.inherit && !model.value ? props.defaultReasoning || selected.value?.defaultReasoningEffort : selected.value?.defaultReasoningEffort) || '')
 const effectiveEffort = computed(() => reasoning.value || defaultEffort.value)
 const summary = computed(() => [current.value.label, modelLabel.value, effectiveEffort.value && `${effortLabel(effectiveEffort.value)} reasoning`].filter(Boolean).join(' · '))
-const visible = computed(() => catalog.value.models.filter(item => !item.hidden || item.model === model.value))
+// Claude lists its own "default" alias. When the default row already resolves to it,
+// show one row instead of two equivalent choices.
+const alias = computed(() => !props.inherit || !props.defaultModel ? catalog.value.models.find(item => item.model === 'default') : undefined)
+const visible = computed(() => catalog.value.models.filter(item => (!item.hidden || item.model === model.value) && (item !== alias.value || model.value === item.model)))
 const models = computed(() => {
   const words = query.value.trim().toLowerCase()
   return words ? visible.value.filter(item => `${item.displayName} ${item.model}`.toLowerCase().includes(words)) : visible.value
@@ -49,10 +52,10 @@ const choices = computed(() => [
   {
     value: '',
     label: props.inherit ? 'Agent default' : `${current.value.label} default`,
-    description: fallback.value
+    description: (!props.inherit && alias.value?.description) || (fallback.value
       ? `${fallback.value} · ${props.inherit ? 'the agent’s setting' : `chosen by ${current.value.label}`}`
-      : props.inherit ? 'Follow the agent’s model' : 'Follow provider settings',
-    recommended: false,
+      : props.inherit ? 'Follow the agent’s model' : 'Follow provider settings'),
+    recommended: !props.inherit && !!alias.value,
   },
   ...models.value.map(item => ({ value: item.model, label: item.displayName || item.model, description: item.description, recommended: item.isDefault })),
   ...(missing.value ? [{ value: model.value, label: model.value, description: 'Saved model · not in the current catalog', recommended: false }] : []),

@@ -164,7 +164,10 @@ fun ModelPicker(
         ) {
             if (refresh != null) Poll(provider, 300_000) { reload() }
             var query by rememberSaveable { mutableStateOf("") }
-            val visible = catalog.models.filter { !it.hidden || it.model == model }
+            // Claude lists its own "default" alias. When the default row already resolves to it,
+            // show one row instead of two equivalent choices.
+            val alias = catalog.models.find { it.model == "default" }?.takeIf { !inherit || defaultModel.isBlank() }
+            val visible = catalog.models.filter { (!it.hidden || it.model == model) && (it != alias || model == it.model) }
             val models =
                 visible.filter { it.displayName.contains(query, true) || it.model.contains(query, true) }
             val reasoningFor: @Composable () -> Unit = {
@@ -255,10 +258,12 @@ fun ModelPicker(
                 ModelCard(
                     if (inherit) "Modèle de l’agent" else "Modèle par défaut",
                     if (inherit) fallback.ifBlank { null }?.let { "$it · réglage de l’agent" } ?: "Suivre le réglage de l’agent"
-                    else fallback.ifBlank { null }?.let { "$it · choisi par ${providerLabel(provider)}" }
+                    else alias?.description?.ifBlank { null }
+                        ?: fallback.ifBlank { null }?.let { "$it · choisi par ${providerLabel(provider)}" }
                         ?: "Suivre le réglage par défaut de ${providerLabel(provider)}",
                     model.isBlank(),
                     enabled,
+                    badge = if (alias != null && !inherit) "Recommandé" else "",
                     reasoning = reasoningFor,
                 ) { change("", "") }
                 models.forEach { item ->

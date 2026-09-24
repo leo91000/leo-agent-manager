@@ -87,6 +87,9 @@ test('switching coding agents preserves one chat, context and provider selection
   await expect(menu.getByRole('radio', { name: 'Codex', exact: true })).toHaveAttribute('aria-checked', 'true')
   await menu.getByRole('radio', { name: 'Claude Code', exact: true }).click()
   await expect(menu.getByText('The next message starts a new Claude Code session', { exact: false })).toBeVisible()
+  // Claude's own "default" alias is the same choice as the provider default row.
+  await expect(menu.getByRole('radio', { name: 'Default (recommended)', exact: true })).toHaveCount(0)
+  await expect(menu.getByRole('radio', { name: 'Claude Code default', exact: true })).toHaveAccessibleDescription('Opus with 1M context · Best for everyday tasks')
   await menu.getByRole('radio', { name: 'Sonnet', exact: true }).click()
   await expect(menu.getByRole('radiogroup', { name: 'Reasoning' })).toBeVisible()
   await menu.getByRole('button', { name: 'Close', exact: true }).click()
