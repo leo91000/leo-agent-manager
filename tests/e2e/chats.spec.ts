@@ -1,5 +1,43 @@
 import { randomUUID } from 'node:crypto'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { expect, expectChatReady, expectSingleScroll, initializeRepository, test } from './fixtures'
+
+test('queued Claude conversation explains reconnection and continues after sign-in', async ({ page, workspace }) => {
+  test.setTimeout(90000)
+  const directory = path.join(workspace.service.config.dataDir, 'claude')
+  const marker = path.join(directory, 'sync-required')
+  await mkdir(directory, { recursive: true })
+  await writeFile(marker, 'interrupted-legacy-run')
+  try {
+    const chat = await workspace.api('/api/chats', 'POST', {})
+    await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: randomUUID(), text: 'Keep this request while reconnecting', provider: 'claude' })
+    await expect.poll(async () => (await workspace.api(`/api/chats/${chat.id}`)).run?.accountWaitReason).toBe('Reconnect Claude Code after an interrupted credential synchronization.')
+    await page.goto(`/chats/${chat.id}`)
+    await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await page.setViewportSize({ width: 390, height: 844 })
+    // Password verification in the native debug backend can take several seconds.
+    await expect(page.getByText('Reconnect Claude Code', { exact: true })).toBeVisible({ timeout: 30000 })
+    await expect(page.getByText('Waiting for Claude Code sign-in', { exact: true })).toBeVisible()
+    await expect(page.getByText('Your agent is working…', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Starting agent…', { exact: true })).toHaveCount(0)
+    await page.getByRole('link', { name: 'Open Connections', exact: true }).click()
+    await expect(page).toHaveURL('/connections')
+    const section = page.getByRole('region', { name: 'Claude Code', exact: true })
+    await section.getByRole('button', { name: 'Connect Claude Code', exact: true }).click()
+    await section.getByLabel('Claude authorization code').fill('fixture-code')
+    await section.getByRole('button', { name: 'Finish sign-in' }).click()
+    await expect.poll(async () => (await workspace.api(`/api/chats/${chat.id}`)).run?.status, { timeout: 20000 }).toBe('succeeded')
+    await page.goto(`/chats/${chat.id}`)
+    await expect(page.getByText('Claude fixture completed', { exact: true })).toBeVisible()
+    await expect(page.getByText('Reconnect Claude Code', { exact: true })).toHaveCount(0)
+    await expect(page.locator('.activity-message').getByText('Keep this request while reconnecting', { exact: true })).toHaveCount(1)
+  }
+  finally {
+    await rm(marker, { force: true })
+  }
+})
 
 test('conversation switcher preserves drafts and supports search, keyboard and mobile sheets', async ({ page, workspace }) => {
   test.setTimeout(60000)

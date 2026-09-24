@@ -18,6 +18,52 @@ import org.junit.Assert.*
 abstract class ChatProviderCases {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun queuedConversationShowsReconnectActionInsteadOfWorking() {
+        MockWebServer().use { server ->
+            val agent = Agent(MAIN_AGENT_ID, "Agent principal", provider = "claude")
+            val run = Run("run", status = "queued", snapshot = Snapshot(agent = agent),
+                accountWaitReason = "Reconnect Claude Code after an interrupted credential synchronization.",
+                chatExecution = ChatExecution("message"))
+            val chat = Chat("chat", title = "Conversation en attente", runId = "run", run = run,
+                messages = listOf(ChatMessage("message", text = "Améliore cette interface", status = "sending")))
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val path = request.path!!.substringBefore('?')
+                    if (path == "/api/chats/chat/stream") {
+                        val frame = "event: batch\nid: 0\ndata: ${wireJson.encodeToString(LiveBatch(emptyList(), LiveState(chat = chat, run = run), true, false))}\n\n"
+                        return MockResponse().setHeader("Content-Type", "text/event-stream")
+                            .setBody(frame + ": keepalive\n\n".repeat(10000))
+                            .throttleBody(frame.toByteArray().size.toLong(), 1, java.util.concurrent.TimeUnit.SECONDS)
+                    }
+                    val body = when (path) {
+                        "/api/session" -> """{"authenticated":true,"csrf":"fixture"}"""
+                        "/api/agents" -> wireJson.encodeToString(listOf(agent))
+                        "/api/claude/models" -> """{"models":[]}"""
+                        "/api/overview" -> "{}"
+                        else -> "[]"
+                    }
+                    return MockResponse().setBody(body)
+                }
+            }
+            server.start()
+            var openedConnections = false
+            val vm = LeoViewModel(ApplicationProvider.getApplicationContext<Application>(), ProviderVault())
+            compose.setContent {
+                val state by vm.state.collectAsStateWithLifecycle()
+                LaunchedEffect(Unit) { vm.state.first { it.ready }; if (!vm.state.value.session.authenticated) vm.connect(server.url("/").toString()) }
+                LeoTheme { if (state.session.authenticated) ChatScreen(vm, state, "chat", openChat = {}, openRun = {}, openConnections = { openedConnections = true }) }
+            }
+            compose.waitUntil(20000) { compose.onAllNodesWithText("Reconnectez Claude Code", substring = false).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Reconnectez Claude Code", substring = false).assertIsDisplayed()
+            compose.onNodeWithText("En attente de connexion à Claude Code").assertIsDisplayed()
+            compose.onNodeWithText("Améliore cette interface").assertIsDisplayed()
+            compose.onNodeWithText("L’agent travaille…").assertDoesNotExist()
+            compose.onNodeWithText("Démarrage de l’agent…").assertDoesNotExist()
+            compose.onNodeWithText("Ouvrir les connexions").performClick()
+            compose.runOnIdle { assertTrue(openedConnections) }
+        }
+    }
+
     @Test fun chatProviderSurvivesRecreationAndResetsIncompatibleModelBeforeSending() {
         MockWebServer().use { server ->
             val sent = CopyOnWriteArrayList<JsonObject>()

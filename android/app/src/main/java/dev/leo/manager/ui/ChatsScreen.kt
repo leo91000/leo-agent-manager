@@ -165,6 +165,7 @@ fun ChatScreen(
     openRun: (String) -> Unit,
     back: () -> Unit = {},
     create: () -> Unit = back,
+    openConnections: () -> Unit = {},
 ) {
     val pageAnchor = remember(id) { HistoryPageAnchor() }
     val live =
@@ -569,6 +570,7 @@ fun ChatScreen(
                     Text(chat?.projectName ?: "Tous les projets autorisés")
                     Text(
                         if (chat?.paused == true) "En pause"
+                        else if (chat?.run?.status == "queued") "En attente"
                         else if (active) "L’agent travaille…" else "Prêt"
                     )
                     Text(
@@ -594,6 +596,7 @@ fun ChatScreen(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+            chatWaitNotice(chat?.run)?.let { ChatWaitingNotice(it, openConnections) }
             if (gallery) {
                 ModalBottomSheet(
                     onDismissRequest = { gallery = false },
@@ -730,7 +733,7 @@ fun ChatScreen(
                                     )
                                 }
                             }
-                            if (active && !live.catchingUp)
+                            if (chat?.run?.status == "running" && !live.catchingUp)
                                 item {
                                     Text(
                                         "L’agent travaille…",

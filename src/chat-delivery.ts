@@ -1,9 +1,23 @@
 import type { ChatDetail, ChatMessage } from '../shared/chats'
-import type { RunEvent } from '../shared/contracts'
+import type { Run, RunEvent } from '../shared/contracts'
 
 export interface SendingMessage {
   message: ChatMessage
   label: string
+}
+
+export function chatWaitNotice(run: Run | null | undefined) {
+  const reason = run?.status === 'queued' ? run.accountWaitReason?.trim() : ''
+  if (!reason)
+    return null
+  const reconnectClaude = reason === 'Reconnect Claude Code after an interrupted credential synchronization.'
+    || reason === 'Connect Claude Code in Connections before running this agent.'
+  return {
+    reconnectClaude,
+    message: reconnectClaude
+      ? 'Reconnect Claude Code in Connections to continue. Your message is saved and will be sent when the connection is restored.'
+      : reason,
+  }
 }
 
 /** The dispatch queue is durable storage; only waiting follow-ups belong in the UI queue. */
@@ -28,7 +42,8 @@ export function chatDelivery(chat: ChatDetail | null, events: RunEvent[], outgoi
       // redaction) from the server; preserve genuinely waiting answers below.
       if (message.questionId)
         continue
-      sending.push({ message, label: starting ? 'Starting agent…' : steering ? 'Sending to agent…' : 'Sending…' })
+      const waiting = chat?.run?.status === 'queued'
+      sending.push({ message, label: waiting ? (chatWaitNotice(chat.run)?.reconnectClaude ? 'Waiting for Claude Code sign-in' : 'Waiting for the agent…') : starting ? 'Starting agent…' : steering ? 'Sending to agent…' : 'Sending…' })
     }
     else {
       queued.push(message)

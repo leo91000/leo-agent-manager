@@ -1,5 +1,7 @@
 # Leo for Android
 
+Version 0.30.1 shows waiting reasons in conversations and links to Connections when Claude Code needs to reconnect.
+
 Version 0.30.0 adds in-app APK updates from stable Git tags. See [update distribution](docs/UPDATES.md).
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.

@@ -172,6 +172,7 @@ fun LeoApp(
                                     openRun = { nav.navigate("run/$it") },
                                     back = { nav.popBackStack() },
                                     create = { nav.navigate("new-chat") },
+                                    openConnections = { nav.navigate("connections") },
                                 )
                             }
                             composable("new-chat?agent={agent}&project={project}") { entry ->
@@ -187,6 +188,7 @@ fun LeoApp(
                                     openRun = { nav.navigate("run/$it") },
                                     back = { nav.popBackStack() },
                                     create = { nav.navigate("new-chat") },
+                                    openConnections = { nav.navigate("connections") },
                                 )
                             }
                             composable("overview") {

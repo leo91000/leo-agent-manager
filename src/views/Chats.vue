@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { latestArtifacts } from '../../shared/artifacts'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, state } from '../api'
-import { chatDelivery } from '../chat-delivery'
+import { chatDelivery, chatWaitNotice } from '../chat-delivery'
 import ActivityFeed from '../components/ActivityFeed.vue'
 import AssistantPicker from '../components/AssistantPicker.vue'
 import ChatAttachments from '../components/ChatAttachments.vue'
@@ -123,6 +123,7 @@ function pasteFiles(event: ClipboardEvent) {
   addFiles(pasted)
 }
 const active = computed(() => !!detail.value?.run && ['queued', 'running'].includes(detail.value.run.status))
+const waitNotice = computed(() => chatWaitNotice(detail.value?.run))
 const chatStatus = computed(() => detail.value?.paused ? 'Paused' : active.value ? detail.value?.run?.status === 'queued' ? 'Waiting' : 'Working' : detail.value?.run?.status === 'failed' ? 'Failed' : detail.value?.run?.status === 'interrupted' ? 'Interrupted' : 'Ready')
 const outgoing = ref<ChatMessage | null>(null)
 const delivery = computed(() => chatDelivery(detail.value, events.value, outgoing.value))
@@ -385,7 +386,7 @@ function key(event: KeyboardEvent) {
             </button>
           </div>
         </div>
-        <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail?.run?.status === 'succeeded' ? detail.run.outcome : null" :sending="delivery.sending" :events="events" :active="active" :agent="detail?.agentName || selectedAgent?.name || 'Main agent'" :task="detail?.title || 'New conversation'" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" chat @load="live.loadOlder" @position="live.savePosition" />
+        <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail?.run?.status === 'succeeded' ? detail.run.outcome : null" :sending="delivery.sending" :events="events" :active="detail?.run?.status === 'running'" :agent="detail?.agentName || selectedAgent?.name || 'Main agent'" :task="detail?.title || 'New conversation'" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" chat @load="live.loadOlder" @position="live.savePosition" />
         <div class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
           <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" />
           <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
@@ -396,8 +397,14 @@ function key(event: KeyboardEvent) {
               <Icon :name="X" :size="14" />
             </button>
           </UiAlert>
-          <div v-if="detail?.run?.accountWaitReason" class="mb-2 text-xs text-muted" role="status">
-            {{ detail.run.accountWaitReason }}
+          <div v-if="waitNotice" class="mb-3 rounded-lg border border-line bg-soft px-4 py-3 text-sm" role="status">
+            <p v-if="waitNotice.reconnectClaude" class="mb-1 font-semibold">
+              Reconnect Claude Code
+            </p>
+            <p>{{ waitNotice.message }}</p>
+            <RouterLink v-if="waitNotice.reconnectClaude" to="/connections" class="mt-2 inline-flex font-semibold text-accent underline">
+              Open Connections
+            </RouterLink>
           </div>
           <div v-if="pending.length || detail?.paused" class="mb-3 overflow-hidden rounded-xl border border-line bg-soft">
             <div class="flex items-center gap-2 px-3 py-2">

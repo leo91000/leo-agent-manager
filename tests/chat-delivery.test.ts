@@ -1,7 +1,7 @@
 import type { ChatDetail, ChatMessage } from '../shared/chats'
 import type { Run, RunEvent } from '../shared/contracts'
 import { describe, expect, it } from 'vitest'
-import { chatDelivery } from '../src/chat-delivery'
+import { chatDelivery, chatWaitNotice } from '../src/chat-delivery'
 
 function message(id: string, overrides: Partial<ChatMessage> = {}): ChatMessage {
   return { id, chatId: 'chat', text: id, status: 'queued', mode: 'queue', model: '', createdAt: 1, ...overrides }
@@ -12,6 +12,24 @@ function chat(messages: ChatMessage[], run: Partial<Run> | null = null, paused =
 const running = { id: 'run', status: 'running' as const, chatExecution: { messageId: 'first', text: 'first', recovery: false } }
 
 describe('chat delivery presentation', () => {
+  it('explains a required Claude reconnection without claiming the queued agent has started', () => {
+    const detail = chat([message('first', { status: 'sending' })], {
+      ...running,
+      status: 'queued',
+      accountWaitReason: 'Reconnect Claude Code after an interrupted credential synchronization.',
+    })
+    expect(chatWaitNotice(detail.run)).toMatchObject({ reconnectClaude: true })
+    expect(chatDelivery(detail, []).sending[0].label).toBe('Waiting for Claude Code sign-in')
+    detail.run!.status = 'running'
+    expect(chatWaitNotice(detail.run)).toBeNull()
+    expect(chatDelivery(detail, []).sending[0].label).toBe('Starting agent…')
+  })
+  it('preserves other waiting reasons without offering an unrelated reconnection', () => {
+    const detail = chat([message('first')], { ...running, status: 'queued', accountWaitReason: 'Waiting for the previous execution to stop before recovery.' })
+    expect(chatWaitNotice(detail.run)).toEqual({ reconnectClaude: false, message: detail.run!.accountWaitReason })
+    expect(chatDelivery(detail, []).sending[0].label).toBe('Waiting for the agent…')
+    expect(chatWaitNotice({ ...detail.run!, accountWaitReason: '' })).toBeNull()
+  })
   it('puts the first idle send in the transcript while later messages wait', () => {
     const result = chatDelivery(chat([message('first'), message('next')]), [])
     expect(result.sending.map(item => [item.message.id, item.label])).toEqual([['first', 'Sending…']])

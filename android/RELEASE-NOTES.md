@@ -1,4 +1,10 @@
-# Leo Android 0.30.0 — Mises à jour depuis l’application
+# Leo Android 0.30.1 — Conversations en attente
+
+- La conversation indique clairement quand il faut reconnecter Claude Code, avec un bouton vers les connexions.
+- Le message en attente reste conservé ; une exécution en file d’attente n’est plus présentée comme un agent qui travaille.
+- Les autres motifs d’attente transmis par le serveur sont également visibles dans la conversation.
+
+## Leo Android 0.30.0 — Mises à jour depuis l’application
 
 - Détection des nouvelles versions au lancement et dans les paramètres.
 - Téléchargement vérifié et installation de l’APK via Android.

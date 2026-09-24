@@ -12,6 +12,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.leo.manager.data.*
@@ -22,6 +25,42 @@ internal val LocalFocusMode = compositionLocalOf<(Boolean) -> Unit> { {} }
 internal data class SendingMessage(val message: ChatMessage, val label: String)
 
 internal data class ChatDelivery(val sending: List<SendingMessage>, val queued: List<ChatMessage>)
+
+internal data class ChatWaitNotice(val message: String, val reconnectClaude: Boolean)
+
+internal fun chatWaitNotice(run: Run?): ChatWaitNotice? {
+    if (run?.status != "queued") return null
+    val reason = run.accountWaitReason?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val reconnectClaude =
+        reason == "Reconnect Claude Code after an interrupted credential synchronization." ||
+            reason == "Connect Claude Code in Connections before running this agent."
+    return ChatWaitNotice(
+        if (reconnectClaude)
+            "Reconnectez Claude Code dans Connexions pour continuer. Votre message est conservé et sera envoyé une fois la connexion rétablie."
+        else reason,
+        reconnectClaude,
+    )
+}
+
+@Composable
+internal fun ChatWaitingNotice(notice: ChatWaitNotice, openConnections: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                if (notice.reconnectClaude) "Reconnectez Claude Code" else "Conversation en attente",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(notice.message, style = MaterialTheme.typography.bodyMedium)
+            if (notice.reconnectClaude)
+                TextButton(onClick = openConnections) { Text("Ouvrir les connexions") }
+        }
+    }
+}
 
 /** The server's durable dispatch queue is not necessarily a waiting user message. */
 internal fun chatDelivery(
@@ -56,6 +95,10 @@ internal fun chatDelivery(
                     SendingMessage(
                         message,
                         when {
+                            chat?.run?.status == "queued" ->
+                                if (chatWaitNotice(chat.run)?.reconnectClaude == true)
+                                    "En attente de connexion à Claude Code"
+                                else "En attente de l’agent…"
                             starting -> "Démarrage de l’agent…"
                             steering -> "Transmission à l’agent…"
                             else -> "Envoi en cours…"
