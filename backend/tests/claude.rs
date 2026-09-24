@@ -407,7 +407,7 @@ async fn usage_is_sanitized_cached_and_preserved_on_failure_without_changing_con
     let c = config(&root);
     let home = claude::home(&c);
     std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".credentials.json"), "fixture").unwrap();
+    std::fs::write(home.join(".credentials.json"),json!({"claudeAiOauth":{"accessToken":"fixture-access","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
     let s = Service::new(c).await.unwrap();
     let first = route(&s, "GET", "connection", Value::Null).await.unwrap();
     assert_eq!(first["connected"], true);
@@ -509,7 +509,7 @@ async fn usage_handles_partial_invalid_and_unavailable_windows_and_reconnect() {
     let c = config(&root);
     let home = claude::home(&c);
     std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".credentials.json"), "fixture").unwrap();
+    std::fs::write(home.join(".credentials.json"),json!({"claudeAiOauth":{"accessToken":"fixture-access","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
     let s = Service::new(c).await.unwrap();
     let payload = json!({"rate_limits_available":true,"rate_limits":{
         "five_hour":{"utilization":0,"resets_at":null},
@@ -547,4 +547,45 @@ async fn usage_handles_partial_invalid_and_unavailable_windows_and_reconnect() {
     assert_eq!(pending["usage"]["windows"], json!([]));
     route(&s, "DELETE", "login", json!({})).await.unwrap();
     wait_login(&s, "cancelled").await;
+}
+
+#[tokio::test]
+async fn concurrency_setting_is_validated_persisted_and_available_during_runs() {
+    let root = TempDir::new().unwrap();
+    let s = Service::new(config(&root)).await.unwrap();
+    assert_eq!(
+        route(&s, "GET", "connection", Value::Null).await.unwrap()["maxConcurrent"],
+        4
+    );
+    for limit in [
+        json!(0),
+        json!(33),
+        json!(-1),
+        json!(1.5),
+        json!("4"),
+        Value::Null,
+    ] {
+        assert!(
+            route(&s, "PATCH", "connection", json!({"maxConcurrent":limit}))
+                .await
+                .is_err()
+        );
+    }
+    assert_eq!(
+        route(&s, "PATCH", "connection", json!({"maxConcurrent":2}))
+            .await
+            .unwrap()["maxConcurrent"],
+        2
+    );
+    assert_eq!(
+        s.store.kv("claude-concurrency").await.unwrap(),
+        Some(json!(2))
+    );
+    assert!(
+        !route(&s, "GET", "connection", Value::Null)
+            .await
+            .unwrap()
+            .to_string()
+            .contains("refreshToken")
+    );
 }

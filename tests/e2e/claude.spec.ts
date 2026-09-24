@@ -35,6 +35,12 @@ test('Claude sign-in, provider selection and resumed chats work on desktop and m
     await section.screenshot({ path: testInfo.outputPath(`claude-usage-${width}.png`) })
   }
 
+  await section.getByRole('spinbutton', { name: 'Simultaneous Claude conversations' }).fill('2')
+  await section.getByRole('button', { name: 'Save limit', exact: true }).click()
+  await expect(section.getByRole('button', { name: 'Save limit', exact: true })).toBeDisabled()
+  await page.reload()
+  await expect(section.getByRole('spinbutton', { name: 'Simultaneous Claude conversations' })).toHaveValue('2')
+
   await page.goto('/agents')
   await page.getByRole('button', { name: 'New agent', exact: true }).click()
   await page.getByLabel('Name', { exact: true }).fill('Claude engineer')

@@ -32,7 +32,7 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
                     let Ok((mut client, _)) = accepted else { break };
                     tokio::spawn(async move {
                         if let Ok(mut remote) = VsockStream::connect(VsockAddr::new(2, wire::PORT + 1)).await {
-                            let _ = tokio::time::timeout(Duration::from_secs(15), tokio::io::copy_bidirectional(&mut client, &mut remote)).await;
+                            let _ = tokio::time::timeout(Duration::from_secs(45), tokio::io::copy_bidirectional(&mut client, &mut remote)).await;
                         }
                     });
                 }

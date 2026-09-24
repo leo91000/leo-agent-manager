@@ -53,22 +53,34 @@ No T3 Code runtime dependency or source code is included.
 
 The manager and guest images include unmodified Claude Code **2.1.280**.
 For development, install that CLI and set `CLAUDE_BIN` if it is outside PATH.
-The CLI owns the login flow and private state in `DATA_DIR/claude`. Léo never
-implements Anthropic OAuth or exposes access/refresh tokens through its API.
+The CLI owns the interactive login flow and private state in `DATA_DIR/claude`.
+Léo never exposes access/refresh tokens through its public API.
 Identity responses are restricted to connected state, email, subscription type,
 and authentication method. Unlike managed Codex accounts, Claude’s files use the
 CLI’s own file storage, protected by the private data directory and file permissions.
 Include that directory in encrypted server backups.
 
-One Claude account is connected per owner workspace. Claude executions are
-serialized so only one CLI execution owns refreshing credentials at a time;
-Codex executions can continue independently. The host provisions the selected
-CLI-owned authentication files into the private guest, then receives rotated state
-through the private VM control connection after execution. These files never enter
-activity logs or deliverable exports. Conversation history remains on the retained
-run disk. An interrupted synchronization blocks other Claude runs until the original
-run resumes and synchronizes, or the owner reconnects. It never silently falls back
-to an API key or a different provider.
+One Claude account is connected per owner workspace. **Connections → Claude Code →
+Simultaneous Claude conversations** sets its execution limit from 1 to 32, default 4,
+on web and Android. The server's global `CONCURRENCY` capacity still applies across
+providers. Changes are persisted immediately. Lowering the limit lets active runs
+finish and queues subsequent work; it does not cancel conversations.
+
+Only the manager holds refresh credentials. It serializes token rotation under the
+account gate, persists rotated state before replying, and distributes access-only
+credential snapshots through private, run-scoped Unix/vsock connections. It uses the
+OAuth refresh endpoint and client ID of the pinned official CLI (or the client ID
+saved with the login). Guests refresh their snapshot every 30 seconds; the unmodified
+CLI detects the changed credential file before subsequent requests. Guests cannot
+write back to the shared login, so a late-finishing run cannot overwrite new tokens.
+A temporary broker outage keeps the conversation alive while its token remains
+valid; an expired login produces an explicit recoverable authentication error.
+
+Legacy runs that still own a `sync-required` marker drain through the original
+serialized credential handoff before parallel execution starts. Their history and
+workspace remain intact. Reconnect/disconnect continue to wait for active runs.
+Credentials never enter activity logs or deliverable exports. There is no API-key
+fallback and no change to the selected provider or subscription billing.
 
 Léo clears inherited Anthropic API-key, bearer-token, cloud-provider, and alternate
 OAuth environment overrides from subscription executions. Sign-in and logout are

@@ -20,6 +20,9 @@ data class ClaudeLogin(
 data class ClaudeConnectionState(
     val connected: Boolean = false,
     val busy: Boolean = false,
+    val maxConcurrent: Int = 4,
+    val activeRuns: Int = 0,
+    val serverConcurrency: Int = 4,
     val email: String? = null,
     val subscriptionType: String? = null,
     val error: String? = null,
@@ -56,6 +59,9 @@ fun ClaudeConnection(vm: LeoViewModel, state: Workspace) {
     // Authorization codes never enter saved instance state or preferences.
     var code by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf(false) }
+    var concurrency by remember { mutableStateOf("") }
+    var concurrencyDirty by remember { mutableStateOf(false) }
+    LaunchedEffect(account.maxConcurrent) { if (!concurrencyDirty) concurrency = account.maxConcurrent.toString() }
     suspend fun load() { account = vm.api.get("/claude/connection") }
     Poll("claude-connection", 3000) {
         try { load() } catch (e: Exception) {
@@ -97,6 +103,25 @@ fun ClaudeConnection(vm: LeoViewModel, state: Workspace) {
             }
             if (usage?.error != null) Text("Les limites Claude sont temporairement indisponibles. Une nouvelle vérification sera effectuée automatiquement.", style = MaterialTheme.typography.bodySmall)
         }
+        OutlinedTextField(
+            value = concurrency,
+            onValueChange = { concurrency = it; concurrencyDirty = true },
+            label = { Text("Conversations Claude simultanées") },
+            singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.busy,
+        )
+        Text("${account.activeRuns} en cours · Capacité du serveur : ${account.serverConcurrency} exécutions au total.", style = MaterialTheme.typography.bodySmall)
+        Text("De 1 à 32. Réduire la limite laisse les conversations en cours se terminer.", style = MaterialTheme.typography.bodySmall)
+        Button(onClick = {
+            val limit = concurrency.toIntOrNull() ?: return@Button
+            vm.perform {
+                account = api.send("PATCH", "/claude/connection", body("maxConcurrent" to limit))
+                concurrencyDirty = false
+                concurrency = account.maxConcurrent.toString()
+            }
+        }, enabled = !state.busy && concurrencyDirty && (concurrency.toIntOrNull() ?: 0) in 1..32) { Text("Enregistrer la limite") }
         Text("Connectez votre compte Claude pour utiliser Claude Code avec vos agents.")
         if (login?.state == "pending") {
             LinearProgressIndicator()

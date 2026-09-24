@@ -773,7 +773,13 @@ impl Vm {
             .into_iter()
             .flatten()
             .find(|m| m["target"] == "/home/node")
-            .map(|m| Path::new(text(m, "source")).join(".codex/leo-auth.sock"));
+            .map(|m| {
+                Path::new(text(m, "source")).join(if plan["chat"]["claudeManagedAuth"] == true {
+                    ".claude/leo-auth.sock"
+                } else {
+                    ".codex/leo-auth.sock"
+                })
+            });
         let relay_stop = CancellationToken::new();
         let relay_cancel = relay_stop.clone();
         let relay = tokio::spawn(async move {
@@ -785,7 +791,7 @@ impl Vm {
                         if let Some(path)=&auth_path {
                             // Bound concurrency and lifetime; only this run's manager socket is reachable.
                             if let Ok(mut manager)=UnixStream::connect(path).await {
-                                let _=tokio::time::timeout(Duration::from_secs(15),tokio::io::copy_bidirectional(&mut guest,&mut manager)).await;
+                                let _=tokio::time::timeout(Duration::from_secs(45),tokio::io::copy_bidirectional(&mut guest,&mut manager)).await;
                             }
                         }
                     }

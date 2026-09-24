@@ -9,7 +9,7 @@ const home = process.env.CLAUDE_CONFIG_DIR
 if (!home)
   throw new Error('Missing isolated fixture home')
 mkdirSync(home, { recursive: true })
-const auth = path.join(home, '.credentials.json')
+const auth = path.join(process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR || home, '.credentials.json')
 const args = process.argv.slice(2)
 const out = value => process.stdout.write(`${JSON.stringify(value)}\n`)
 const lines = createInterface({ input: process.stdin })
@@ -29,7 +29,7 @@ if (args[0] === 'auth') {
       process.exit(1)
     }
     writeFileSync(auth, 'connected')
-    writeFileSync(path.join(home, '.credentials.json'), '{"fixture":true}')
+    writeFileSync(path.join(home, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-access', refreshToken: 'fixture-refresh', expiresAt: Date.now() + 3600000, scopes: ['user:profile', 'user:inference'], subscriptionType: 'max' } }))
     process.exit(0)
   })
 }

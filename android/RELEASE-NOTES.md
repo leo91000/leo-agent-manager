@@ -1,4 +1,11 @@
-# Leo Android 0.14.0 — Claude Code usage limits
+# Leo Android 0.15.0 — Parallel Claude conversations
+
+- Connections → Claude Code now lets you choose 1–32 simultaneous conversations (default 4), within the server’s total execution capacity.
+- Changing the limit takes effect immediately for queued conversations and lets active conversations finish.
+- Server 0.29.0 keeps credential refresh on the manager so concurrent conversations cannot overwrite each other’s sign-in state.
+- Installable development APK: code 29.
+
+## Leo Android 0.14.0 — Claude Code usage limits
 
 - Connections shows remaining Claude Code usage for the five-hour, weekly and available model-specific windows, with progress bars and reset dates.
 - Last known values stay visible during active runs or temporary errors, with their check date. Reconnecting or disconnecting clears the cached limits.

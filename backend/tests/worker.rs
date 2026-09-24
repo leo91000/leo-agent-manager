@@ -22,7 +22,7 @@ async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replayi
     let s = &fixture.service;
     let claude_home = leo_agent_manager::claude::home(&s.config);
     std::fs::create_dir_all(&claude_home).unwrap();
-    std::fs::write(claude_home.join(".credentials.json"), "{\"fixture\":true}").unwrap();
+    std::fs::write(claude_home.join(".credentials.json"), json!({"claudeAiOauth":{"accessToken":"fixture-access","refreshToken":"fixture-refresh","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
     let chat = s.chat_create(json!({})).await.unwrap();
     let chat_id = text(&chat, "id");
     s.chat_send(
@@ -608,4 +608,124 @@ async fn controller_interruptions_resume_saved_threads_and_stop_after_three_reco
         fixture.stop(false).await;
         server.abort();
     }
+}
+
+#[tokio::test]
+async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_them() {
+    let mut fixture = Fixture::new().await;
+    let s = &fixture.service;
+    let home = leo_agent_manager::claude::home(&s.config);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join(".credentials.json"), json!({"claudeAiOauth":{"accessToken":"fixture-access","refreshToken":"private-refresh","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
+    s.store
+        .set("claude-concurrency", json!(2), None)
+        .await
+        .unwrap();
+    let mut chats = Vec::new();
+    let mut runs = Vec::new();
+    for prompt in [
+        "fixture:question",
+        "fixture:question",
+        "Complete third conversation",
+    ] {
+        let chat = s.chat_create(json!({})).await.unwrap();
+        let chat_id = text(&chat, "id").to_owned();
+        s.chat_send(
+            &chat_id,
+            json!({"id":id(),"text":prompt,"provider":"claude","model":"sonnet"}),
+        )
+        .await
+        .unwrap();
+        let run_id = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let c = s.chat_detail(&chat_id).await.unwrap();
+                if let Some(id) = c["runId"].as_str() {
+                    break id.to_owned();
+                }
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+        })
+        .await
+        .unwrap();
+        chats.push(chat_id);
+        runs.push(run_id);
+    }
+    for run in &runs[..2] {
+        fixture
+            .until(run, |r| {
+                r["status"] == "running" && r["sessionId"].is_string()
+            })
+            .await;
+    }
+    // Both real fixture subprocesses have received their prompts and are waiting on separate questions.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if s.chat_detail(&chats[0]).await.unwrap()["pendingQuestions"] == 1
+                && s.chat_detail(&chats[1]).await.unwrap()["pendingQuestions"] == 1
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .unwrap();
+    for run in &runs[..2] {
+        let credentials = std::fs::read_to_string(
+            s.config
+                .data_dir
+                .join("runs")
+                .join(run)
+                .join("home/.claude/.credentials.json"),
+        )
+        .unwrap();
+        assert!(!credentials.contains("refresh"));
+        assert!(credentials.contains("fixture-access"));
+    }
+    s.store
+        .set("claude-concurrency", json!(1), None)
+        .await
+        .unwrap();
+    for run in &runs[..2] {
+        assert_eq!(s.store.run(run).await.unwrap()["status"], "running");
+    }
+    let first_question = s.chat_detail(&chats[0]).await.unwrap()["questions"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    s.question_answer(
+        &chats[0],
+        &first_question,
+        json!({"id":id(),"answers":{"0":["Small change"]}}),
+    )
+    .await
+    .unwrap();
+    fixture
+        .until(&runs[0], |r| r["status"] == "succeeded")
+        .await;
+    fixture
+        .until(&runs[2], |r| {
+            text(r, "accountWaitReason").contains("1 simultaneous")
+        })
+        .await;
+    assert_eq!(s.store.run(&runs[1]).await.unwrap()["status"], "running");
+    let second_question = s.chat_detail(&chats[1]).await.unwrap()["questions"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    s.question_answer(
+        &chats[1],
+        &second_question,
+        json!({"id":id(),"answers":{"0":["Small change"]}}),
+    )
+    .await
+    .unwrap();
+    fixture
+        .until(&runs[1], |r| r["status"] == "succeeded")
+        .await;
+    fixture
+        .until(&runs[2], |r| r["status"] == "succeeded")
+        .await;
+    assert!(!home.join("sync-required").exists());
+    fixture.stop(false).await;
 }

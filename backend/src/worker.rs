@@ -677,9 +677,19 @@ impl Worker {
             ))
             .await?;
         let claude = crate::claude::is_claude(run);
-        if claude && prepared["isolated"] == true {
-            crate::claude::prepare_home(&s.config, &directory.join("home/.claude")).await?;
+        let claude_legacy = claude
+            && tokio::fs::read_to_string(crate::claude::home(&s.config).join("sync-required"))
+                .await
+                .is_ok_and(|owner| owner == id);
+        let claude_home = directory.join("home/.claude");
+        if claude {
+            crate::claude::prepare_home(&s.config, &claude_home, claude_legacy).await?;
         }
+        let _claude_broker = if claude && !claude_legacy {
+            Some(crate::claude_tokens::serve(s, &claude_home).await?)
+        } else {
+            None
+        };
         let codex_home = directory.join(if prepared["isolated"] == true {
             "home/.codex"
         } else {
@@ -713,10 +723,25 @@ impl Worker {
             env.remove(key);
         }
         if claude {
-            env.extend(crate::claude::environment(
-                &s.config,
-                &crate::claude::home(&s.config),
-            ));
+            let auth_home = if claude_legacy || prepared["isolated"] != true {
+                crate::claude::home(&s.config)
+            } else {
+                claude_home.clone()
+            };
+            env.extend(crate::claude::environment(&s.config, &auth_home));
+            if !claude_legacy {
+                env.insert(
+                    "LEO_CLAUDE_AUTH_HOME".into(),
+                    claude_home.to_string_lossy().into_owned(),
+                );
+                env.insert(
+                    "LEO_AUTH_SOCKET".into(),
+                    claude_home
+                        .join(crate::claude_tokens::SOCKET)
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
         }
         let mcp = s.mcps.run_configuration(s, run).await?;
         sensitive.extend(
@@ -804,6 +829,9 @@ impl Worker {
                     .await?;
                 let mut chat =
                     run_output::chat_plan(run, &prepared, &directory, &mcp, resume.as_deref());
+                if claude {
+                    chat["claudeManagedAuth"] = (!claude_legacy).into();
+                }
                 if !run["chatExecution"].is_object() {
                     // Scheduled work uses the same authenticated protocol as
                     // chats, while retaining its own task brief and session.
@@ -862,7 +890,7 @@ impl Worker {
                 if let Some(chat) = chat {
                     plan["chat"] = chat;
                 }
-                if claude {
+                if claude_legacy {
                     plan["claudeState"] = json!(crate::claude::home(&s.config));
                     plan["claudeResumeState"] = tokio::fs::read_to_string(
                         crate::claude::home(&s.config).join("sync-required"),

@@ -9,11 +9,13 @@ import UiButton from './UiButton.vue'
 interface Login { id: string, state: string, url: string | null, error: string | null, expiresAt: number }
 interface UsageWindow { id: string, label: string, usedPercent: number, resetsAt: number | null }
 interface Usage { windows: UsageWindow[], checkedAt: number | null, stale: boolean, error: string | null }
-interface Connection { usage?: Usage | null, connected: boolean, busy: boolean, email?: string | null, subscriptionType?: string | null, error?: string, login: Login | null }
+interface Connection { maxConcurrent: number, activeRuns: number, serverConcurrency: number, usage?: Usage | null, connected: boolean, busy: boolean, email?: string | null, subscriptionType?: string | null, error?: string, login: Login | null }
 const connection = ref<Connection>()
 const busy = ref(false)
 const error = ref('')
 const code = ref('')
+const concurrency = ref(4)
+const concurrencyDirty = ref(false)
 const now = ref(Date.now())
 const remaining = (window: UsageWindow) => Math.max(0, Math.min(100, 100 - window.usedPercent))
 const resetDate = (window: UsageWindow) => window.resetsAt ? new Date(window.resetsAt * 1000).toLocaleString() : ''
@@ -32,6 +34,8 @@ async function load() {
       code.value = ''
     }
     connection.value = next
+    if (!concurrencyDirty.value)
+      concurrency.value = next.maxConcurrent ?? 4
     now.value = Date.now()
   }
   catch (e) {
@@ -57,6 +61,8 @@ async function action(path: string, method = 'POST', body?: object) {
     else {
       submitted.value = false
     }
+    if (path === 'connection' && method === 'PATCH')
+      concurrencyDirty.value = false
     await load()
     ++generation
     clearTimeout(timer)
@@ -155,6 +161,18 @@ onBeforeUnmount(() => {
         </div>
       </form>
     </div>
+    <form class="my-5 flex flex-wrap items-end gap-3" @submit.prevent="action('connection', 'PATCH', { maxConcurrent: concurrency })">
+      <label class="grid gap-1 text-sm">
+        Simultaneous Claude conversations
+        <input v-model.number="concurrency" type="number" min="1" max="32" step="1" required class="w-24 rounded-lg border border-line bg-surface px-3 py-2" @input="concurrencyDirty = true">
+      </label>
+      <UiButton type="submit" :disabled="busy || !concurrencyDirty">
+        Save limit
+      </UiButton>
+      <p class="m-0! w-full text-xs text-muted">
+        {{ connection?.activeRuns ?? 0 }} active · Server capacity: {{ connection?.serverConcurrency ?? '…' }} total executions. Lowering the limit lets current conversations finish.
+      </p>
+    </form>
     <UiAlert v-if="error || connection?.error || connection?.login?.error" class="mt-4">
       {{ error || connection?.login?.error || connection?.error }}
     </UiAlert>

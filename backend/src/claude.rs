@@ -51,6 +51,9 @@ pub fn environment(config: &Config, directory: &Path) -> Environment {
         "ANTHROPIC_AUTH_TOKEN",
         "CLAUDE_CODE_OAUTH_TOKEN",
         "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+        "CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH",
         "CLAUDE_CODE_USE_BEDROCK",
         "CLAUDE_CODE_USE_VERTEX",
         "CLAUDE_CODE_USE_FOUNDRY",
@@ -89,6 +92,7 @@ async fn query_metadata(s: &Service, request: Option<Value>) -> Result<Value> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
     let directory = home(&s.config);
     private_dir(&directory).await?;
+    let credentials = crate::claude_tokens::metadata_home(s).await?;
     let args = [
         "-p",
         "--input-format",
@@ -110,6 +114,7 @@ async fn query_metadata(s: &Service, request: Option<Value>) -> Result<Value> {
         &environment(&s.config, &directory),
         Some(&directory),
     );
+    cmd.env("CLAUDE_SECURESTORAGE_CONFIG_DIR", credentials.path());
     cmd.stdin(std::process::Stdio::piped());
     let mut child = cmd
         .spawn()
@@ -313,12 +318,23 @@ async fn status(s: &Service) -> Result<Value> {
         json!({"connected":output.success && value["loggedIn"]==true,"email":value["email"].as_str(),"authMethod":value["authMethod"].as_str(),"subscriptionType":value["subscriptionType"].as_str(),"checkedAt":now()}),
     )
 }
-async fn active(s: &Service) -> Result<bool> {
+async fn active_count(s: &Service) -> Result<usize> {
     Ok(s.store
         .read(|db| db.active())
         .await?
         .iter()
-        .any(|r| is_claude(r) && (r["status"] == "running" || r["recoveryPending"] == true)))
+        .filter(|r| is_claude(r) && (r["status"] == "running" || r["recoveryPending"] == true))
+        .count())
+}
+async fn active(s: &Service) -> Result<bool> {
+    Ok(active_count(s).await? > 0)
+}
+pub async fn max_concurrent(s: &Service) -> Result<usize> {
+    Ok(s.store
+        .kv("claude-concurrency")
+        .await?
+        .and_then(|v| v.as_u64())
+        .unwrap_or(4) as usize)
 }
 impl Claude {
     pub async fn available(&self, s: &Service, run_id: &str) -> Result<()> {
@@ -334,10 +350,13 @@ impl Claude {
                 "Waiting for Claude Code sign-in to finish.",
             ));
         }
-        if active(s).await? {
+        let limit = max_concurrent(s).await?;
+        if active_count(s).await? >= limit {
             return Err(Error::new(
                 409,
-                "Waiting for the active Claude Code run. Claude sessions use one account at a time.",
+                format!(
+                    "Waiting for an available Claude Code slot ({limit} simultaneous executions)."
+                ),
             ));
         }
         if tokio::fs::read_to_string(home(&s.config).join("sync-required"))
@@ -383,6 +402,9 @@ impl Claude {
             }
         };
         account["busy"] = busy.into();
+        account["maxConcurrent"] = max_concurrent(s).await?.into();
+        account["activeRuns"] = active_count(s).await?.into();
+        account["serverConcurrency"] = s.config.concurrency.into();
         if home(&s.config).join("sync-required").exists() && !busy {
             account["error"] =
                 "Reconnect Claude Code after the interrupted run to refresh its sign-in.".into();
@@ -531,6 +553,21 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
     match (input.method.as_str(), input.path.as_str()) {
         ("GET", "/api/claude/models") => model_catalog(s).await,
         ("GET", "/api/claude/connection") => s.claude.view(s).await,
+        ("PATCH", "/api/claude/connection") => {
+            let limit = input.body["maxConcurrent"]
+                .as_u64()
+                .filter(|n| (1..=32).contains(n))
+                .ok_or_else(|| {
+                    Error::bad("Choose between 1 and 32 simultaneous Claude executions.")
+                })?;
+            {
+                let _gate = s.claude.gate.lock().await;
+                s.store
+                    .set("claude-concurrency", limit.into(), None)
+                    .await?;
+            }
+            s.claude.view(s).await
+        }
         ("POST", "/api/claude/login") => s.claude.start(s).await,
         ("POST", "/api/claude/login/code") => {
             let code = input.string("code", 4096)?.trim();
@@ -597,10 +634,18 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
 }
 
 /// Move only the CLI's opaque authentication files into the private hosted home.
-/// The account is serialized; the runner returns rotated state before another run starts.
-pub async fn prepare_home(config: &Config, target: &Path) -> Result<()> {
+/// Only legacy recovery copies refresh credentials. New runs obtain access-only snapshots from the broker.
+pub async fn prepare_home(config: &Config, target: &Path, legacy: bool) -> Result<()> {
     private_dir(target).await?;
     for name in [".credentials.json", ".claude.json"] {
+        if name == ".credentials.json" && !legacy {
+            match tokio::fs::remove_file(target.join(name)).await {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+            continue;
+        }
         let path = home(config).join(name);
         let file = match tokio::fs::OpenOptions::new()
             .read(true)

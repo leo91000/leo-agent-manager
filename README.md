@@ -49,7 +49,7 @@ For a remote server, use an HTTPS reverse proxy or an SSH tunnel for initial set
 provide the complete installation procedure. [MCP and OAuth](docs/MCP.md) explain
 ChatGPT/Claude connection setup and the supported protocol boundary.
 
-[Claude Code](docs/CLAUDE-CODE.md) covers subscription sign-in, provider selection, and hosted sessions.
+[Claude Code](docs/CLAUDE-CODE.md) covers subscription sign-in, provider selection, and hosted sessions. Connections lets you configure 1–32 simultaneous Claude conversations (default four), within the server’s total execution capacity.
 
 [Codex accounts](docs/CODEX-ACCOUNTS.md) explains selection, natural resets, and automatic session handoffs.
 

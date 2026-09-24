@@ -17,6 +17,7 @@ async function main() {
   const headers = { authorization: 'Bearer fixture-runner-token' }
   let url
   let auth
+  let claudeAuth
   async function until(operation, timeout = 180000) {
     const deadline = Date.now() + timeout
     while (Date.now() < deadline) {
@@ -98,12 +99,20 @@ if(mode.startsWith('claude')) {
   fs.writeFileSync(file,JSON.stringify({fixture:mode==='claude'?'rotated':'retained'}),{mode:0o600});
   fs.writeFileSync('/home/node/.claude/.claude.json',JSON.stringify({fixture:mode}),{mode:0o600});
 }
+if(mode==='managed-claude') {
+  const state=await new Promise((resolve,reject)=>{const socket=net.connect('/run/leo-auth.sock');let data='';socket.on('data',chunk=>{data+=chunk;if(data.includes('\\n')){socket.end();resolve(JSON.parse(data))}});socket.on('error',reject);});
+  assert.equal(state.claudeAiOauth.accessToken,'fixture-claude-access');
+  assert.equal(state.claudeAiOauth.refreshToken,undefined);
+  fs.writeFileSync('/home/node/.claude/.credentials.json',JSON.stringify({fixture:'must-not-overwrite-shared-state'}));
+}
 fs.writeFileSync(root+'/output/result.md','guest test passed '+mode);
 console.log('probe.done');
 `
     await writeFile(path.join(source, 'workspace/probe.mjs'), fixture)
     auth = createServer(socket => socket.once('data', () => socket.end('{"accessToken":"fixture-access-token"}\n')))
     await new Promise(resolve => auth.listen(path.join(source, 'home/.codex/leo-auth.sock'), resolve))
+    claudeAuth = createServer(socket => socket.end(`${JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-claude-access', expiresAt: Date.now() + 3600000 } })}\n`))
+    await new Promise(resolve => claudeAuth.listen(path.join(source, 'home/.claude/leo-auth.sock'), resolve))
     docker('run', '-d', '--name', name, '--user', '0:0', '--read-only', '--cap-drop', 'ALL', ...['SYS_ADMIN', 'NET_ADMIN', 'SYS_CHROOT', 'SETUID', 'SETGID', 'MKNOD', 'CHOWN', 'FOWNER', 'KILL', 'DAC_OVERRIDE'].flatMap(cap => ['--cap-add', cap]), '--security-opt', 'apparmor=unconfined', '--security-opt', 'seccomp=unconfined', '--device', '/dev/kvm', '--device', '/dev/net/tun', '--sysctl', 'net.ipv4.ip_forward=1', '--sysctl', 'net.ipv6.conf.all.disable_ipv6=1', '--tmpfs', '/run', '--tmpfs', '/tmp', '-v', `${root}/data:/data`, '-v', `${root}/state:/runner-state`, '-p', '127.0.0.1::4311', '--memory', '6g', '--cpus', '3', '-e', 'CONCURRENCY=5', '--entrypoint', '/usr/local/bin/leo', image, 'runner-broker')
     url = `http://${await until(() => {
       try {
@@ -117,7 +126,7 @@ console.log('probe.done');
     await until(async () => (await (await api('/health')).json()).pool.ready === 1)
     // The prepared VM is really suspended long enough to expose guest clock drift.
     await setTimeout(31000)
-    for (const mode of ['first', 'resume', 'cancel', 'crash', 'recover', 'claude', 'claude-resume', 'codex-return']) {
+    for (const mode of ['first', 'resume', 'cancel', 'crash', 'recover', 'claude', 'claude-resume', 'managed-claude', 'codex-return']) {
       const id = randomUUID()
       const plan = {
         id,
@@ -139,6 +148,10 @@ console.log('probe.done');
         plan.claudeState = '/data/claude'
         plan.claudeResumeState = mode === 'claude-resume'
         await writeFile(path.join(root, 'data/claude/sync-required'), runId)
+      }
+      if (mode === 'managed-claude') {
+        plan.chat.provider = 'claude'
+        plan.chat.claudeManagedAuth = true
       }
       await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
       const start = Date.now()
@@ -228,6 +241,10 @@ console.log('probe.done');
         assert.equal(docker('exec', name, 'stat', '-c', '%a', '/data/claude/.credentials.json'), '600')
         assert.equal(docker('exec', name, 'sh', '-c', 'test ! -e /data/claude/sync-required && echo cleared'), 'cleared')
         assert.ok(!text.includes('"fixture":"rotated"') && !text.includes('"fixture":"retained"'), 'credential transfer stays out of run logs')
+      }
+      if (mode === 'managed-claude') {
+        assert.equal(JSON.parse(docker('exec', name, 'cat', '/data/claude/.credentials.json')).fixture, 'retained')
+        assert.ok(!text.includes('fixture-claude-access'), 'access snapshot stays out of logs')
       }
       assert.equal(await readFile(path.join(source, 'workspace/preserved'), 'utf8').catch(() => null), null, 'guest edits must not affect host checkout')
       await api(`/runs/${id}`, 'DELETE')
@@ -378,6 +395,8 @@ console.log('probe.done');
     }
     if (auth)
       await new Promise(resolve => auth.close(resolve))
+    if (claudeAuth)
+      await new Promise(resolve => claudeAuth.close(resolve))
     if (process.env.KEEP_VM_TEST !== '1') {
       docker('run', '--rm', '--user', '0:0', '-v', `${root}:/cleanup`, '--entrypoint', '/bin/rm', image, '-rf', '/cleanup/data', '/cleanup/state')
       await rm(root, { recursive: true, force: true })

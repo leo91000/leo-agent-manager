@@ -183,12 +183,25 @@ pub async fn run(
         emit(&events,json!({"type":"item.completed","item":{"id":saved["itemId"].as_str().map(str::to_owned).unwrap_or_else(||format!("{initial_id}-recovered")),"type":"agent_message","text":saved["text"]}})).await?;
         return emit(&events, json!({"type":"turn.completed"})).await;
     }
+    let auth_directory = std::env::var_os("LEO_CLAUDE_AUTH_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| directory.clone());
+    let mut auth = if plan["claudeManagedAuth"] == true {
+        let mut client = crate::claude_tokens::Client::new(&auth_directory);
+        client.sync().await?;
+        Some(client)
+    } else {
+        None
+    };
     let mut cmd = command(
         &config.claude_bin,
         &args(&plan),
         &claude::environment(config, &directory),
         Some(Path::new(text(&plan, "cwd"))),
     );
+    if auth.is_some() {
+        cmd.env("CLAUDE_SECURESTORAGE_CONFIG_DIR", &auth_directory);
+    }
     cmd.stdin(std::process::Stdio::piped()).process_group(0);
     let mut child = cmd.spawn().map_err(|_| {
         Error::new(
@@ -213,10 +226,18 @@ pub async fn run(
         let mut pending=HashSet::from([initial_id.to_owned()]);let mut consumed=HashSet::<String>::new();let mut buffer=Vec::new();
         let mut background=HashSet::<String>::new();let mut awaiting_background=HashSet::<String>::new();let mut background_replayed=false;
         let mut timer=tokio::time::interval(Duration::from_millis(250));
+        let mut auth_timer=tokio::time::interval(Duration::from_secs(30));
+        auth_timer.tick().await;
         loop {
             // read_until is cancellation safe. Bound allocation using fill_buf below.
             tokio::select! {
                 _=cancel.cancelled()=>return Err(Error::new(409,"Claude execution stopped.")),
+                _=auth_timer.tick(), if auth.is_some()=>{
+                    tokio::select! {
+                        _=cancel.cancelled()=>return Err(Error::new(409,"Claude execution stopped.")),
+                        result=auth.as_mut().unwrap().sync()=>result?,
+                    }
+                },
                 _=timer.tick()=>{
                     if let Ok(bytes)=tokio::fs::read(inbox.join("messages.json")).await {
                         if bytes.len()>2_000_000 {return Err(Error::bad("Chat inbox is too large."));}
