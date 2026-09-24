@@ -176,6 +176,40 @@ async fn streaming_tools_receipts_resume_and_no_replay_after_completion() {
     assert_eq!(calls.lines().count(), 2);
 }
 #[tokio::test]
+async fn reasoning_before_text_keeps_one_message_per_block() {
+    let root = TempDir::new().unwrap();
+    let c = setup(&root);
+    let (tx, mut rx) = mpsc::channel(64);
+    claude_process::run(
+        &c,
+        plan(&root, "Inspect fixture:thinking"),
+        tx,
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    let mut events = Vec::new();
+    while let Some(e) = rx.recv().await {
+        events.push(e);
+    }
+    let ids = |kind: &str| {
+        events
+            .iter()
+            .filter(|e| e["item"]["type"] == kind)
+            .map(|e| e["item"]["id"].as_str().unwrap().to_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    // Streamed deltas and the per-block assistant events must describe the same items.
+    let texts = ids("agent_message");
+    let reasoning = ids("reasoning");
+    assert_eq!(texts.len(), 1, "{events:#?}");
+    assert_eq!(reasoning.len(), 1, "{events:#?}");
+    assert!(texts.is_disjoint(&reasoning));
+    assert!(events.iter().any(|e| e["type"] == "item.completed"
+        && e["item"]["type"] == "agent_message"
+        && e["item"]["text"] == "Claude fixture completed"));
+}
+#[tokio::test]
 async fn question_answers_use_control_protocol() {
     let root = TempDir::new().unwrap();
     let c = setup(&root);

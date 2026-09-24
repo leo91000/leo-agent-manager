@@ -206,7 +206,7 @@ pub async fn run(
         send(&mut stdin,input(&initial,inbox).await?).await?;
         let mut submitted=HashSet::from([initial_id.to_owned()]);let mut delivered=HashSet::<String>::new();
         let mut questions=HashMap::<String,(Value,Value)>::new();
-        let mut tools=HashMap::<String,Value>::new();let mut streams=HashMap::<usize,Value>::new();let mut stream_message=String::new();let mut last=String::new();let mut last_id=format!("{initial_id}-result");
+        let mut tools=HashMap::<String,Value>::new();let mut streams=HashMap::<usize,Value>::new();let mut blocks=HashMap::<String,usize>::new();let mut stream_message=String::new();let mut last=String::new();let mut last_id=format!("{initial_id}-result");
         let mut pending=1usize;let mut buffer=Vec::new();
         let mut timer=tokio::time::interval(Duration::from_millis(250));
         loop {
@@ -247,7 +247,9 @@ pub async fn run(
                                 emit(&events,json!({"type":"item.completed","item":item})).await?;
                             }}
                         },
-                        "assistant"=>{for (index,block) in value["message"]["content"].as_array().into_iter().flatten().enumerate(){if let Some(item)=item(block,text(&value["message"],"id"),index){
+                        // Claude Code emits one assistant event per content block, all sharing the
+                        // message id. Count blocks per message so ids match the streamed block index.
+                        "assistant"=>{let message=text(&value["message"],"id").to_owned();for block in value["message"]["content"].as_array().into_iter().flatten(){let next=blocks.entry(message.clone()).or_insert(0);let index=*next;*next+=1;if let Some(item)=item(block,&message,index){
                             if item["type"]=="agent_message" {last=text(&item,"text").into();last_id=text(&item,"id").into();}
                             let running=block["type"]=="tool_use";if running {tools.insert(text(&item,"id").into(),item.clone());}
                             emit(&events,json!({"type":if running{"item.started"}else{"item.completed"},"item":item})).await?;

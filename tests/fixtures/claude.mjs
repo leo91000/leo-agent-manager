@@ -44,11 +44,18 @@ else {
   out({ type: 'system', subtype: 'init', session_id: session })
   let question
   let serial = 0
-  const complete = (text = 'Claude fixture completed') => {
+  const complete = (text = 'Claude fixture completed', thinking = false) => {
     const id = `assistant-${process.pid}-${++serial}`
     out({ type: 'stream_event', event: { type: 'message_start', message: { id } } })
-    out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } })
-    out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } })
+    // Like Claude Code, stream real block indexes but emit one assistant event per block.
+    if (thinking) {
+      out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } } })
+      out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Fixture reasoning' } } })
+      out({ type: 'assistant', message: { id, content: [{ type: 'thinking', thinking: 'Fixture reasoning' }] } })
+    }
+    const index = thinking ? 1 : 0
+    out({ type: 'stream_event', event: { type: 'content_block_start', index, content_block: { type: 'text', text: '' } } })
+    out({ type: 'stream_event', event: { type: 'content_block_delta', index, delta: { type: 'text_delta', text } } })
     out({ type: 'assistant', message: { id, content: [{ type: 'text', text }] } })
     out({ type: 'result', subtype: 'success', is_error: false, result: text, session_id: session })
   }
@@ -88,6 +95,6 @@ else {
     out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `tool-${process.pid}`, content: 'fixture' }] } })
     if (prompt.includes('fixture:slow'))
       setTimeout(complete, 1500)
-    else complete()
+    else complete(undefined, prompt.includes('fixture:thinking'))
   })
 }
