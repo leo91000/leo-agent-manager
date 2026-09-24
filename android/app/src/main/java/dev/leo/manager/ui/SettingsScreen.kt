@@ -46,6 +46,7 @@ fun SettingsScreen(vm: LeoViewModel, state: Workspace) {
                 vm::setTheme,
             )
         }
+        AppUpdateSettings()
         NotificationSettings(vm)
         settings?.let { info ->
             Panel {

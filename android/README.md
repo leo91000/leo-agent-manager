@@ -1,5 +1,7 @@
 # Leo for Android
 
+Version 0.30.0 adds in-app APK updates from stable Git tags. See [update distribution](docs/UPDATES.md).
+
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
 Version 0.15.0 adds a configurable limit for simultaneous Claude conversations in Connections (server 0.29.0). The default is four; lowering the limit lets active conversations finish.
 Version 0.14.0 displays Claude Code usage limits and reset dates in Connections (server 0.28.0).
@@ -55,9 +57,8 @@ For local development, use `adb reverse tcp:4310 tcp:4310` and
 against PUBLIC_URL. Prefer adb reverse so the existing localhost server config
 works unchanged. Release builds require HTTPS and normal certificate validation.
 
-The APK produced by `assembleDebug` is installable and development-signed. The
-release APK is deliberately unsigned: configure your own signing key before any
-store distribution. Never commit a signing key or local SDK paths.
+The APK produced by `assembleDebug` is installable and development-signed. Local release APKs are unsigned unless the release signing environment variables
+are configured; tag CI uses a persistent release key. Never commit a signing key or local SDK paths.
 
 ## Product and architecture
 
@@ -145,7 +146,8 @@ when the deployment domain and signing certificate are fixed.
 
 The Android workflow runs JVM/network tests, Compose UI tests with Robolectric,
 Android lint and both build variants. It uploads the debug APK and reports to the
-workflow run. It does not deploy the server or publish to Google Play.
+workflow run. Stable `v*` tags also publish a signed APK and update manifest after checks pass.
+The Android workflow does not deploy the server or publish to Google Play.
 
 Optional native UI test captures (fixture data only):
 

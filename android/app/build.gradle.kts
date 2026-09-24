@@ -4,6 +4,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val releaseVersion = providers.environmentVariable("LEO_ANDROID_VERSION").orElse("0.30.0").get()
+require(Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)").matches(releaseVersion))
+val versionParts = releaseVersion.split(".").map { it.toInt() }
+require(versionParts[0] in 0..1999 && versionParts[1] in 0..999 && versionParts[2] in 0..999)
+val releaseCode = 100_000_000 + versionParts[0] * 1_000_000 + versionParts[1] * 1000 + versionParts[2]
+val releaseKeystore = providers.environmentVariable("LEO_ANDROID_KEYSTORE").orNull
+
 android {
     namespace = "dev.leo.manager"
     compileSdk = 37
@@ -11,8 +18,8 @@ android {
         applicationId = "dev.leo.manager"
         minSdk = 26
         targetSdk = 37
-        versionCode = 29
-        versionName = "0.15.0"
+        versionCode = releaseCode
+        versionName = releaseVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures {
@@ -28,8 +35,19 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("distribution") {
+                storeFile = file(releaseKeystore)
+                storePassword = providers.environmentVariable("LEO_ANDROID_STORE_PASSWORD").get()
+                keyAlias = "leo-android"
+                keyPassword = providers.environmentVariable("LEO_ANDROID_STORE_PASSWORD").get()
+            }
+        }
+    }
     buildTypes {
         release {
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("distribution")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

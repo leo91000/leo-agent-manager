@@ -6,12 +6,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.leo.manager.update.UpdateViewModel
+import dev.leo.manager.ui.LocalAppUpdates
+import dev.leo.manager.ui.AppUpdatePrompt
 import dev.leo.manager.data.LeoViewModel
 import dev.leo.manager.ui.LeoApp
 import dev.leo.manager.ui.LeoTheme
@@ -40,15 +44,19 @@ class MainActivity : ComponentActivity() {
                     }
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
+            val updates: UpdateViewModel = viewModel()
             LeoTheme(preference) {
-                LeoApp(
-                    sharedUrl,
-                    consumedShare = { sharedUrl = "" },
-                    vm = vm,
-                    targetChat = targetChat,
-                    targetOrigin = targetOrigin,
-                    consumedTarget = { targetChat = "" },
-                )
+                CompositionLocalProvider(LocalAppUpdates provides updates) {
+                    AppUpdatePrompt(updates)
+                    LeoApp(
+                        sharedUrl,
+                        consumedShare = { sharedUrl = "" },
+                        vm = vm,
+                        targetChat = targetChat,
+                        targetOrigin = targetOrigin,
+                        consumedTarget = { targetChat = "" },
+                    )
+                }
             }
         }
     }

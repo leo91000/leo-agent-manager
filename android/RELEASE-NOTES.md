@@ -1,4 +1,11 @@
-# Leo Android 0.15.0 — Parallel Claude conversations
+# Leo Android 0.30.0 — Mises à jour depuis l’application
+
+- Détection des nouvelles versions au lancement et dans les paramètres.
+- Téléchargement vérifié et installation de l’APK via Android.
+- Publication automatique d’un APK signé à chaque tag stable `vMAJOR.MINOR.PATCH`, après les contrôles CI.
+- Première transition depuis les anciens APK de debug : une désinstallation peut être nécessaire, puis une reconnexion au serveur.
+
+## Leo Android 0.15.0 — Parallel Claude conversations
 
 - Connections → Claude Code now lets you choose 1–32 simultaneous conversations (default 4), within the server’s total execution capacity.
 - Changing the limit takes effect immediately for queued conversations and lets active conversations finish.
