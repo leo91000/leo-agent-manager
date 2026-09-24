@@ -45,3 +45,5 @@ pub mod project_git;
 
 pub mod claude;
 pub mod claude_process;
+
+pub mod github_projects;

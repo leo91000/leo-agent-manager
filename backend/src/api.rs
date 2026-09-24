@@ -26,6 +26,12 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
         .split('/')
         .collect::<Vec<_>>();
     match (input.method.as_str(), segments.as_slice()) {
+        ("GET", ["github", "repositories"]) => crate::github_projects::list(s, input.number("page", 1, 1, 10000)?).await,
+        ("POST", ["projects", "github"]) => {
+            static IMPORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+            let _guard = IMPORT.try_lock().map_err(|_| Error::new(409, "A GitHub import is already running. Retry shortly."))?;
+            crate::github_projects::import(s, input.body.clone()).await
+        }
         ("GET", ["overview"]) => {
             let concurrency = s.config.concurrency;
             s.store

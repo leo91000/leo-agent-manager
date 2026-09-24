@@ -1,6 +1,7 @@
 # Leo for Android
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
+Version 0.13.0 adds the GitHub repository picker and automatic project imports (server 0.27.0).
 Version 0.11.0 adds Codex/Claude selection directly to the chat composer and preferences, with provider-aware drafts and queued messages. Server 0.25.0 preserves the chat and workspace when changing providers.
 Version 0.10.2 refreshes model catalogs when opening the picker, returning to it, or choosing **Actualiser les modèles**. Server 0.24.2 includes Codex 0.156.1 for GPT-6 Sol and Luna discovery.
 Version 0.10.1 allows account parallel-run limits above four with server 0.24.1.
@@ -119,7 +120,7 @@ See [validation](VALIDATION.md).
 | Runs | Status and task filters, 30-item pagination, current status, results, sharing/copy through Android selection, duration and metadata |
 | Run detail | SSE activity with follow/reconnection, original brief and snapshot, skills, usage, cancellation, retry, resume, recovery/account waiting states, multiple workspaces and guarded cleanup; chat runs link back to their conversation |
 | Agents | List/search, create/edit/delete, server model/reasoning catalog, instructions, timeout, project/skill/GitHub access, dedicated GitHub token, sandbox, MCP server and per-tool restrictions |
-| Projects | List/search, register/edit/delete, server path, description, base branch and origin |
+| Projects | List/search, GitHub repository picker with filtering/pagination and automatic cloning, register/edit/delete, server path, description, base branch and origin |
 | Skills | Search, global/project filters, create/edit/delete, validation errors, Markdown preview, supporting file list/read/create/edit |
 | Connections | GitHub status/version and device login; Codex multi-account creation, renaming, reconnect, removal, pause, concurrency, quota windows, refresh, reset-credit status and active run links |
 | Settings | Saved light/dark/system appearance, server/MCP details, grant list, scoped personal token creation, one-time token copying, revocation, 100 most recent audit entries |

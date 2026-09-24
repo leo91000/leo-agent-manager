@@ -217,3 +217,17 @@ data class ChatExecution(
     val text: String = "",
     val recovery: Boolean = false,
 )
+
+@kotlinx.serialization.Serializable
+data class GithubRepository(
+    val fullName: String,
+    val name: String,
+    val description: String = "",
+    val defaultBranch: String = "",
+    @kotlinx.serialization.SerialName("private") val isPrivate: Boolean = false,
+    val archived: Boolean = false,
+    val imported: Boolean = false,
+)
+
+@kotlinx.serialization.Serializable
+data class GithubRepositoryPage(val repositories: List<GithubRepository>, val nextPage: Int? = null)

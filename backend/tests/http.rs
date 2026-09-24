@@ -629,3 +629,52 @@ async fn onepassword_management_requires_owner_session_and_csrf() {
     let bytes = to_bytes(response.into_body(), 10000).await.unwrap();
     assert!(!String::from_utf8_lossy(&bytes).contains("ops_http_fixture"));
 }
+
+#[tokio::test]
+async fn github_projects_require_owner_session_and_csrf() {
+    let (_root, app, _service) = app().await;
+    for (method, path) in [
+        ("GET", "/api/github/repositories"),
+        ("POST", "/api/projects/github"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                request(method, path, Value::Null)
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/api/setup", Value::Null)
+                .body(Body::from(
+                    json!({"setupToken":"test-setup","password":"password-long-enough"})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let response = app
+        .oneshot(
+            request("POST", "/api/projects/github", Value::Null)
+                .header("cookie", cookie)
+                .body(Body::from("{\"repository\":\"fixture/repo\"}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+}

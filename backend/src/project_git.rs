@@ -144,3 +144,26 @@ pub async fn clone(source: &Path, target: &Path, project: &Value, config: &Confi
     git(config, &["-C", target, "checkout", "--force", branch]).await?;
     Ok(())
 }
+
+/// Clone a selected GitHub repository into a newly allocated managed directory.
+pub async fn import(config: &Config, origin: &str, target: &Path, branch: &str) -> Result<()> {
+    git(
+        config,
+        &["check-ref-format", &format!("refs/heads/{branch}")],
+    )
+    .await?;
+    git(
+        config,
+        &[
+            "clone",
+            "--single-branch",
+            "--branch",
+            branch,
+            "--",
+            origin,
+            path(target)?,
+        ],
+    )
+    .await
+    .map(|_| ())
+}

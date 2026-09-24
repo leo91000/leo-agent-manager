@@ -135,3 +135,17 @@ export type RunListItem = Omit<Run, 'snapshot' | 'summary'> & {
   taskName: string
   agentName: string
 }
+
+export interface GithubRepository {
+  fullName: string
+  name: string
+  description: string
+  defaultBranch: string
+  private: boolean
+  archived: boolean
+  imported: boolean
+}
+export interface GithubRepositoryPage {
+  repositories: GithubRepository[]
+  nextPage: number | null
+}

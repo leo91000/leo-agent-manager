@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import type { GithubRepository } from '../../shared/contracts'
 import { computed, ref } from 'vue'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, notify, refresh, state } from '../api'
 import AssistantPicker from '../components/AssistantPicker.vue'
 import Empty from '../components/Empty.vue'
+import GithubRepositoryPicker from '../components/GithubRepositoryPicker.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import UiAlert from '../components/UiAlert.vue'
@@ -42,6 +44,15 @@ const deleting = ref<any>(null)
 const busy = ref(false)
 const error = ref('')
 const form = ref<any>({})
+const projectMode = ref('local')
+const repository = ref('')
+function selectRepository(repo: GithubRepository) {
+  repository.value = repo.fullName
+  form.value.name = repo.name.slice(0, 100)
+  form.value.description = repo.description.slice(0, 500)
+  form.value.baseBranch = repo.defaultBranch
+}
+const githubImport = computed(() => !isAgent.value && !editing.value && projectMode.value === 'github')
 const githubToken = ref('')
 const githubConfigured = ref(false)
 const removeGithub = ref(false)
@@ -73,6 +84,8 @@ const allSkills = computed({ get: () => form.value.access?.skills === null, set:
 } })
 const permittedSkills = computed(() => state.skills.filter(skill => skill.valid && (skill.scope === 'global' || form.value.access?.projects === null || form.value.access?.projects?.includes(skill.scope))))
 async function edit(item?: any) {
+  projectMode.value = 'local'
+  repository.value = ''
   githubToken.value = ''
   githubConfigured.value = false
   removeGithub.value = false
@@ -110,12 +123,14 @@ async function edit(item?: any) {
   }
 }
 async function save() {
+  if (busy.value || (githubImport.value && !repository.value))
+    return
   busy.value = true
   error.value = ''
   try {
-    const saved = await api(`/${props.kind}${editing.value ? `/${editing.value}` : ''}`, {
+    const saved = await api(githubImport.value ? '/projects/github' : `/${props.kind}${editing.value ? `/${editing.value}` : ''}`, {
       method: editing.value ? 'PUT' : 'POST',
-      body: JSON.stringify(form.value),
+      body: JSON.stringify(githubImport.value ? { repository: repository.value, name: form.value.name, description: form.value.description, baseBranch: form.value.baseBranch } : form.value),
     })
     if (isAgent.value && (githubToken.value || removeGithub.value))
       await api(`/agents/${saved.id}/github-token`, { method: 'PUT', body: JSON.stringify({ token: removeGithub.value ? '' : githubToken.value }) })
@@ -203,7 +218,7 @@ async function remove() {
     :description="
       isAgent
         ? 'Create a profile with the right instructions and model for the job.'
-        : 'Add an existing directory on your server. Agents work on private copies in their VMs.'
+        : 'Choose a GitHub repository or an existing directory on your server. Agents work on private copies in their VMs.'
     "
   >
     <UiButton @click="edit()">
@@ -212,10 +227,14 @@ async function remove() {
   </Empty><Modal
     v-if="open"
     :title="`${editing ? 'Edit' : 'New'} ${isAgent ? 'agent' : 'project'}`"
-    @close="open = false"
+    @close="!busy && (open = false)"
   >
     <form @submit.prevent="save">
       <div class="modal-body form-grid grid grid-cols-[1fr_1fr] gap-5 phone:grid-cols-1 phone:gap-4.5 px-6.5 py-6 phone:p-5">
+        <div v-if="!isAgent && !editing" class="col-span-2 phone:col-span-1 grid gap-4">
+          <VirtualSelect v-model="projectMode" label="Add from" :disabled="busy" :options="[{ value: 'local', label: 'Server directory' }, { value: 'github', label: 'GitHub' }]" />
+          <GithubRepositoryPicker v-if="githubImport" :disabled="busy" :selected="repository" @select="selectRepository" />
+        </div>
         <label class="span-2 col-span-2 phone:col-span-1">Name<input
           v-model="form.name"
           required
@@ -283,8 +302,8 @@ async function remove() {
           />
           </label>
         </template><template v-else>
-          <VirtualSelect v-model="form.sourceMode" label="New work starts from" :options="[{ value: 'remote', label: 'Latest remote branch', description: 'Fetch a fresh copy; local files stay untouched' }, { value: 'local', label: 'Local branch snapshot', description: 'Use committed files from the local branch' }]" />
-          <label class="span-2 col-span-2 phone:col-span-1">Project directory<input
+          <VirtualSelect v-if="!githubImport" v-model="form.sourceMode" label="New work starts from" :options="[{ value: 'remote', label: 'Latest remote branch', description: 'Fetch a fresh copy; local files stay untouched' }, { value: 'local', label: 'Local branch snapshot', description: 'Use committed files from the local branch' }]" />
+          <label v-if="!githubImport" class="span-2 col-span-2 phone:col-span-1">Project directory<input
             v-model="form.path"
             required
             placeholder="/workspaces/my-project"
@@ -299,9 +318,9 @@ async function remove() {
         </UiAlert>
       </div>
       <footer class="modal-actions flex justify-end gap-2.5 bg-surface border-t border-line sticky bottom-0 phone:flex-wrap px-6.5 py-4.5 phone:px-5 phone:py-4">
-        <UiButton type="button" @click="open = false">
+        <UiButton type="button" :disabled="busy" @click="open = false">
           Cancel
-        </UiButton><UiButton variant="primary" type="submit" :disabled="busy">
+        </UiButton><UiButton variant="primary" type="submit" :disabled="busy || (githubImport && !repository)">
           {{ busy ? "Saving…" : `Save ${isAgent ? "agent" : "project"}` }}
         </UiButton>
       </footer>

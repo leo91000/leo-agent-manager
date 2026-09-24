@@ -1,4 +1,11 @@
-# Leo Android 0.10.2 — Fresh model catalogs
+# Leo Android 0.13.0 — GitHub project picker
+
+- Projects → Add project → GitHub lists repositories accessible to the shared GitHub connection, including private and organization repositories.
+- Filter loaded repositories, load additional pages, see already registered repositories and retry connection errors.
+- Selecting a repository fills its name, description and default branch. Saving clones it automatically into a managed server workspace; manual server paths remain available.
+- Requires server 0.27.0. Installable development APK: code 26.
+
+## Leo Android 0.10.2 — Fresh model catalogs
 
 ## 0.11.0
 

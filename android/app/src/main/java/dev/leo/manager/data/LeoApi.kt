@@ -108,6 +108,10 @@ class LeoApi(val origin: HttpUrl, vault: SessionVault, client: OkHttpClient = Ok
             .callTimeout(java.time.Duration.ofMinutes(10))
             .readTimeout(java.time.Duration.ofSeconds(45))
             .build()
+    private val imports = http.newBuilder()
+        .callTimeout(java.time.Duration.ofMinutes(4))
+        .readTimeout(java.time.Duration.ofMinutes(4))
+        .build()
     internal val streamCalls = java.util.concurrent.ConcurrentHashMap.newKeySet<Call>()
     internal val streamGeneration = java.util.concurrent.atomic.AtomicLong()
     @Volatile var csrf: String = ""
@@ -153,7 +157,8 @@ class LeoApi(val origin: HttpUrl, vault: SessionVault, client: OkHttpClient = Ok
             if (method in setOf("GET", "HEAD")) null
             else (body?.toString() ?: "{}").toRequestBody("application/json".toMediaType())
         return exchange(
-            builder(path).header("Accept", "application/json").method(method, payload).build()
+            builder(path).header("Accept", "application/json").method(method, payload).build(),
+            if (method == "POST" && path == "/projects/github") imports else http,
         ) {
             checkResponse(it)
             it.body.string()

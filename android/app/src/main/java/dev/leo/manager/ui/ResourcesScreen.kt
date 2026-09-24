@@ -342,6 +342,9 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
 @Composable
 private fun ProjectEditor(vm: LeoViewModel, state: Workspace, initial: Project, close: () -> Unit) {
     var form by rememberForm(initial)
+    var mode by rememberSaveable { mutableStateOf("local") }
+    var repository by rememberSaveable { mutableStateOf("") }
+    val github = initial.id.isEmpty() && mode == "github"
     Editor(
         if (initial.id.isEmpty()) "Ajouter un projet" else "Modifier le projet",
         state.busy,
@@ -349,40 +352,52 @@ private fun ProjectEditor(vm: LeoViewModel, state: Workspace, initial: Project, 
         close,
         save = {
             vm.perform {
-                save("projects", initial.id, wireJson.encodeToJsonElement(form))
+                if (github) {
+                    api.request("POST", "/projects/github", body("repository" to repository, "name" to form.name, "description" to form.description, "baseBranch" to form.baseBranch))
+                    refresh()
+                } else save("projects", initial.id, wireJson.encodeToJsonElement(form))
                 close()
             }
         },
         valid =
             form.name.isNotBlank() &&
                 form.name.length <= 100 &&
-                form.path.isNotBlank() &&
+                (if (github) repository.isNotBlank() else form.path.isNotBlank()) &&
                 form.baseBranch.isNotBlank(),
     ) {
+        if (initial.id.isEmpty()) {
+            Choice("Ajouter depuis", mode, listOf("local" to "Dossier sur le serveur", "github" to "GitHub")) { if (!state.busy) mode = it }
+            if (github) GithubRepositoryPicker(vm.api, repository, !state.busy) {
+                repository = it.fullName
+                form = form.copy(name = it.name.take(100), description = it.description.take(500), baseBranch = it.defaultBranch)
+            }
+        }
         Field("Nom", form.name, { form = form.copy(name = it) })
         Field("Description", form.description, { form = form.copy(description = it) }, 3)
-        Choice(
-            "Démarrer depuis",
-            form.sourceMode,
-            listOf(
-                "remote" to "Dernière branche distante",
-                "local" to "Instantané de la branche locale",
-            ),
-        ) {
-            form = form.copy(sourceMode = it)
+        if (!github) {
+            Choice(
+                "Démarrer depuis",
+                form.sourceMode,
+                listOf(
+                    "remote" to "Dernière branche distante",
+                    "local" to "Instantané de la branche locale",
+                ),
+            ) {
+                form = form.copy(sourceMode = it)
+            }
+            Text(
+                if (form.sourceMode == "remote")
+                    "Une copie fraîche de la branche distante ; les fichiers locaux restent intacts."
+                else "Utilise les fichiers commités de la branche locale.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Field(
+                "Chemin sur le serveur",
+                form.path,
+                { form = form.copy(path = it) },
+                keyboardOptions = InputKeyboards.Literal,
+            )
         }
-        Text(
-            if (form.sourceMode == "remote")
-                "Une copie fraîche de la branche distante ; les fichiers locaux restent intacts."
-            else "Utilise les fichiers commités de la branche locale.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Field(
-            "Chemin sur le serveur",
-            form.path,
-            { form = form.copy(path = it) },
-            keyboardOptions = InputKeyboards.Literal,
-        )
         Field(
             "Branche de base",
             form.baseBranch,
