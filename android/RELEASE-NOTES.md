@@ -1,4 +1,6 @@
-# Leo Android 0.33.0 — Skills avec `$`
+# Leo Android 0.33.1 — Skills avec `$`
+
+Première version Android avec les skills `$` : la 0.33.0 n’a pas été publiée, sa validation automatique ayant échoué sur un test trop pressé.
 
 - Tapez `$` dans une conversation pour afficher les skills disponibles pour l’agent et le projet, filtrés au fil de la saisie avec leur description et leur portée.
 - Touchez une suggestion pour insérer `$nom` ; Retour ferme la liste. Les skills reconnus sont surlignés dans le brouillon et dans les messages envoyés.

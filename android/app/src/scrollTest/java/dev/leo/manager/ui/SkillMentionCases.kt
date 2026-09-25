@@ -59,18 +59,26 @@ abstract class SkillMentionCases {
                 LeoTheme { if (state.session.authenticated) ChatScreen(vm, state, "chat", openChat = {}, openRun = {}) }
             }
             compose.waitUntil(20000) { compose.onAllNodesWithText("Votre message… $ pour les skills").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Merci d’utiliser \$review ici").assertIsDisplayed()
+            // History and suggestions render asynchronously on slower machines.
+            fun shown(matcher: SemanticsMatcher) = compose.waitUntil(15000) {
+                runCatching { compose.onNode(matcher).assertIsDisplayed() }.isSuccess
+            }
+            fun gone(matcher: SemanticsMatcher) = compose.waitUntil(15000) {
+                compose.onAllNodes(matcher).fetchSemanticsNodes().isEmpty()
+            }
+            shown(hasText("Merci d’utiliser \$review ici"))
             val field = compose.onNode(hasSetTextAction())
             field.performTextInput("Lance $")
+            shown(hasTestTag("skill-suggestion-review"))
             compose.onNodeWithTag("skill-suggestions").assertIsDisplayed()
             compose.onNodeWithTag("skill-suggestion-review").assertIsDisplayed()
             compose.onNodeWithTag("skill-suggestion-deploy").assertIsDisplayed()
             compose.onNodeWithTag("skill-suggestion-broken").assertDoesNotExist()
             field.performTextInput("re")
-            compose.onNodeWithTag("skill-suggestion-deploy").assertDoesNotExist()
-            compose.onNodeWithText("Relire les changements en cours").assertIsDisplayed()
+            gone(hasTestTag("skill-suggestion-deploy"))
+            shown(hasText("Relire les changements en cours"))
             compose.onNodeWithTag("skill-suggestion-review").performClick()
-            compose.onNodeWithTag("skill-suggestions").assertDoesNotExist()
+            gone(hasTestTag("skill-suggestions"))
             assertEquals("Lance \$review ", field.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
             field.performTextInput("maintenant")
             // `$5` is not a skill and must not reopen the list.
