@@ -66,6 +66,18 @@ not reduce the token's GitHub permissions. Tokens are stored in the private
 application database, never returned by the read API, and copied only to that
 agent's run home. Removing the agent removes its stored token.
 
+## Git commit identity
+
+Isolated runs keep the manager account's global Git `user.name` and `user.email`
+when both are configured. Only these identity values are copied into the run.
+Otherwise, runs with a GitHub connection use that connection's account name
+(or login) and its [GitHub noreply address](https://docs.github.com/en/account-and-profile/reference/email-addresses-reference).
+Both commit author and committer use this identity, regardless of the agent name.
+If neither identity is available, Git requires an explicit identity before committing;
+it never substitutes the agent name or `agent@localhost`.
+This applies when a run environment is prepared; existing commits and already
+running environments are unchanged.
+
 ## Runner deployment
 
 Use both services in compose.yaml with the same immutable LEO_IMAGE. The runner

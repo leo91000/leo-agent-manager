@@ -23,7 +23,7 @@ async fn fixture() -> (TempDir, Arc<Service>, Vec<Value>) {
         setup_token: "fixture".into(),
         codex_bin: "codex".into(),
         claude_bin: "claude".into(),
-        gh_bin: "gh".into(),
+        gh_bin: "false".into(),
         concurrency: 2,
         logger: false,
         worker_enabled: false,
@@ -574,4 +574,196 @@ async fn an_old_message_grant_cannot_report_an_outcome_for_a_new_turn() {
             .await
             .unwrap();
     assert_eq!(outcome["messageId"], "second");
+}
+
+fn identity_git(home: &Path, directory: &Path, args: &[&str]) -> std::process::Output {
+    let mut command = std::process::Command::new("git");
+    command
+        .args(args)
+        .current_dir(directory)
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("GIT_CONFIG_NOSYSTEM", "1");
+    for key in [
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "EMAIL",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_COUNT",
+    ] {
+        command.env_remove(key);
+    }
+    command.output().unwrap()
+}
+
+fn assert_commit_identity(home: &Path, directory: &Path, name: &str, email: &str) {
+    for args in [
+        vec!["init"],
+        vec!["commit", "--allow-empty", "-m", "Identity regression"],
+    ] {
+        let output = identity_git(home, directory, &args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let output = identity_git(
+        home,
+        directory,
+        &["log", "-1", "--format=%an <%ae>%n%cn <%ce>"],
+    );
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        format!("{name} <{email}>\n{name} <{email}>")
+    );
+}
+
+#[tokio::test]
+async fn isolated_commits_keep_the_configured_owner_for_main_and_restricted_agents() {
+    let (_root, s, _) = fixture().await;
+    let owner_config =
+        "[include]\n path = identity.gitconfig\n[credential]\n helper = host-only-helper\n";
+    std::fs::write(s.config.home.join(".gitconfig"), owner_config).unwrap();
+    std::fs::write(
+        s.config.home.join("identity.gitconfig"),
+        "[user]\n name = Account Owner\n email = owner@example.test\n",
+    )
+    .unwrap();
+    let agent = s.agent(json!({"name":"Another agent","access":{"projects":[],"skills":[],"mcps":[],"github":false}}), None).await.unwrap();
+    for agent_id in [MAIN_AGENT_ID, text(&agent, "id")] {
+        let run = run(&s, Value::Null, agent_id).await;
+        let prepared = execution::prepare(&run, &s.config, None, None, None)
+            .await
+            .unwrap();
+        let home = s
+            .config
+            .data_dir
+            .join("runs")
+            .join(text(&run, "id"))
+            .join("home");
+        assert_commit_identity(
+            &home,
+            Path::new(text(&prepared, "cwd")),
+            "Account Owner",
+            "owner@example.test",
+        );
+        let config = std::fs::read_to_string(home.join(".gitconfig")).unwrap();
+        assert!(!config.contains("host-only-helper"));
+        assert!(!config.contains("identity.gitconfig"));
+    }
+    assert_eq!(
+        std::fs::read_to_string(s.config.home.join(".gitconfig")).unwrap(),
+        owner_config
+    );
+}
+
+#[tokio::test]
+async fn isolated_commits_fall_back_to_the_connected_github_account() {
+    use std::os::unix::fs::PermissionsExt;
+    let (root, mut s, _) = fixture().await;
+    let script = root.path().join("gh-identity");
+    std::fs::write(
+        &script,
+        r#"#!/bin/sh
+[ "$*" = 'api --hostname github.com user' ] || exit 1
+[ "$GH_CONFIG_DIR" = "$HOME/.config/gh" ] || exit 1
+[ -z "$GH_TOKEN$GITHUB_TOKEN" ] || exit 1
+[ -f "$GH_CONFIG_DIR/hosts.yml" ] || exit 1
+cat "$HOME/github-profile.json"
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Arc::get_mut(&mut s).unwrap().config.gh_bin = script.to_string_lossy().into_owned();
+    std::fs::create_dir_all(s.config.home.join(".config/gh")).unwrap();
+    std::fs::write(
+        s.config.home.join(".config/gh/hosts.yml"),
+        "github.com: {}\n",
+    )
+    .unwrap();
+    // An incomplete host identity must not be mixed with a different account.
+    std::fs::write(
+        s.config.home.join(".gitconfig"),
+        "[user]\n name = Incomplete Owner\n",
+    )
+    .unwrap();
+    let agent = s.agent(json!({"name":"Dedicated agent","access":{"projects":[],"skills":[],"mcps":[],"github":false}}), None).await.unwrap();
+    for (agent_id, token, name, expected) in [
+        (MAIN_AGENT_ID, None, json!("GitHub Owner"), "GitHub Owner"),
+        (
+            text(&agent, "id"),
+            Some("fixture-token"),
+            Value::Null,
+            "owner-login",
+        ),
+    ] {
+        let run = run(&s, Value::Null, agent_id).await;
+        let home = s
+            .config
+            .data_dir
+            .join("runs")
+            .join(text(&run, "id"))
+            .join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(
+            home.join("github-profile.json"),
+            json!({"id":12345,"login":"owner-login","name":name,"email":"public@example.test"})
+                .to_string(),
+        )
+        .unwrap();
+        // Also cover replacing the synthetic identity when preparation is retried.
+        std::fs::write(
+            home.join(".gitconfig"),
+            "[user]\n name = Main agent\n email = agent@localhost\n",
+        )
+        .unwrap();
+        let prepared = execution::prepare(&run, &s.config, token, None, None)
+            .await
+            .unwrap();
+        assert_commit_identity(
+            &home,
+            Path::new(text(&prepared, "cwd")),
+            expected,
+            "12345+owner-login@users.noreply.github.com",
+        );
+    }
+}
+
+#[tokio::test]
+async fn missing_account_identity_never_fabricates_an_agent_author() {
+    let (_root, s, _) = fixture().await;
+    let run = run(&s, Value::Null, MAIN_AGENT_ID).await;
+    let home = s
+        .config
+        .data_dir
+        .join("runs")
+        .join(text(&run, "id"))
+        .join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join(".gitconfig"),
+        "[user]\n name = Main agent\n email = agent@localhost\n",
+    )
+    .unwrap();
+    let prepared = execution::prepare(&run, &s.config, None, None, None)
+        .await
+        .unwrap();
+    let cwd = Path::new(text(&prepared, "cwd"));
+    assert!(identity_git(&home, cwd, &["init"]).status.success());
+    assert!(
+        !identity_git(
+            &home,
+            cwd,
+            &["commit", "--allow-empty", "-m", "No identity"]
+        )
+        .status
+        .success()
+    );
+    let config = std::fs::read_to_string(home.join(".gitconfig")).unwrap();
+    assert!(!config.contains("agent@localhost"));
+    assert!(!config.contains("Main agent"));
 }

@@ -2,7 +2,7 @@ use crate::{
     auth::token,
     config::Config,
     error::{Error, Result},
-    process::{Environment, bounded_output, command},
+    process::{Environment, bounded_output, codex_environment, command},
     service::{isolated, policy, run_projects},
     skills::{atomic_write, private_dir, workspace},
     validation::text,
@@ -118,6 +118,86 @@ async fn github_home(
     }
     Ok(())
 }
+
+async fn git_identity(
+    config: &Config,
+    home: &Path,
+    github_available: bool,
+) -> Option<(String, String)> {
+    // Copy only the identity, never the host's credential helpers or other config.
+    let env = codex_environment(config, &config.home.join(".codex"));
+    let mut identity = Vec::new();
+    for key in ["user.name", "user.email"] {
+        let output = bounded_output(
+            command(
+                "git",
+                &args(&["config", "--global", "--includes", "--get", key]),
+                &env,
+                None,
+            ),
+            Duration::from_secs(10),
+            10000,
+        )
+        .await
+        .ok();
+        identity.push(
+            output
+                .filter(|o| o.success)
+                .map(|o| o.stdout.trim().to_owned()),
+        );
+    }
+    if let [Some(name), Some(email)] = identity.as_slice()
+        && !name.is_empty()
+        && !email.is_empty()
+    {
+        return Some((name.clone(), email.clone()));
+    }
+    if !github_available {
+        return None;
+    }
+    // Resolve the account from the same credentials installed for this run.
+    let mut env = env;
+    env.insert("HOME".into(), home.to_string_lossy().into_owned());
+    env.insert(
+        "GH_CONFIG_DIR".into(),
+        home.join(".config/gh").to_string_lossy().into_owned(),
+    );
+    for key in [
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_ENTERPRISE_TOKEN",
+        "GITHUB_ENTERPRISE_TOKEN",
+    ] {
+        env.remove(key);
+    }
+    let output = bounded_output(
+        command(
+            &config.gh_bin,
+            &args(&["api", "--hostname", "github.com", "user"]),
+            &env,
+            None,
+        ),
+        Duration::from_secs(20),
+        100000,
+    )
+    .await
+    .ok()?;
+    if !output.success {
+        return None;
+    }
+    let account: Value = serde_json::from_str(&output.stdout).ok()?;
+    let login = text(&account, "login").trim();
+    let id = account["id"].as_u64()?;
+    if login.is_empty() || id == 0 {
+        return None;
+    }
+    let name = text(&account, "name").trim();
+    Some((
+        if name.is_empty() { login } else { name }.to_owned(),
+        format!("{id}+{login}@users.noreply.github.com"),
+    ))
+}
+
 async fn prepare_project(
     run: &Value,
     project: &Value,
@@ -310,15 +390,18 @@ pub async fn prepare(
     }
     github_home(&home, config, access["github"] == true, github).await?;
     let git_config = home.join(".gitconfig");
-    for (key, value) in [
-        ("user.name", text(&run["snapshot"]["agent"], "name")),
-        ("user.email", "agent@localhost"),
-    ] {
-        git(
-            args(&["config", "--file", path(&git_config)?, key, value]),
-            10,
-        )
-        .await?;
+    // Re-preparing a run must also remove the old synthetic agent identity.
+    atomic_write(&git_config, b"[user]\n\tuseConfigOnly = true\n").await?;
+    if let Some((name, email)) =
+        git_identity(config, &home, github.is_some() || access["github"] == true).await
+    {
+        for (key, value) in [("user.name", name), ("user.email", email)] {
+            git(
+                args(&["config", "--file", path(&git_config)?, key, &value]),
+                10,
+            )
+            .await?;
+        }
     }
     if github.is_some() || access["github"] == true {
         git(
