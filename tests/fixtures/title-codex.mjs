@@ -8,6 +8,8 @@ import { createInterface } from 'node:readline'
 const emit = value => process.stdout.write(`${JSON.stringify(value)}\n`)
 let account = 'fixture'
 let thread
+let threads = 0
+let reducedSummaries = false
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params } = JSON.parse(line)
   if (id === undefined)
@@ -34,20 +36,43 @@ for await (const line of createInterface({ input: process.stdin })) {
     assert.equal(params.config['features.apps'], false)
     assert.equal(params.config['features.plugins'], false)
     assert.equal(params.cwd, process.cwd())
-    thread = 'title-thread'
+    thread = `title-thread-${++threads}`
     result = { thread: { id: thread } }
   }
   if (method === 'turn/start') {
     assert.equal(params.threadId, thread)
     assert.equal(params.model, 'gpt-6-luna')
     assert.equal(params.effort, 'xhigh')
-    assert.deepEqual(params.outputSchema.required, ['title'])
+    const summary = params.outputSchema.required[0] === 'summary'
+    assert.deepEqual(params.outputSchema.required, [summary ? 'summary' : 'title'])
     if (account === 'hang') {
       emit({ id, result: { turn: { id: 'title-turn' } } })
       continue
     }
     const input = JSON.parse(params.input[0].text)
-    const text = account === 'malformed' ? 'not JSON' : JSON.stringify({ title: input.recentMessages.some(m => m.text.includes('Android')) ? 'Mises à jour Android' : input.currentTitle })
+    assert.ok(Array.isArray(input.messages))
+    assert.ok(JSON.stringify(input.messages).length <= 64_000)
+    const transcript = input.messages.map(m => m.text).join('\n')
+    let output
+    if (summary) {
+      reducedSummaries ||= input.messages.some(m => m.role === 'summary')
+      const topics = [...new Set(transcript.match(/TOPIC_[A-Z]+/g) || [])].join(' ')
+      output = { summary: `${topics} ${'x'.repeat(7000)}` }
+      if (account === 'oversized-summary')
+        output.summary = 'x'.repeat(8001)
+      if (account === 'empty-summary')
+        output.summary = ''
+    }
+    else if (account === 'full-history') {
+      assert.ok(reducedSummaries, 'Long histories must reduce summaries recursively')
+      for (const marker of ['TOPIC_START', 'TOPIC_MIDDLE', 'TOPIC_END'])
+        assert.ok(transcript.includes(marker), `Lost ${marker}`)
+      output = { title: 'Historique complet Android' }
+    }
+    else {
+      output = { title: transcript.includes('Android') ? 'Mises à jour Android' : input.currentTitle }
+    }
+    const text = account === 'malformed' ? 'not JSON' : JSON.stringify(output)
     // Notifications deliberately precede the response to catch lost fast results.
     emit({ method: 'item/completed', params: { threadId: thread, item: { type: 'agentMessage', text } } })
     emit({ method: 'turn/completed', params: { threadId: thread, turn: { status: account === 'failed' ? 'failed' : 'completed' } } })

@@ -1,4 +1,9 @@
-# Leo Android 0.33.1 — Skills avec `$`
+# Leo Android 0.33.2 — Titres fondés sur toute la conversation
+
+- Le serveur prend en compte tout l’historique pour nommer les conversations, avec des résumés par blocs pour les longues discussions.
+- Les simples relances et confirmations ne doivent plus masquer le sujet général. Ce correctif serveur fonctionne aussi avec les applications déjà installées.
+
+## Leo Android 0.33.1 — Skills avec `$`
 
 Première version Android avec les skills `$` : la 0.33.0 n’a pas été publiée, sa validation automatique ayant échoué sur un test trop pressé.
 

@@ -6,11 +6,17 @@ Agents can now publish [persistent deliverables](DELIVERABLES.md): screenshots, 
 
 Chats and task activity use [resumable live streams](STREAMING.md). Multiple browsers can follow the same conversation; refresh and network recovery replay missed events without restarting the agent.
 
-Conversation titles follow recent work automatically. After a successful reply,
+Conversation titles reflect the whole conversation automatically. After a successful reply,
 a separate GPT-6 Luna session with `xhigh` reasoning reviews the current title,
-the last six user messages and up to six completed assistant replies (each
-limited to 2,000 characters). It keeps a title that still fits and writes a short
-title in the conversation's language when the topic changes. The initial title
+all user messages and completed assistant replies in chronological order,
+without a message-count limit or truncated bodies. Histories exceeding 64 KB of
+serialized input are summarized in ordered segments by the same model; summaries
+are combined recursively until they fit. Every segment contributes, including
+the beginning and middle of long conversations. Summarization is lossy, but older
+exchanges are never simply dropped. Each model request has a two-minute timeout.
+It keeps a title that still fits the broader subject and writes a short title in
+the conversation's language when the discussion meaningfully changes direction.
+Minor follow-ups and acknowledgements should not replace the broader subject. The initial title
 remains available immediately; subsequent evaluations are at least five minutes
 apart. Pending evaluations coalesce and survive server restarts. Older chats are
 evaluated when they receive another completed reply.
