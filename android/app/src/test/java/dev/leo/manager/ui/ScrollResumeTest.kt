@@ -89,7 +89,13 @@ class ScrollResumeTest {
                 server.dispatcher =
                     object : Dispatcher() {
                         override fun dispatch(request: RecordedRequest): MockResponse {
-                            if (request.path.orEmpty().contains("/stream")) {
+                            if (request.requestUrl?.encodedPath == "/api/chats/stream") {
+                                // Navigation subscribes to the list independently of this history stream.
+                                return MockResponse().setHeader("Content-Type", "text/event-stream")
+                                    .setBody(": keepalive\n\n".repeat(10000))
+                                    .throttleBody(13, 1, TimeUnit.SECONDS)
+                            }
+                            if (request.requestUrl?.encodedPath == "/api/chats/diagnostic/stream") {
                                 requests.add(request.path!!)
                                 val history =
                                     if (request.requestUrl?.queryParameter("after") == "60")
