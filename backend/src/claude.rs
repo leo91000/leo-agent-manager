@@ -152,6 +152,16 @@ async fn query_metadata(s: &Service, request: Option<Value>) -> Result<Value> {
             return Ok(value["response"]["response"].clone());
         }
     }).await.unwrap_or_else(|_| Err(Error::new(504, "Claude Code metadata query timed out.")));
+    // Claude Code writes its account model catalog shortly after answering initialize. Model
+    // discovery reads it for the model and effort behind each alias, so let the write finish.
+    if request.is_none() && result.is_ok() {
+        for _ in 0..50 {
+            if !cached_catalog(&directory).await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
     let _ = child.kill().await;
     let _ = child.wait().await;
     drain.abort();

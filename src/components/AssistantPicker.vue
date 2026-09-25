@@ -122,10 +122,12 @@ function close() {
   removeEventListener('resize', place)
   trigger.value?.focus({ preventScroll: true })
 }
+// The trigger names the model and effort in use, so it needs a catalog checked this session.
+// Later refreshes wait for the menu to open.
 watch(provider, () => {
-  if (open.value)
+  if (open.value || (catalog.value.checkedAt === null && !catalog.value.loading && !catalog.value.error))
     void reload()
-})
+}, { immediate: true })
 onBeforeUnmount(() => removeEventListener('resize', place))
 </script>
 
