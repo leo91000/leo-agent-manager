@@ -86,7 +86,13 @@ else {
           out({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response } })
         return
       }
-      out({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response: { models: [{ value: 'sonnet', displayName: 'Sonnet', description: 'Balanced Claude model', supportedEffortLevels: ['low', 'medium', 'high'] }, { value: 'opus', displayName: 'Opus', description: 'Deep reasoning', supportedEffortLevels: ['low', 'medium', 'high', 'max'] }, { value: 'default', displayName: 'Default (recommended)', description: 'Opus with 1M context · Best for everyday tasks', supportedEffortLevels: ['low', 'medium', 'high'] }] } } })
+      // Like the official CLI, cache the account catalog with each model's default effort.
+      mkdirSync(path.join(home, 'cache/model-catalog'), { recursive: true })
+      writeFileSync(path.join(home, 'cache/model-catalog/fixture.json'), JSON.stringify({ version: 2, fetchedAt: Date.now(), catalog: { config: { models: [
+        { id: 'claude-sonnet-fixture', name: 'Sonnet Fixture', thinking: { effort_options: [{ id: 'low' }, { id: 'medium' }, { id: 'high', badge: { message: 'Default' } }] } },
+        { id: 'claude-opus-fixture', name: 'Opus Fixture', thinking: { effort_options: [{ id: 'low' }, { id: 'medium', badge: { message: 'Default' } }, { id: 'high' }, { id: 'max' }] } },
+      ] } } }))
+      out({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response: { models: [{ value: 'sonnet', resolvedModel: 'claude-sonnet-fixture', displayName: 'Sonnet', description: 'Balanced Claude model', supportedEffortLevels: ['low', 'medium', 'high'] }, { value: 'opus', resolvedModel: 'claude-opus-fixture', displayName: 'Opus', description: 'Deep reasoning', supportedEffortLevels: ['low', 'medium', 'high', 'max'] }, { value: 'default', resolvedModel: 'claude-opus-fixture[1m]', displayName: 'Default (recommended)', description: 'Opus with 1M context · Best for everyday tasks', supportedEffortLevels: ['low', 'medium', 'high'] }] } } })
       return
     }
     if (value.type === 'control_response') {
