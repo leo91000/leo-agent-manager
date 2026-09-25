@@ -97,7 +97,7 @@ fun LeoApp(
         }
     }
     fun create() = nav.navigate("new-chat") { launchSingleTop = true }
-    CompositionLocalProvider(LocalFocusMode provides { focusedContent = it }) {
+    CompositionLocalProvider(LocalFocusMode provides { focusedContent = it }, LocalSnackbar provides snackbar) {
         BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             val wide = maxWidth >= 700.dp
             Row {

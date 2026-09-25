@@ -70,7 +70,7 @@ internal fun QueueStrip(
             Column(if (expanded) Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()) else Modifier) {
                 (if (expanded) pending else pending.take(1)).forEachIndexed { index, message ->
                     key(message.id) {
-                        SwipeToTrashRow(enabled = message.status == "queued" && !busy, label = "Retirer", onDelete = { remove(message) }) { swipe ->
+                        SwipeToRevealRow(enabled = message.status == "queued" && !busy, label = "Retirer", onDelete = { remove(message) }) { swipe ->
                             Row(
                                 swipe.fillMaxWidth().clip(RoundedCornerShape(12.dp))
                                     .clickable(onClickLabel = "Options du message en attente") { selected = message.id }

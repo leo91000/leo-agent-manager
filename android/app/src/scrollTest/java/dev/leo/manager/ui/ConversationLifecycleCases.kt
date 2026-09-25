@@ -2,6 +2,7 @@ package dev.leo.manager.ui
 
 import android.app.Application
 import androidx.compose.runtime.*
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -20,9 +21,9 @@ abstract class ConversationLifecycleCases {
     @get:Rule val compose = createComposeRule()
     protected open fun captureSwipe() = Unit
 
-    @Test fun swipeRevealsDeleteWithoutDeletingAndTrashRemainsSecondary() = withConversation(false)
+    @Test fun swipeTrashesWithUndoAndTrashRemainsSecondary() = withConversation(false)
 
-    @Test fun swipeFromFilRevealsDeleteWithoutOpeningTheConversation() = withConversation(true)
+    @Test fun swipeFromFilTrashesWithUndoWithoutOpeningTheConversation() = withConversation(true)
 
     @Test fun deletingWorkingConversationFromFilRequiresConfirmation() = withConversation(true, true)
 
@@ -89,28 +90,43 @@ abstract class ConversationLifecycleCases {
             }
             compose.waitUntil(20000) { compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Corbeille").assertDoesNotExist()
-            compose.onNodeWithText(chat.title).performTouchInput { swipeRight() }
-            compose.onNodeWithText("Supprimer", substring = false).assertDoesNotExist()
-            compose.onNodeWithText(chat.title).performTouchInput { swipeLeft() }
-            compose.onNodeWithText("Supprimer", substring = false).assertIsDisplayed()
-            assertTrue("The swipe must not delete on its own", deletes.isEmpty())
-            if (fromFil && !working) captureSwipe()
-            compose.onNodeWithText(chat.title).performTouchInput { swipeRight() }
-            compose.onNodeWithText("Supprimer", substring = false).assertDoesNotExist()
-            compose.onNodeWithText(chat.title).performTouchInput { swipeLeft() }
-            compose.onNodeWithText("Supprimer", substring = false).performClick()
-            compose.waitUntil(10000) { deletes.size == 1 }
+            val row = compose.onNodeWithText(chat.title)
+            // Swiping right, or releasing a slow drag before the threshold, springs the row back.
+            row.performTouchInput { swipeRight() }
+            row.performTouchInput { swipe(Offset(width * .9f, centerY), Offset(width * .7f, centerY), 800) }
+            compose.waitForIdle()
+            row.assertIsDisplayed()
+            assertTrue("A short drag must not delete", deletes.isEmpty())
             if (working) {
+                row.performTouchInput { swipeLeft() }
                 compose.waitUntil(10000) { compose.onAllNodesWithText("Arrêter et supprimer ?").fetchSemanticsNodes().isNotEmpty() }
                 assertFalse("Work must not be stopped before confirmation", deleted.get())
                 compose.onNodeWithText("Annuler", substring = false).performClick()
+                compose.waitUntil(10000) { compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithText(chat.title).assertIsDisplayed()
                 assertFalse(deleted.get())
-                compose.onNodeWithText("Supprimer", substring = false).performClick()
+                compose.onNodeWithText(chat.title).performTouchInput { swipeLeft() }
                 compose.waitUntil(10000) { compose.onAllNodesWithText("Confirmer").fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithText("Confirmer", substring = false).performClick()
                 compose.waitUntil(10000) { deletes.size == 3 }
                 assertEquals(listOf(false, false, true), deletes.map { wireJson.parseToJsonElement(it).jsonObject.getValue("confirm").jsonPrimitive.boolean })
+            } else {
+                // Past the threshold the row slides out on release; the snackbar offers an undo.
+                row.performTouchInput {
+                    down(Offset(width * .9f, centerY))
+                    moveTo(Offset(width * .6f, centerY))
+                    moveTo(Offset(width * .3f, centerY))
+                }
+                if (fromFil) captureSwipe()
+                row.performTouchInput { up() }
+                compose.waitUntil(10000) { deletes.size == 1 }
+                compose.waitUntil(10000) { compose.onAllNodesWithText("Conversation supprimée").fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText(chat.title).assertDoesNotExist()
+                compose.onNodeWithText("Annuler", substring = false).performClick()
+                compose.waitUntil(10000) { restores.size == 1 }
+                compose.waitUntil(15000) { compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText(chat.title).performTouchInput { swipeLeft() }
+                compose.waitUntil(10000) { deletes.size == 2 }
             }
             compose.waitUntil(15000) { compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isEmpty() }
             if (fromFil) {
@@ -124,9 +140,9 @@ abstract class ConversationLifecycleCases {
             compose.onNodeWithText(chat.title).assertIsDisplayed()
             compose.onNodeWithText(chat.title).performClick()
             compose.waitUntil(15000) { compose.onAllNodesWithText("Restaurer la conversation").fetchSemanticsNodes().isNotEmpty() }
-            assertTrue("Opening the trash must not restore it", restores.isEmpty())
+            assertEquals("Opening the trash must not restore it", 1, restores.size)
             compose.onNodeWithText("Restaurer la conversation").performClick()
-            compose.waitUntil(15000) { restores.size == 1 }
+            compose.waitUntil(15000) { restores.size == 2 }
             compose.waitUntil(15000) { compose.onAllNodesWithText("Cette conversation est dans la corbeille.").fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithTag("conversation-composer").assertIsDisplayed()
         }

@@ -80,7 +80,6 @@ internal fun ConversationList(
     var view by rememberSaveable { mutableStateOf("active") }
     var menu by remember { mutableStateOf(false) }
     var other by remember { mutableStateOf<List<Chat>>(emptyList()) }
-    var removed by remember { mutableStateOf(setOf<String>()) }
     var revision by remember { mutableIntStateOf(0) }
     var listError by remember { mutableStateOf<String?>(null) }
     var fetching by remember { mutableStateOf(false) }
@@ -93,11 +92,14 @@ internal fun ConversationList(
             finally { fetching = false }
         }
     }
-    val trash = rememberTrashConversation(vm) { id ->
-        removed = removed + id
-        revision++
+    // The list can sit in a bottom sheet, above the app snackbar: it hosts its own undo.
+    val snackbar = remember { SnackbarHostState() }
+    val trash = rememberConversationTrash(vm, snackbar) { revision++ }
+    val chats = when (view) {
+        "active" -> activeChats.filter { it.id !in trash.hidden }
+        "trash" -> other
+        else -> other.filter { it.id !in trash.hidden }
     }
-    val chats = if (view == "active") activeChats.filter { it.id !in removed } else other
     var query by rememberSaveable { mutableStateOf("") }
     val today =
         java.time.LocalDate.now()
@@ -123,113 +125,118 @@ internal fun ConversationList(
             "Hier" to filtered.filter { it.updatedAt in yesterday until today },
             "Plus tôt" to filtered.filter { it.updatedAt < yesterday },
         )
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Conversations", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-            Box {
-                ActionIcon("Afficher les conversations", LeoIcons.More) { menu = true }
-                DropdownMenu(menu, { menu = false }) {
-                    listOf("active" to "Actives", "archives" to "Archives", "trash" to "Corbeille").forEach { (key, label) ->
-                        DropdownMenuItem(text = { Text(label) }, onClick = { view = key; menu = false })
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Conversations", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                Box {
+                    ActionIcon("Afficher les conversations", LeoIcons.More) { menu = true }
+                    DropdownMenu(menu, { menu = false }) {
+                        listOf("active" to "Actives", "archives" to "Archives", "trash" to "Corbeille").forEach { (key, label) ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = { view = key; menu = false })
+                        }
                     }
                 }
+                ActionIcon("Nouvelle conversation", LeoIcons.Plus, onClick = create)
             }
-            ActionIcon("Nouvelle conversation", LeoIcons.Plus, onClick = create)
-        }
-        if (view != "active") Text(if (view == "archives") "Archives" else "Corbeille", style = MaterialTheme.typography.labelMedium)
-        SearchField("Rechercher une conversation", query) { query = it }
-        if (loading || fetching) LinearProgressIndicator(Modifier.fillMaxWidth())
-        (listError ?: error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        LazyColumn(
-            Modifier.weight(1f),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            if (!loading && filtered.isEmpty())
-                item {
-                    Empty(
-                        if (query.isBlank()) "Aucune conversation" else "Aucun résultat",
-                        if (query.isBlank()) "Confiez une mission à votre agent pour commencer."
-                        else "Essayez un autre titre, agent ou projet.",
-                    )
-                }
-            groups
-                .filter { it.second.isNotEmpty() }
-                .forEach { (label, items) ->
-                    item(key = label) {
-                        Text(
-                            label,
-                            Modifier.padding(top = 12.dp, bottom = 8.dp, start = 8.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (view != "active") Text(if (view == "archives") "Archives" else "Corbeille", style = MaterialTheme.typography.labelMedium)
+            SearchField("Rechercher une conversation", query) { query = it }
+            if (loading || fetching) LinearProgressIndicator(Modifier.fillMaxWidth())
+            (listError ?: error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            LazyColumn(
+                Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (!loading && filtered.isEmpty())
+                    item {
+                        Empty(
+                            if (query.isBlank()) "Aucune conversation" else "Aucun résultat",
+                            if (query.isBlank()) "Confiez une mission à votre agent pour commencer."
+                            else "Essayez un autre titre, agent ou projet.",
                         )
                     }
-                    items(items, key = { it.id }) { chat ->
-                        key(view) {
-                            SwipeToTrashRow(enabled = view != "trash", onDelete = { trash(chat.id) }) { swipe ->
-                                Surface(
-                                    modifier = swipe,
-                                    onClick = { open(chat.id) },
-                                    color =
-                                        if (chat.id == selected) MaterialTheme.colorScheme.primaryContainer
-                                        else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0f),
-                                    shape = RoundedCornerShape(16.dp),
-                                ) {
-                                    Row(
-                                        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        val working = chat.pendingQuestions == 0 && !chat.paused && chat.status == "running"
-                                        if (working) WorkingAvatar(chat.agentName.ifBlank { chat.title }, chat.agentId, 40.dp)
-                                        else
-                                            AgentAvatar(
-                                                chat.agentName.ifBlank { chat.title },
-                                                chat.agentId,
-                                                40.dp,
-                                                when {
-                                                    chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted") -> AvatarBadge.ATTENTION
-                                                    !chat.paused && chat.status == "queued" -> AvatarBadge.LIVE
-                                                    else -> null
-                                                },
-                                            )
-                                        Spacer(Modifier.width(12.dp))
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                chat.title,
-                                                style = MaterialTheme.typography.titleSmall,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            if (working) WorkingLabel(statusLabel(chat.status))
-                                            else Text(
-                                                when {
-                                                    chat.pendingQuestions > 0 -> "${chat.pendingQuestions} question(s) en attente"
-                                                    chat.paused -> "En pause"
-                                                    chat.status in listOf("running", "queued", "failed", "interrupted") ->
-                                                        statusLabel(chat.status)
-                                                    else -> listOfNotNull(chat.agentName.ifBlank { null }, chat.projectName).joinToString(" · ")
-                                                },
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color =
-                                                    if (chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted")) signal.attention
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
+                groups
+                    .filter { it.second.isNotEmpty() }
+                    .forEach { (label, items) ->
+                        item(key = label) {
+                            Text(
+                                label,
+                                Modifier.padding(top = 12.dp, bottom = 8.dp, start = 8.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        items(items, key = { it.id }) { chat ->
+                            Box(Modifier.animateItem()) {
+                                key(view) {
+                                    SwipeToTrashRow(enabled = view != "trash", onTrash = { trash.trash(chat.id) }) { swipe ->
+                                        Surface(
+                                            modifier = swipe,
+                                            onClick = { open(chat.id) },
+                                            color =
+                                                if (chat.id == selected) MaterialTheme.colorScheme.primaryContainer
+                                                else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0f),
+                                            shape = RoundedCornerShape(16.dp),
+                                        ) {
+                                            Row(
+                                                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                val working = chat.pendingQuestions == 0 && !chat.paused && chat.status == "running"
+                                                if (working) WorkingAvatar(chat.agentName.ifBlank { chat.title }, chat.agentId, 40.dp)
+                                                else
+                                                    AgentAvatar(
+                                                        chat.agentName.ifBlank { chat.title },
+                                                        chat.agentId,
+                                                        40.dp,
+                                                        when {
+                                                            chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted") -> AvatarBadge.ATTENTION
+                                                            !chat.paused && chat.status == "queued" -> AvatarBadge.LIVE
+                                                            else -> null
+                                                        },
+                                                    )
+                                                Spacer(Modifier.width(12.dp))
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(
+                                                        chat.title,
+                                                        style = MaterialTheme.typography.titleSmall,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                    if (working) WorkingLabel(statusLabel(chat.status))
+                                                    else Text(
+                                                        when {
+                                                            chat.pendingQuestions > 0 -> "${chat.pendingQuestions} question(s) en attente"
+                                                            chat.paused -> "En pause"
+                                                            chat.status in listOf("running", "queued", "failed", "interrupted") ->
+                                                                statusLabel(chat.status)
+                                                            else -> listOfNotNull(chat.agentName.ifBlank { null }, chat.projectName).joinToString(" · ")
+                                                        },
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color =
+                                                            if (chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted")) signal.attention
+                                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(
+                                                    shortStamp(chat.updatedAt),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
                                         }
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(
-                                            shortStamp(chat.updatedAt),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
                                     }
                                 }
                             }
                         }
                     }
-                }
+            }
         }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 }
 

@@ -26,7 +26,7 @@ Les archives n’expirent pas sans suppression volontaire. Les délais d’archi
 - Un délai de quelques heures est acceptable pour accéder à une archive froide.
 - La suppression des conversations fait partie du périmètre, avec un geste de balayage sur Android.
 - La suppression place la conversation dans une corbeille pendant 30 jours, puis efface définitivement ses données associées, y compris son éventuelle archive S3/Glacier.
-- Sur Android, un swipe vers la gauche révèle un bouton « Supprimer ».
+- Sur Android, un swipe vers la gauche, comme dans Gmail, met la conversation à la corbeille une fois le seuil franchi ; un snackbar « Annuler » la restaure aussitôt.
 - L’archive conserve l’historique, les pièces jointes, les livrables, la session agent et l’environnement de travail pour permettre la reprise.
 - Les archives passent à S3 Glacier Flexible Retrieval 90 jours après leur archivage S3 ; ce délai est configurable. Sans reprise, cela représente environ 120 jours depuis la dernière activité.
 - Les échanges et le travail de l’agent réinitialisent l’inactivité ; une simple consultation ne la réinitialise pas.

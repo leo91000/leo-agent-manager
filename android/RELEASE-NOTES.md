@@ -1,4 +1,11 @@
-# Leo Android 0.38.1 — Suppression depuis le Fil
+# Leo Android 0.38.6 — Swipe façon Gmail
+
+- Dans le Fil et la liste des conversations, la ligne suit maintenant le doigt sur un fond rouge avec une icône de corbeille. Au-delà de 40 % de la largeur, l’icône grossit et le téléphone vibre.
+- Relâcher ou effectuer un geste rapide après ce seuil fait glisser la conversation hors de l’écran ; la liste se resserre. Avant le seuil, la ligne revient en place avec un effet élastique.
+- Un snackbar « Conversation supprimée · Annuler » permet de la restaurer immédiatement. Une conversation avec un travail en cours demande toujours confirmation ; en cas d’annulation, elle réapparaît.
+- La suppression reste accessible aux lecteurs d’écran par une action « Supprimer » sur la ligne.
+
+## Leo Android 0.38.1 — Suppression depuis le Fil
 
 - Le swipe vers la gauche révèle maintenant « Supprimer » sur les conversations du Fil Android, dans les sections Pour vous, En cours et Récents. Le swipe vers la droite referme le bouton.
 - Le geste seul ne supprime rien. Une conversation avec un travail ou des envois en attente exige toujours une confirmation avant l’arrêt et la mise en corbeille.

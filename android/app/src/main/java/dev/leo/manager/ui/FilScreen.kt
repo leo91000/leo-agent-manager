@@ -169,9 +169,8 @@ fun FilScreen(
             now = System.currentTimeMillis()
         }
     }
-    var removed by remember { mutableStateOf(setOf<String>()) }
-    val trash = rememberTrashConversation(vm) { removed = removed + it }
-    val chats = live.state?.chats?.filter { it.id !in removed }
+    val trash = rememberConversationTrash(vm)
+    val chats = live.state?.chats?.filter { it.id !in trash.hidden }
     val feed = remember(chats, activity, state.tasks) { buildFeed(chats.orEmpty(), activity, state.tasks) }
     fun retry(item: FeedItem) {
         val task = item.taskId ?: return
@@ -219,12 +218,12 @@ fun FilScreen(
                 }
             }
         section("Pour vous", feed.forYou) { item ->
-            FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash(id) } }) {
+            FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash.trash(id) } }) {
                 ForYouAction(item, now, !state.busy, { open(item) }, { retry(item) })
             }
         }
         section("En cours", feed.running) { item ->
-            FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash(id) } }) {
+            FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash.trash(id) } }) {
                 Text(
                     elapsed(item.startedAt, now),
                     style = MaterialTheme.typography.labelLarge,
@@ -232,7 +231,7 @@ fun FilScreen(
                 )
             }
         }
-        section("Récents", feed.recent) { item -> FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash(id) } }) { Stamp(item.stamp, now) } }
+        section("Récents", feed.recent) { item -> FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash.trash(id) } }) { Stamp(item.stamp, now) } }
     }
 }
 
@@ -245,7 +244,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.section(
     item(key = "section:$label") {
         Eyebrow(label, Modifier.padding(start = 20.dp, top = 24.dp, bottom = 4.dp).semantics { heading() })
     }
-    items(items, key = { it.key }) { row(it) }
+    items(items, key = { it.key }) { Box(Modifier.animateItem()) { row(it) } }
 }
 
 /** The one action a "for you" row offers: answer, reconnect, retry, or just its time. */
@@ -298,7 +297,7 @@ private fun FeedRow(
                 AvatarBadge.ATTENTION
             FeedKind.CHAT -> null
         }
-    SwipeToTrashRow(enabled = onDelete != null, onDelete = { onDelete?.invoke() }) { swipe ->
+    SwipeToTrashRow(enabled = onDelete != null, onTrash = { onDelete?.invoke() }) { swipe ->
         Surface(onClick = onClick, color = Color.Transparent, modifier = swipe.fillMaxWidth()) {
             Row(
                 Modifier.widthIn(max = 760.dp)
