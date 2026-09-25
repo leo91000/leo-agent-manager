@@ -1,4 +1,11 @@
-# Leo Android 0.36.0 — Travail de l’agent plus lisible
+# Leo Android 0.37.0 — Archives et corbeille
+
+- Les conversations actives restent au premier plan. Les archives et la corbeille sont accessibles dans une vue secondaire.
+- Un swipe vers la gauche révèle « Supprimer ». Une conversation supprimée reste récupérable pendant 30 jours ; arrêter un travail en cours demande confirmation.
+- L’archivage automatique S3 et le passage à Glacier sont configurables côté application, après configuration du stockage côté serveur. La restauration d’une archive est explicite.
+- Les environnements de travail peuvent utiliser KVM dans Firecracker ; l’option AOSP est proposée pour les tests Android sans services Google Play.
+
+## Leo Android 0.36.0 — Travail de l’agent plus lisible
 
 - **Indicateur « Souffle »** : pendant que l’agent travaille, la conversation et l’exécution affichent l’étape réelle en cours (par exemple « Exécuter les tests » avec sa commande), un halo qui respire, un reflet sur le texte et la durée à la seconde depuis votre dernier message. Sans étape en cours, l’indicateur rappelle la dernière étape terminée. L’étape est annoncée par TalkBack et l’animation suit le réglage d’animations du système.
 - **Actions de l’agent** : repliées, elles se résument en une phrase (« A lu 2 fichiers, cherché 1 fois, modifié 2 fichiers, lancé 1 commande ») avec le nombre d’étapes et d’échecs. Dépliées, elles forment une frise : une ligne par étape, lectures successives regroupées, fichiers modifiés nommés, échecs signalés avec leur code.
