@@ -102,7 +102,12 @@ export interface Run {
   error?: string | null
   sessionId: string | null
   workspace: string | null
-  workspaces?: { projectId: string, path: string, revision?: string | null, kind: 'worktree' | 'clone' | 'copy' | 'direct' }[]
+  workspaces?: {
+    projectId: string
+    path: string
+    revision?: string | null
+    kind: 'worktree' | 'clone' | 'copy' | 'direct'
+  }[]
   isolated?: boolean
   workspaceCleanedAt?: number
   snapshot: {

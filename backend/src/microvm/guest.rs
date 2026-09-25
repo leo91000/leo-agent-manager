@@ -31,8 +31,14 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
                 accepted = auth.accept() => {
                     let Ok((mut client, _)) = accepted else { break };
                     tokio::spawn(async move {
-                        if let Ok(mut remote) = VsockStream::connect(VsockAddr::new(2, wire::PORT + 1)).await {
-                            let _ = tokio::time::timeout(Duration::from_secs(45), tokio::io::copy_bidirectional(&mut client, &mut remote)).await;
+                        if let Ok(mut remote) =
+                            VsockStream::connect(VsockAddr::new(2, wire::PORT + 1)).await
+                        {
+                            let _ = tokio::time::timeout(
+                                Duration::from_secs(45),
+                                tokio::io::copy_bidirectional(&mut client, &mut remote),
+                            )
+                            .await;
                         }
                     });
                 }
@@ -70,57 +76,135 @@ async fn handle(
         .ok_or_else(|| Error::bad("Missing guest request."))?;
     match text(&request, "op") {
         "claude-state" => {
-            let _guard = tokio::time::timeout(Duration::from_secs(5), running.lock()).await.map_err(|_| Error::new(409,"Claude is still running."))?;
-            let mut files=json!({});
+            let _guard = tokio::time::timeout(Duration::from_secs(5), running.lock())
+                .await
+                .map_err(|_| Error::new(409, "Claude is still running."))?;
+            let mut files = json!({});
             for name in [".credentials.json", ".claude.json"] {
-                let file=tokio::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(Path::new("/home/node/.claude").join(name)).await;
+                let file = tokio::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NOFOLLOW)
+                    .open(Path::new("/home/node/.claude").join(name))
+                    .await;
                 match file {
-                    Ok(file)=>{files[name]=STANDARD.encode(crate::process::read_bounded(file,128_000).await?).into();},
-                    Err(e) if e.kind()==std::io::ErrorKind::NotFound=>{},
-                    Err(e)=>return Err(e.into())
+                    Ok(file) => {
+                        files[name] = STANDARD
+                            .encode(crate::process::read_bounded(file, 128_000).await?)
+                            .into();
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
                 }
             }
-            wire::write(&mut write,&json!({"ok":true,"files":files})).await
+            wire::write(
+                &mut write,
+                &json!({
+                    "ok": true,
+                    "files": files
+                }),
+            )
+            .await
         }
         "artifact-export" => {
-            let export=async {
-                let (snapshot,size)=crate::artifacts::file::snapshot(Path::new(text(&request,"path")),Path::new(text(&request,"root"))).await?;
-                wire::write(&mut write,&json!({"ok":true,"size":size})).await?;
-                tokio::io::copy(&mut tokio::fs::File::from_std(snapshot.reopen()?).take(size),&mut write).await?;
-                Ok::<(),Error>(())
+            let export = async {
+                let (snapshot, size) = crate::artifacts::file::snapshot(
+                    Path::new(text(&request, "path")),
+                    Path::new(text(&request, "root")),
+                )
+                .await?;
+                wire::write(
+                    &mut write,
+                    &json!({
+                        "ok": true,
+                        "size": size
+                    }),
+                )
+                .await?;
+                tokio::io::copy(
+                    &mut tokio::fs::File::from_std(snapshot.reopen()?).take(size),
+                    &mut write,
+                )
+                .await?;
+                Ok::<(), Error>(())
             };
-            match tokio::time::timeout(Duration::from_secs(300),export).await {
-                Ok(Ok(()))=>Ok(()),
-                _=>wire::write(&mut write,&json!({"ok":false})).await,
+            match tokio::time::timeout(Duration::from_secs(300), export).await {
+                Ok(Ok(())) => Ok(()),
+                _ => {
+                    wire::write(
+                        &mut write,
+                        &json!({
+                            "ok": false
+                        }),
+                    )
+                    .await
+                }
             }
         }
         "prepare" => {
-            let _guard = running.try_lock().map_err(|_| Error::new(409,"Guest already running."))?;
-            if Path::new(INITIALIZED).exists() || Path::new("/home/node/.codex/auth.json").exists() {
+            let _guard = running
+                .try_lock()
+                .map_err(|_| Error::new(409, "Guest already running."))?;
+            if Path::new(INITIALIZED).exists() || Path::new("/home/node/.codex/auth.json").exists()
+            {
                 return Err(Error::bad("Only a virgin VM may be prepared."));
             }
             let mut command = Command::new("/usr/local/bin/leo");
-            command.arg("guest-warm").env("HOME","/home/node").env("CODEX_HOME","/home/node/.codex")
-                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
-            unsafe { command.pre_exec(|| {
-                if libc::setgroups(0,std::ptr::null()) != 0 || libc::setgid(1000) != 0 || libc::setuid(1000) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            }); }
+            command
+                .arg("guest-warm")
+                .env("HOME", "/home/node")
+                .env("CODEX_HOME", "/home/node/.codex")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true);
+            unsafe {
+                command.pre_exec(|| {
+                    if libc::setgroups(0, std::ptr::null()) != 0
+                        || libc::setgid(1000) != 0
+                        || libc::setuid(1000) != 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
             let status = command.status().await?;
-            wire::write(&mut write,&json!({"ok":status.success()})).await
+            wire::write(
+                &mut write,
+                &json!({
+                    "ok": status.success()
+                }),
+            )
+            .await
         }
         "clock" => {
-            let epoch = request["epochMs"].as_i64().filter(|v| *v > 0).ok_or_else(|| Error::bad("Invalid guest clock."))?;
-            let time = libc::timespec { tv_sec: epoch / 1000, tv_nsec: (epoch % 1000) * 1_000_000 };
-            if unsafe { libc::clock_settime(libc::CLOCK_REALTIME,&time) } != 0 { return Err(std::io::Error::last_os_error().into()); }
-            wire::write(&mut write,&json!({"ok":true})).await
+            let epoch = request["epochMs"]
+                .as_i64()
+                .filter(|v| *v > 0)
+                .ok_or_else(|| Error::bad("Invalid guest clock."))?;
+            let time = libc::timespec {
+                tv_sec: epoch / 1000,
+                tv_nsec: (epoch % 1000) * 1_000_000,
+            };
+            if unsafe { libc::clock_settime(libc::CLOCK_REALTIME, &time) } != 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+            wire::write(
+                &mut write,
+                &json!({
+                    "ok": true
+                }),
+            )
+            .await
         }
         "status" => {
             wire::write(
                 &mut write,
-                &json!({"version":1,"binaryImports":true,"initialized":Path::new(INITIALIZED).exists()}),
+                &json!({
+                    "version": 1,
+                    "binaryImports": true,
+                    "initialized": Path::new(INITIALIZED).exists()
+                }),
             )
             .await
         }
@@ -136,7 +220,13 @@ async fn handle(
             }
             if project && tokio::fs::symlink_metadata(target).await.is_ok() {
                 remember_project(target, request["readOnly"] == true).await?;
-                return wire::write(&mut write, &json!({"ok":true})).await;
+                return wire::write(
+                    &mut write,
+                    &json!({
+                        "ok": true
+                    }),
+                )
+                .await;
             }
             let destination = target.to_owned();
             let staging = target.with_file_name(format!(
@@ -147,7 +237,13 @@ async fn handle(
                 if staging.exists() {
                     tokio::fs::remove_dir_all(&staging).await?;
                 }
-                wire::write(&mut write, &json!({"ready":true})).await?;
+                wire::write(
+                    &mut write,
+                    &json!({
+                        "ready": true
+                    }),
+                )
+                .await?;
             }
             let target = if project { staging.as_path() } else { target };
             if request["replace"] == true && target.exists() {
@@ -219,7 +315,13 @@ async fn handle(
                 remember_project(&destination, request["readOnly"] == true).await?;
                 Command::new("sync").status().await?;
             }
-            wire::write(&mut write, &json!({"ok":true})).await
+            wire::write(
+                &mut write,
+                &json!({
+                    "ok": true
+                }),
+            )
+            .await
         }
         "run" => {
             let _guard = running
@@ -304,7 +406,18 @@ async fn handle(
                     let mut stream = stream;
                     let mut buffer = vec![0; 32768];
                     while let Ok(count) = stream.read(&mut buffer).await {
-                        if count == 0 || tx.send(json!({"type":"output","stderr":error,"data":STANDARD.encode(&buffer[..count])})).await.is_err() { break; }
+                        if count == 0
+                            || tx
+                                .send(json!({
+                                    "type": "output",
+                                    "stderr": error,
+                                    "data": STANDARD.encode(&buffer[..count])
+                                }))
+                                .await
+                                .is_err()
+                        {
+                            break;
+                        }
                     }
                 });
             }
@@ -331,14 +444,27 @@ async fn handle(
                 Command::new("sync").status().await?;
                 wire::write(
                     &mut write,
-                    &json!({"type":"exit","code":code,"result":result}),
+                    &json!({
+                        "type": "exit",
+                        "code": code,
+                        "result": result
+                    }),
                 )
                 .await
             };
-            tokio::select! { result = result => result, _ = stop.cancelled() => Ok(()) }
+            tokio::select! {
+                result = result => result,
+                _ = stop.cancelled() => Ok(()),
+            }
         }
         "shutdown" => {
-            wire::write(&mut write, &json!({"ok":true})).await?;
+            wire::write(
+                &mut write,
+                &json!({
+                    "ok": true
+                }),
+            )
+            .await?;
             stop.cancel();
             Ok(())
         }
@@ -374,12 +500,16 @@ async fn read_only(target: &Path) -> Result<()> {
     }
     Ok(())
 }
+
 async fn remember_project(target: &Path, restricted: bool) -> Result<()> {
     let directory = Path::new("/var/lib/leo/projects");
     tokio::fs::create_dir_all(directory).await?;
     atomic_write(
         &directory.join(crate::auth::hex_digest(&target.to_string_lossy())),
-        &serde_json::to_vec(&json!({"path":target,"readOnly":restricted}))?,
+        &serde_json::to_vec(&json!({
+            "path": target,
+            "readOnly": restricted
+        }))?,
     )
     .await?;
     if restricted {

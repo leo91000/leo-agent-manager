@@ -1,9 +1,22 @@
 <script setup lang="ts">
 import type { RunListItem, Task } from '../../shared/contracts'
 import { twMerge } from 'tailwind-merge'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, date, notify, refresh, state } from '../api'
+import {
+  api,
+  date,
+  notify,
+  refresh,
+  state,
+} from '../api'
 import Empty from '../components/Empty.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
@@ -14,7 +27,26 @@ import TaskEditor from '../components/TaskEditor.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import UiSegments from '../components/UiSegments.vue'
-import { AlertCircle, Archive, ArrowUpRight, Check, ChevronDown, Clock, Copy, Info, ListTodo, MoreHorizontal, Pause, Pencil, Play, Plus, Search, Square, Trash2, Zap } from '../icons'
+import {
+  AlertCircle,
+  Archive,
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  Clock,
+  Copy,
+  Info,
+  ListTodo,
+  MoreHorizontal,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Search,
+  Square,
+  Trash2,
+  Zap,
+} from '../icons'
 import { iconButton } from '../ui'
 
 const router = useRouter()
@@ -26,6 +58,7 @@ const runWorkspace = ref<InstanceType<typeof RunWorkspace>>()
 const details = ref(false)
 const searching = ref(false)
 const searchInput = ref<HTMLInputElement>()
+
 async function toggleSearch() {
   searching.value = !searching.value
   if (searching.value) {
@@ -34,6 +67,7 @@ async function toggleSearch() {
     searchInput.value?.focus()
   }
 }
+
 const loading = ref(true)
 let disposed = false
 let refreshing = false
@@ -56,6 +90,7 @@ const tasks = computed(() =>
         || (filter.value === 'once' && !t.cron)),
   ),
 )
+
 async function run(task: Task) {
   busy.value = task.id
   error.value = ''
@@ -72,6 +107,7 @@ async function run(task: Task) {
     busy.value = ''
   }
 }
+
 async function pause(task: Task) {
   try {
     await api(`/tasks/${task.id}`, {
@@ -85,6 +121,7 @@ async function pause(task: Task) {
     error.value = (e as Error).message
   }
 }
+
 async function remove() {
   try {
     await api(`/tasks/${deleting.value!.id}`, { method: 'DELETE' })
@@ -96,6 +133,7 @@ async function remove() {
     error.value = (e as Error).message
   }
 }
+
 async function archive(task: Task) {
   try {
     await api(`/tasks/${task.id}`, {
@@ -117,6 +155,7 @@ async function archive(task: Task) {
     error.value = (e as Error).message
   }
 }
+
 async function duplicate(task: Task) {
   try {
     await api('/tasks', {
@@ -135,22 +174,27 @@ async function duplicate(task: Task) {
     error.value = (e as Error).message
   }
 }
+
 const selected = computed(() => tasks.value.find(task => task.id === route.query.task) || tasks.value.find(task => ['running', 'queued'].includes(latest.value.get(task.id)?.status || '')) || tasks.value[0])
 const selectedRun = computed(() => selected.value && latest.value.get(selected.value.id))
+
 function needsAttention(task: Task) {
   const run = latest.value.get(task.id)
   return !!run && (['failed', 'interrupted'].includes(run.status) || (run.status === 'succeeded' && !!run.outcome && run.outcome.status !== 'completed'))
 }
+
 const groups = computed(() => [
   { label: 'In progress', items: tasks.value.filter(task => ['running', 'queued'].includes(latest.value.get(task.id)?.status || '')) },
   { label: 'Needs attention', items: tasks.value.filter(needsAttention) },
   { label: 'Ready', items: tasks.value.filter(task => !latest.value.has(task.id)) },
   { label: 'Finished', items: tasks.value.filter(task => !needsAttention(task) && ['succeeded', 'cancelled'].includes(latest.value.get(task.id)?.status || '')) },
 ].filter(group => group.items.length))
+
 function closeMenu(event: MouseEvent) {
   if ((event.target as HTMLElement).closest('button, a'))
     (event.currentTarget as HTMLDetailsElement).open = false
 }
+
 function select(task: Task) {
   const returnFocus = choosing.value
   choosing.value = false
@@ -159,6 +203,7 @@ function select(task: Task) {
   details.value = false
   router.replace({ query: { ...route.query, task: task.id } })
 }
+
 async function loadActivity() {
   if (refreshing || disposed)
     return
@@ -182,6 +227,7 @@ async function loadActivity() {
     loading.value = false
   }
 }
+
 let timer: ReturnType<typeof setInterval>
 onMounted(() => {
   loadActivity()
@@ -212,7 +258,14 @@ watch(() => route.query.new, (value) => {
         <h1 class="task-inbox-heading" aria-label="Missions">
           Missions <small>{{ tasks.length }}</small>
         </h1>
-        <button ref="chooser" class="task-chooser" aria-label="Choose mission" :aria-expanded="choosing" aria-controls="task-inbox-items" @click="choosing = !choosing">
+        <button
+          ref="chooser"
+          class="task-chooser"
+          aria-label="Choose mission"
+          :aria-expanded="choosing"
+          aria-controls="task-inbox-items"
+          @click="choosing = !choosing"
+        >
           <Icon :name="ListTodo" :size="18" /><span>Missions</span><Icon :name="ChevronDown" :size="14" />
         </button>
         <button :class="iconButton" aria-label="Search missions" @click="toggleSearch">
@@ -223,38 +276,87 @@ watch(() => route.query.new, (value) => {
         </button>
       </header>
       <div class="task-inbox-controls">
-        <label class="search-field"><Icon :name="Search" :size="16" /><input ref="searchInput" v-model="query" placeholder="Search missions" aria-label="Search missions"></label>
-        <UiSegments v-model="filter" label="Filter missions" compact :options="[{ value: 'all', label: 'All missions' }, { value: 'scheduled', label: 'Scheduled' }, { value: 'once', label: 'One-off' }, { value: 'paused', label: 'Paused' }, { value: 'archived', label: 'Archived' }]" />
+        <label class="search-field"><Icon :name="Search" :size="16" /><input
+          ref="searchInput"
+          v-model="query"
+          placeholder="Search missions"
+          aria-label="Search missions"
+        ></label>
+        <UiSegments
+          v-model="filter"
+          label="Filter missions"
+          compact
+          :options="[{ value: 'all', label: 'All missions' }, { value: 'scheduled', label: 'Scheduled' }, { value: 'once', label: 'One-off' }, { value: 'paused', label: 'Paused' }, { value: 'archived', label: 'Archived' }]"
+        />
       </div>
       <div id="task-inbox-items" class="task-inbox-items flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
         <section v-for="group in groups" :key="group.label" class="task-inbox-group">
-          <h3>{{ group.label }}</h3><button v-for="task in group.items" :key="task.id" class="task-inbox-row flex items-start text-left gap-[9px] border border-transparent rounded-lg w-full px-[9px] py-3.5 phone:px-[9px] phone:py-3" :class="{ selected: selected?.id === task.id }" :aria-pressed="selected?.id === task.id" @click="select(task)">
+          <h3>{{ group.label }}</h3><button
+            v-for="task in group.items"
+            :key="task.id"
+            class="task-inbox-row flex items-start text-left gap-[9px] border border-transparent rounded-lg w-full px-[9px] py-3.5 phone:px-[9px] phone:py-3"
+            :class="{ selected: selected?.id === task.id }"
+            :aria-pressed="selected?.id === task.id"
+            @click="select(task)"
+          >
             <span class="inbox-status"><Icon v-if="['running', 'queued'].includes(latest.get(task.id)?.status || '')" :name="Zap" :size="15" /><Icon v-else-if="needsAttention(task)" :name="AlertCircle" :size="15" /><Icon v-else-if="latest.has(task.id)" :name="Check" :size="15" /><Icon v-else :name="Clock" :size="15" /></span><span><strong>{{ task.name }}</strong><small>{{ state.agents.find(agent => agent.id === task.agentId)?.name || 'Deleted agent' }}<template v-if="task.projectId"> · {{ state.projects.find(project => project.id === task.projectId)?.name || 'Project' }}</template></small></span><Icon :name="ArrowUpRight" :size="13" />
           </button>
         </section>
       </div>
     </section>
-    <section v-if="selected" class="task-focus-detail task-card" :class="{ 'has-run': selectedRun }" aria-label="Selected mission">
+    <section
+      v-if="selected"
+      class="task-focus-detail task-card"
+      :class="{ 'has-run': selectedRun }"
+      aria-label="Selected mission"
+    >
       <header class="task-detail-header">
         <div class="task-title-row">
           <div class="task-title">
             <span class="task-project">{{ state.projects.find(project => project.id === selected.projectId)?.name || 'Agent workspace' }}</span><h2>{{ selected.name }}</h2>
           </div>
           <div class="task-focus-actions">
-            <UiButton v-if="!['running', 'queued'].includes(selectedRun?.status || '')" class="task-run-button" size="small" :disabled="busy === selected.id || selected.archived" @click="run(selected)">
+            <UiButton
+              v-if="!['running', 'queued'].includes(selectedRun?.status || '')"
+              class="task-run-button"
+              size="small"
+              :disabled="busy === selected.id || selected.archived"
+              @click="run(selected)"
+            >
               <Icon :name="Play" :size="14" />{{ busy === selected.id ? 'Starting…' : 'Run now' }}
-            </UiButton><UiButton v-else-if="selectedRun && ['running', 'queued'].includes(selectedRun.status)" variant="danger-outline" size="small" :disabled="!runWorkspace?.canStop" @click="runWorkspace?.requestStop()">
+            </UiButton><UiButton
+              v-else-if="selectedRun && ['running', 'queued'].includes(selectedRun.status)"
+              variant="danger-outline"
+              size="small"
+              :disabled="!runWorkspace?.canStop"
+              @click="runWorkspace?.requestStop()"
+            >
               <Icon :name="Square" :size="14" />Stop run
-            </UiButton><RouterLink v-if="selectedRun" :to="`/runs/${selectedRun.id}`" :class="twMerge(iconButton, 'icon-button')" aria-label="Open run">
+            </UiButton><RouterLink
+              v-if="selectedRun"
+              :to="`/runs/${selectedRun.id}`"
+              :class="twMerge(iconButton, 'icon-button')"
+              aria-label="Open run"
+            >
               <Icon :name="ArrowUpRight" :size="17" />
             </RouterLink><details class="task-action-menu relative" @click="closeMenu">
               <summary :class="twMerge(iconButton, 'icon-button')" aria-label="Mission actions">
                 <Icon :name="MoreHorizontal" :size="19" />
               </summary><div>
-                <button v-if="!['running', 'queued'].includes(selectedRun?.status || '')" class="task-menu-run" :disabled="busy === selected.id || selected.archived" @click="run(selected)">
+                <button
+                  v-if="!['running', 'queued'].includes(selectedRun?.status || '')"
+                  class="task-menu-run"
+                  :disabled="busy === selected.id || selected.archived"
+                  @click="run(selected)"
+                >
                   <Icon :name="Play" :size="15" />{{ busy === selected.id ? 'Starting…' : 'Run now' }}
                 </button>
-                <RouterLink v-if="selectedRun" class="task-menu-run" :to="`/runs/${selectedRun.id}`" aria-label="Open run">
+                <RouterLink
+                  v-if="selectedRun"
+                  class="task-menu-run"
+                  :to="`/runs/${selectedRun.id}`"
+                  aria-label="Open run"
+                >
                   <Icon :name="ArrowUpRight" :size="15" />Open run
                 </RouterLink>
                 <button :aria-label="`Edit ${selected.name}`" @click="editor = selected">
@@ -283,7 +385,14 @@ watch(() => route.query.new, (value) => {
           </button>
         </div>
       </header>
-      <RunWorkspace v-if="selectedRun" :key="selectedRun.id" ref="runWorkspace" :run-id="selectedRun.id" embedded @run="loadActivity" />
+      <RunWorkspace
+        v-if="selectedRun"
+        :key="selectedRun.id"
+        ref="runWorkspace"
+        :run-id="selectedRun.id"
+        embedded
+        @run="loadActivity"
+      />
       <template v-else>
         <p v-if="loading" class="muted text-muted">
           Loading activity…
@@ -300,7 +409,12 @@ watch(() => route.query.new, (value) => {
       </UiButton>
     </Empty>
   </div>
-  <Modal v-if="details && selected" title="Mission details" sheet @close="details = false">
+  <Modal
+    v-if="details && selected"
+    title="Mission details"
+    sheet
+    @close="details = false"
+  >
     <div class="task-details-body">
       <h3>{{ selected.name }}</h3>
       <Outcome v-if="selectedRun" :outcome="selectedRun.outcome" :status="selectedRun.status" />
@@ -329,7 +443,12 @@ watch(() => route.query.new, (value) => {
       </div>
     </div>
   </Modal>
-  <TaskEditor v-if="editor" :task="editor === true ? undefined : editor" @saved="select" @close="editor = null" />
+  <TaskEditor
+    v-if="editor"
+    :task="editor === true ? undefined : editor"
+    @saved="select"
+    @close="editor = null"
+  />
   <Modal v-if="deleting" title="Remove this task?" @close="deleting = null">
     <div class="modal-body px-6.5 py-6 phone:p-5">
       <p>

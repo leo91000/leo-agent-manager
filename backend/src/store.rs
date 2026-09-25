@@ -12,7 +12,9 @@ use std::{
     },
 };
 use tokio::sync::{mpsc, oneshot, watch};
+
 type Job = Box<dyn FnOnce(&mut Connection) + Send>;
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
@@ -25,14 +27,17 @@ pub struct Event {
     #[serde(skip_serializing_if = "Option::is_none")]
     payload: Option<Box<serde_json::value::RawValue>>,
 }
+
 #[derive(Clone)]
 pub struct Store(Arc<Pool>);
+
 struct Pool {
     writer: mpsc::Sender<Job>,
     readers: Vec<mpsc::Sender<Job>>,
     next: AtomicUsize,
     changes: watch::Sender<u64>,
 }
+
 fn actor(connection: Connection) -> mpsc::Sender<Job> {
     let (tx, mut rx) = mpsc::channel::<Job>(256);
     std::thread::Builder::new()
@@ -46,6 +51,7 @@ fn actor(connection: Connection) -> mpsc::Sender<Job> {
         .expect("database thread");
     tx
 }
+
 impl Store {
     pub fn open(directory: &Path) -> Result<Self> {
         std::fs::create_dir_all(directory)?;
@@ -101,6 +107,7 @@ CREATE INDEX IF NOT EXISTS events_messages ON events(run_id,json_extract(payload
             changes: watch::channel(0).0,
         })))
     }
+
     async fn call<T: Send + 'static>(
         &self,
         tx: &mpsc::Sender<Job>,
@@ -115,6 +122,7 @@ CREATE INDEX IF NOT EXISTS events_messages ON events(run_id,json_extract(payload
         rx.await
             .map_err(|_| Error::new(503, "Database operation stopped."))?
     }
+
     pub async fn read<T: Send + 'static>(
         &self,
         f: impl FnOnce(&mut Db<'_>) -> Result<T> + Send + 'static,
@@ -125,6 +133,7 @@ CREATE INDEX IF NOT EXISTS events_messages ON events(run_id,json_extract(payload
         )
         .await
     }
+
     pub async fn write<T: Send + 'static>(
         &self,
         f: impl FnOnce(&mut Db<'_>) -> Result<T> + Send + 'static,
@@ -138,9 +147,11 @@ CREATE INDEX IF NOT EXISTS events_messages ON events(run_id,json_extract(payload
         })
         .await
     }
+
     pub fn subscribe(&self) -> watch::Receiver<u64> {
         self.0.changes.subscribe()
     }
+
     pub async fn transaction<T: Send + 'static>(
         &self,
         f: impl FnOnce(&mut Db<'_>) -> Result<T> + Send + 'static,
@@ -156,48 +167,63 @@ CREATE INDEX IF NOT EXISTS events_messages ON events(run_id,json_extract(payload
         })
         .await
     }
+
     pub async fn get(&self, kind: &str, id: &str) -> Result<Option<Value>> {
         let (kind, id) = (kind.to_owned(), id.to_owned());
         self.read(move |db| db.get(&kind, &id)).await
     }
+
     pub async fn list(&self, kind: &str) -> Result<Vec<Value>> {
         let kind = kind.to_owned();
         self.read(move |db| db.list(&kind)).await
     }
+
     pub async fn kv(&self, key: &str) -> Result<Option<Value>> {
         let key = key.to_owned();
         self.read(move |db| db.kv(&key)).await
     }
+
     pub async fn set(&self, key: &str, value: Value, expires: Option<i64>) -> Result<()> {
         let key = key.to_owned();
         self.write(move |db| db.set(&key, &value, expires)).await
     }
+
     pub async fn delete(&self, key: &str) -> Result<()> {
         let key = key.to_owned();
         self.write(move |db| db.delete(&key)).await
     }
+
     pub async fn put(&self, kind: &str, value: Value) -> Result<Value> {
         let kind = kind.to_owned();
         self.write(move |db| db.put(&kind, &value)).await
     }
+
     pub async fn save(&self, kind: &str, value: Value, action: &str) -> Result<Value> {
         let (kind, action) = (kind.to_owned(), action.to_owned());
         self.transaction(move |db| {
             let result = db.put(&kind, &value)?;
-            db.audit(&action, &json!({"id":result["id"]}))?;
+            db.audit(
+                &action,
+                &json!({
+                    "id": result["id"],
+                }),
+            )?;
             Ok(result)
         })
         .await
     }
+
     pub async fn run(&self, id: &str) -> Result<Value> {
         let id = id.to_owned();
         self.read(move |db| required(db.run(&id)?, "Run not found"))
             .await
     }
+
     pub async fn patch_run(&self, id: &str, patch: Value) -> Result<Value> {
         let id = id.to_owned();
         self.write(move |db| db.patch_run(&id, &patch)).await
     }
+
     pub async fn event(
         &self,
         id: &str,
@@ -209,29 +235,35 @@ CREATE INDEX IF NOT EXISTS events_messages ON events(run_id,json_extract(payload
         self.write(move |db| db.event(&id, &kind, &text, payload.as_ref()))
             .await
     }
+
     pub async fn keys(&self, prefix: &str) -> Result<Vec<(String, Value)>> {
         let prefix = prefix.to_owned();
         self.read(move |db| db.keys(&prefix)).await
     }
+
     pub async fn audit(&self, action: &str, detail: Value) -> Result<()> {
         let action = action.to_owned();
         self.write(move |db| db.audit(&action, &detail)).await
     }
 }
+
 // Database transactions and statement caches stay on their owning database thread.
 pub struct Db<'a>(pub &'a Connection);
+
 impl Db<'_> {
     pub fn json_rows(&self, sql: &str, parameters: impl rusqlite::Params) -> Result<Vec<Value>> {
         let mut stmt = self.0.prepare_cached(sql)?;
         let rows = stmt.query_map(parameters, |row| row.get::<_, String>(0))?;
         rows.map(|r| Ok(serde_json::from_str(&r?)?)).collect()
     }
+
     pub fn list(&self, kind: &str) -> Result<Vec<Value>> {
         self.json_rows(
             "SELECT data FROM records WHERE kind=? ORDER BY updated_at DESC",
             [kind],
         )
     }
+
     pub fn get(&self, kind: &str, id: &str) -> Result<Option<Value>> {
         self.0
             .prepare_cached("SELECT data FROM records WHERE kind=? AND id=?")?
@@ -240,16 +272,29 @@ impl Db<'_> {
             .map(|s| Ok(serde_json::from_str(&s)?))
             .transpose()
     }
+
     pub fn put(&self, kind: &str, value: &Value) -> Result<Value> {
-        self.0.prepare_cached("INSERT INTO records VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at")?.execute(params![value["id"].as_str(), kind, value.to_string(), now()])?;
+        self.0
+            .prepare_cached(
+                "INSERT INTO records VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET \
+                data=excluded.data,updated_at=excluded.updated_at",
+            )?
+            .execute(params![
+                value["id"].as_str(),
+                kind,
+                value.to_string(),
+                now()
+            ])?;
         Ok(value.clone())
     }
+
     pub fn remove(&self, kind: &str, id: &str) -> Result<()> {
         self.0
             .prepare_cached("DELETE FROM records WHERE kind=? AND id=?")?
             .execute(params![kind, id])?;
         Ok(())
     }
+
     pub fn kv(&self, key: &str) -> Result<Option<Value>> {
         self.0
             .prepare_cached("SELECT data FROM kv WHERE key=? AND (expires IS NULL OR expires>?)")?
@@ -258,19 +303,28 @@ impl Db<'_> {
             .map(|s| Ok(serde_json::from_str(&s)?))
             .transpose()
     }
+
     pub fn set(&self, key: &str, value: &Value, expires: Option<i64>) -> Result<()> {
-        self.0.prepare_cached("INSERT INTO kv VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data,expires=excluded.expires")?.execute(params![key, value.to_string(), expires])?;
+        self.0
+            .prepare_cached(
+                "INSERT INTO kv VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET \
+                data=excluded.data,expires=excluded.expires",
+            )?
+            .execute(params![key, value.to_string(), expires])?;
         Ok(())
     }
+
     pub fn delete(&self, key: &str) -> Result<()> {
         self.0
             .prepare_cached("DELETE FROM kv WHERE key=?")?
             .execute([key])?;
         Ok(())
     }
+
     pub fn keys(&self, prefix: &str) -> Result<Vec<(String, Value)>> {
         let mut stmt = self.0.prepare_cached(
-            "SELECT key,data FROM kv WHERE key>=?1 AND key<?2 AND (expires IS NULL OR expires>?3)",
+            "SELECT key,data FROM kv WHERE key>=?1 AND key<?2 AND (expires IS NULL OR \
+            expires>?3)",
         )?;
         let rows = stmt.query_map(params![prefix, format!("{prefix}\u{10ffff}"), now()], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
@@ -281,6 +335,7 @@ impl Db<'_> {
         })
         .collect()
     }
+
     pub fn run(&self, id: &str) -> Result<Option<Value>> {
         self.0
             .prepare_cached("SELECT data FROM runs WHERE id=?")?
@@ -289,6 +344,7 @@ impl Db<'_> {
             .map(|s| Ok(serde_json::from_str(&s)?))
             .transpose()
     }
+
     pub fn add_run(&self, run: &Value, dedupe: Option<&str>) -> Result<Value> {
         self.0
             .prepare_cached("INSERT INTO runs VALUES(?,?,?,?,?,?,?)")?
@@ -303,6 +359,7 @@ impl Db<'_> {
             ])?;
         Ok(run.clone())
     }
+
     pub fn patch_run(&self, id: &str, patch: &Value) -> Result<Value> {
         let mut run = required(self.run(id)?, "Run not found")?;
         merge(&mut run, patch);
@@ -311,12 +368,15 @@ impl Db<'_> {
             .execute(params![run["status"].as_str(), run.to_string(), id])?;
         Ok(run)
     }
+
     pub fn active(&self) -> Result<Vec<Value>> {
         self.json_rows(
-            "SELECT data FROM runs WHERE status IN ('queued','running') ORDER BY created_at",
+            "SELECT data FROM runs WHERE status IN ('queued','running') ORDER \
+            BY created_at",
             [],
         )
     }
+
     pub fn runs(
         &self,
         status: Option<&str>,
@@ -328,6 +388,7 @@ impl Db<'_> {
         let (query, values) = Self::run_query(status, task, limit, offset, full);
         self.json_rows(&query, rusqlite::params_from_iter(values))
     }
+
     pub fn run_page(
         &self,
         status: Option<&str>,
@@ -344,6 +405,7 @@ impl Db<'_> {
             .map(|row| Ok(serde_json::value::RawValue::from_string(row?)?))
             .collect()
     }
+
     fn run_query(
         status: Option<&str>,
         task: Option<&str>,
@@ -357,7 +419,9 @@ impl Db<'_> {
             "json_set(json_remove(data,'$.snapshot','$.summary'),'$.taskName',json_extract(data,'$.snapshot.task.name'),'$.agentName',json_extract(data,'$.snapshot.agent.name'))"
         };
         let mut filters = vec![
-            "NOT EXISTS (SELECT 1 FROM records c WHERE c.kind='chats' AND json_extract(c.data,'$.runId')=runs.id AND COALESCE(json_extract(c.data,'$.lifecycle'),'active')<>'active')",
+            "NOT EXISTS (SELECT 1 FROM records c WHERE c.kind='chats' AND \
+            json_extract(c.data,'$.runId')=runs.id AND \
+            COALESCE(json_extract(c.data,'$.lifecycle'),'active')<>'active')",
         ];
         let mut values: Vec<rusqlite::types::Value> = Vec::new();
         if let Some(status) = status {
@@ -377,11 +441,13 @@ impl Db<'_> {
         values.push(offset.into());
         (
             format!(
-                "SELECT {fields} FROM runs{clause} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?"
+                "SELECT {fields} FROM runs{clause} ORDER BY created_at DESC,id \
+                DESC LIMIT ? OFFSET ?"
             ),
             values,
         )
     }
+
     pub fn stats(&self) -> Result<Value> {
         let mut counts = json!({});
         let mut stmt = self
@@ -393,11 +459,13 @@ impl Db<'_> {
         }
         Ok(counts)
     }
+
     pub fn event(&self, run: &str, kind: &str, text: &str, payload: Option<&Value>) -> Result<()> {
         let text = text.chars().take(16000).collect::<String>();
         self.0
             .prepare_cached(
-                "INSERT INTO events(run_id,created_at,type,text,payload) VALUES(?,?,?,?,?)",
+                "INSERT INTO events(run_id,created_at,type,text,payload) \
+                VALUES(?,?,?,?,?)",
             )?
             .execute(params![
                 run,
@@ -408,10 +476,13 @@ impl Db<'_> {
             ])?;
         // Prune in batches instead of executing a delete for every streamed delta.
         if self.0.last_insert_rowid() % 256 == 0 {
-            self.0.prepare_cached("DELETE FROM events WHERE run_id=?1 AND id<(SELECT COALESCE(MAX(id),0)-10000 FROM events WHERE run_id=?1) AND run_id IN(SELECT id FROM runs WHERE json_extract(data,'$.trigger')!='chat')")?.execute([run])?;
+            self.0.prepare_cached("DELETE FROM events WHERE run_id=?1 AND id<(SELECT COALESCE(MAX(id),0)-10000 FROM \
+            events WHERE run_id=?1) AND run_id IN(SELECT id FROM runs WHERE \
+            json_extract(data,'$.trigger')!='chat')")?.execute([run])?;
         }
         Ok(())
     }
+
     /// Repair completed chats whose answer survived only in the run summary.
     /// Match within the latest user turn so repeated answers in later turns survive.
     pub(crate) fn restore_chat_summaries(&self) -> Result<()> {
@@ -440,11 +511,14 @@ impl Db<'_> {
                 "item.completed",
                 summary,
                 Some(&json!({
-                    "type":"item.completed","item":{
-                        "id":format!("recovered-summary:{id}:{finished}"),
-                        "type":"agent_message","phase":"final","text":summary,
-                        "recovered":true
-                    }
+                    "type": "item.completed",
+                    "item": {
+                        "id": format!("recovered-summary:{id}:{finished}"),
+                        "type": "agent_message",
+                        "phase": "final",
+                        "text": summary,
+                        "recovered": true,
+                    },
                 })),
             )?;
             self.0.execute(
@@ -454,17 +528,20 @@ impl Db<'_> {
         }
         Ok(())
     }
+
     pub fn events(&self, run: &str, after: i64, limit: i64) -> Result<Vec<Value>> {
         self.event_page(run, after, limit)?
             .into_iter()
             .map(|event| serde_json::to_value(event).map_err(Error::from))
             .collect()
     }
+
     // Stored payloads are already JSON. Validate their bytes without allocating
     // thousands of intermediate object nodes just to serialize them again.
     pub fn event_page(&self, run: &str, after: i64, limit: i64) -> Result<Vec<Event>> {
         self.event_batch(run, after, limit, usize::MAX)
     }
+
     pub fn event_batch(
         &self,
         run: &str,
@@ -475,11 +552,13 @@ impl Db<'_> {
         self.event_slice(run, after, limit, max_bytes, false)
             .map(|(events, _)| events)
     }
+
     pub fn events_before(&self, run: &str, before: i64) -> Result<(Vec<Event>, bool)> {
         let (mut events, more) = self.event_slice(run, before, 100, 256 * 1024, true)?;
         events.reverse();
         Ok((events, more))
     }
+
     fn event_slice(
         &self,
         run: &str,
@@ -500,7 +579,8 @@ WHERE e.run_id=? AND e.id<? AND (
    AND n.id>e.id AND n.id<COALESCE((SELECT t.id FROM events t WHERE t.run_id=e.run_id AND t.type='turn.started' AND t.id>e.id ORDER BY t.id LIMIT 1),9223372036854775807)
  )) ORDER BY e.id DESC LIMIT ?"
         } else {
-            "SELECT id,run_id,created_at,type,text,payload FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?"
+            "SELECT id,run_id,created_at,type,text,payload FROM events WHERE run_id=? AND \
+            id>? ORDER BY id LIMIT ?"
         };
         let mut stmt = self.0.prepare_cached(sql)?;
         let mut rows =
@@ -536,6 +616,7 @@ WHERE e.run_id=? AND e.id<? AND (
         let more = backwards && rows.next().transpose()?.is_some();
         Ok((events, more))
     }
+
     pub fn require_run(&self, id: &str) -> Result<()> {
         let exists = self
             .0
@@ -546,16 +627,30 @@ WHERE e.run_id=? AND e.id<? AND (
         }
         Ok(())
     }
+
     pub fn messages(&self, chat: &str) -> Result<Vec<Value>> {
         self.json_rows(
-            "SELECT data FROM chat_messages WHERE chat_id=? ORDER BY created_at,rowid",
+            "SELECT data FROM chat_messages WHERE chat_id=? ORDER BY \
+            created_at,rowid",
             [chat],
         )
     }
+
     pub fn put_message(&self, message: &Value) -> Result<Value> {
-        self.0.prepare_cached("INSERT INTO chat_messages VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data")?.execute(params![message["id"].as_str(), message["chatId"].as_str(), message.to_string(), message["createdAt"].as_i64()])?;
+        self.0
+            .prepare_cached(
+                "INSERT INTO chat_messages VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET \
+                data=excluded.data",
+            )?
+            .execute(params![
+                message["id"].as_str(),
+                message["chatId"].as_str(),
+                message.to_string(),
+                message["createdAt"].as_i64()
+            ])?;
         Ok(message.clone())
     }
+
     pub fn audit(&self, action: &str, detail: &Value) -> Result<()> {
         self.0
             .prepare_cached("INSERT INTO audit(created_at,action,detail) VALUES(?,?,?)")?
@@ -563,6 +658,7 @@ WHERE e.run_id=? AND e.id<? AND (
         Ok(())
     }
 }
+
 pub fn merge(value: &mut Value, patch: &Value) {
     if let (Some(target), Some(patch)) = (value.as_object_mut(), patch.as_object()) {
         target.extend(patch.clone());

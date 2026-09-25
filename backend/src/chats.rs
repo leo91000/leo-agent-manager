@@ -95,12 +95,14 @@ fn handoff_context(db: &Db<'_>, run: &str) -> Result<String> {
         use rusqlite::OptionalExtension;
         let first: Option<String> =
             db.0.query_row(
-                "SELECT text FROM events WHERE run_id=? AND type='chat.user' ORDER BY id LIMIT 1",
+                "SELECT text FROM events WHERE run_id=? AND type='chat.user' \
+                ORDER BY id LIMIT 1",
                 [run],
                 |row| row.get(0),
             )
             .optional()?;
-        parts.insert(0, format!("Initial user request (excerpt):\n{}\n\n[Earlier exchanges omitted to fit the context budget; recent history follows.]", first.unwrap_or_default().chars().take(8000).collect::<String>()));
+        parts.insert(0, format!("Initial user request (excerpt):\n{}\n\n[Earlier exchanges omitted to fit the context \
+        budget; recent history follows.]", first.unwrap_or_default().chars().take(8000).collect::<String>()));
     }
     Ok(parts.join("\n\n"))
 }
@@ -112,7 +114,13 @@ pub fn execution_text(plan: &Value) -> String {
         return current.to_owned();
     }
     format!(
-        "You are continuing the same Léo chat in a new native agent session. The workspace and completed changes are preserved. Use the prior conversation below as history, not as new requests. Preserve the user's scope and decisions. Verify external effects before repeating any action. Prior attachments remain under {}/attachments/<attachment ID>/.\n\n<previous_conversation>\n{}\n</previous_conversation>\n\nCurrent user message:\n{}",
+        "You are continuing the same Léo chat in a new native agent session. The workspace \
+        and completed changes are preserved. Use the prior conversation below as history, not \
+        as new requests. Preserve the user's scope and decisions. Verify external effects \
+        before repeating any action. Prior attachments remain under \
+        {}/attachments/<attachment \
+        ID>/.\n\n<previous_conversation>\n{}\n</previous_conversation>\n\nCurrent user \
+        message:\n{}",
         text(plan, "inputDirectory"),
         context,
         current
@@ -133,7 +141,9 @@ pub fn with_invoked_skills(message: &str, skills: &Value) -> String {
         return message.to_owned();
     }
     format!(
-        "{message}\n\n<invoked_skills>\nThe user invoked these skills with $name in this message. Apply each one to this request by following its SKILL.md under \"Selected skills\" in your instructions:\n{}\n</invoked_skills>",
+        "{message}\n\n<invoked_skills>\nThe user invoked these skills with $name in this \
+        message. Apply each one to this request by following its SKILL.md under \"Selected \
+        skills\" in your instructions:\n{}\n</invoked_skills>",
         invoked
             .iter()
             .map(|name| format!("- {name}"))
@@ -145,6 +155,7 @@ pub fn with_invoked_skills(message: &str, skills: &Value) -> String {
 fn chat(db: &Db<'_>, id: &str) -> Result<Value> {
     required(db.get("chats", id)?, "Chat not found")
 }
+
 fn questions(db: &Db<'_>, chat: &str) -> Result<Vec<Value>> {
     let mut questions = db
         .keys(&format!("chat-question:{chat}:"))?
@@ -154,6 +165,7 @@ fn questions(db: &Db<'_>, chat: &str) -> Result<Vec<Value>> {
     questions.sort_by_key(|q| q["createdAt"].as_i64());
     Ok(questions)
 }
+
 fn save_question(db: &Db<'_>, question: &Value) -> Result<Value> {
     db.set(
         &format!(
@@ -166,6 +178,7 @@ fn save_question(db: &Db<'_>, question: &Value) -> Result<Value> {
     )?;
     Ok(question.clone())
 }
+
 fn view(db: &Db<'_>, mut chat: Value) -> Result<Value> {
     chat["lifecycle"] = crate::conversation_lifecycle::state(&chat).into();
     chat["pendingQuestions"] = questions(db, text(&chat, "id"))?
@@ -198,18 +211,21 @@ fn view(db: &Db<'_>, mut chat: Value) -> Result<Value> {
         .unwrap_or_else(|| "idle".into());
     Ok(chat)
 }
+
 pub(crate) fn list(db: &Db<'_>) -> Result<Vec<Value>> {
     Ok(list_all(db)?
         .into_iter()
         .filter(|chat| crate::conversation_lifecycle::in_view(chat, "active"))
         .collect())
 }
+
 pub(crate) fn list_all(db: &Db<'_>) -> Result<Vec<Value>> {
     db.list("chats")?
         .into_iter()
         .map(|chat| view(db, chat))
         .collect()
 }
+
 pub(crate) fn detail(db: &Db<'_>, id: &str) -> Result<Value> {
     let mut result = view(db, chat(db, id)?)?;
     if crate::conversation_lifecycle::state(&result) != "active" {
@@ -224,6 +240,7 @@ pub(crate) fn detail(db: &Db<'_>, id: &str) -> Result<Value> {
     result["run"] = db.run(text(&result, "runId"))?.unwrap_or(Value::Null);
     Ok(result)
 }
+
 fn validate_steer(db: &Db<'_>, chat: &Value, message: &Value) -> Result<()> {
     if message["mode"] != "steer" {
         return Ok(());
@@ -239,11 +256,13 @@ fn validate_steer(db: &Db<'_>, chat: &Value, message: &Value) -> Result<()> {
     {
         return Err(Error::new(
             409,
-            "Queue this message to change provider, model or reasoning on the next turn.",
+            "Queue this message to change provider, model or reasoning on the \
+            next turn.",
         ));
     }
     Ok(())
 }
+
 fn send(
     db: &Db<'_>,
     chat_id: &str,
@@ -335,35 +354,49 @@ fn send(
     merge(
         &mut values,
         &json!({
-        "chatId":chat_id,"status":"queued","createdAt":now()}
-        ),
+            "chatId": chat_id,
+            "status": "queued",
+            "createdAt": now(),
+        }),
     );
     db.put_message(&values)
 }
+
 impl Service {
     pub async fn chat_list(&self) -> Result<Vec<Value>> {
         self.store.read(|db| list(db)).await
     }
+
     pub async fn chat_detail(&self, id: &str) -> Result<Value> {
         let id = id.to_owned();
         self.store.read(move |db| detail(db, &id)).await
     }
+
     pub async fn chat_create(&self, input: Value) -> Result<Value> {
         let mut value = parse("chat", input)?;
         self.store
             .transaction(move |db| {
-                let agent = required(db.get("agents", text(&value, "agentId"))?, "Agent not found")?;
+                let agent = required(
+                    db.get("agents", text(&value, "agentId"))?,
+                    "Agent not found",
+                )?;
                 task_projects(&agent, &value, &db.list("projects")?)?;
                 merge(
                     &mut value,
                     &json!({
-                    "id":id(),"title":"New chat","runId":null,"paused":false,"createdAt":now(),"updatedAt":now()}
-                    ),
+                        "id": id(),
+                        "title": "New chat",
+                        "runId": null,
+                        "paused": false,
+                        "createdAt": now(),
+                        "updatedAt": now(),
+                    }),
                 );
                 db.put("chats", &value)
             })
             .await
     }
+
     pub async fn chat_send(&self, id: &str, input: Value) -> Result<Value> {
         let values = parse("message", input)?;
         let id = id.to_owned();
@@ -374,6 +407,7 @@ impl Service {
         self.worker.notify();
         Ok(result)
     }
+
     pub async fn chat_edit(&self, id: &str, message: &str, input: Option<Value>) -> Result<Value> {
         let (id, message) = (id.to_owned(), message.to_owned());
         let values = input
@@ -408,8 +442,8 @@ impl Service {
                         rusqlite::params![id, message],
                     )?;
                     return Ok(json!({
-                    "deleted":true}
-                    ));
+                        "deleted": true,
+                    }));
                 };
                 if current["questionId"].is_string() {
                     return Err(Error::new(409, "A submitted answer cannot be edited."));
@@ -423,6 +457,7 @@ impl Service {
         self.worker.notify();
         Ok(result)
     }
+
     pub async fn chat_pause(&self, id: &str, paused: bool) -> Result<Value> {
         let id = id.to_owned();
         let result = self
@@ -436,8 +471,9 @@ impl Service {
                 merge(
                     &mut chat,
                     &json!({
-                    "paused":paused,"updatedAt":now()}
-                    ),
+                        "paused": paused,
+                        "updatedAt": now(),
+                    }),
                 );
                 db.put("chats", &chat)
             })
@@ -445,6 +481,7 @@ impl Service {
         self.worker.notify();
         Ok(result)
     }
+
     pub async fn chat_acknowledge(&self, run_id: &str, message_id: &str) -> Result<()> {
         let (run_id, message_id) = (run_id.to_owned(), message_id.to_owned());
         self.store
@@ -460,7 +497,10 @@ impl Service {
                 else {
                     return Ok(());
                 };
-                if message["status"] == "delivered" || message["status"] == "cancelled" || crate::conversation_lifecycle::state(&chat) != "active" {
+                if message["status"] == "delivered"
+                    || message["status"] == "cancelled"
+                    || crate::conversation_lifecycle::state(&chat) != "active"
+                {
                     return Ok(());
                 }
                 message["status"] = "delivered".into();
@@ -476,8 +516,9 @@ impl Service {
                     merge(
                         &mut question,
                         &json!({
-                        "blocking":false,"status":"answered"}
-                        ),
+                            "blocking": false,
+                            "status": "answered",
+                        }),
                     );
                     save_question(db, &question)?;
                 }
@@ -491,8 +532,11 @@ impl Service {
                     "chat.user",
                     text,
                     Some(&json!({
-                    "messageId":message_id,"text":text,"attachments":message["attachments"],"createdAt":message["createdAt"]}
-                    )),
+                        "messageId": message_id,
+                        "text": text,
+                        "attachments": message["attachments"],
+                        "createdAt": message["createdAt"],
+                    })),
                 )?;
                 chat["updatedAt"] = now().into();
                 chat["lastActivityAt"] = chat["updatedAt"].clone();
@@ -501,6 +545,7 @@ impl Service {
             })
             .await
     }
+
     pub async fn question_receive(&self, run_id: &str, input: Value) -> Result<()> {
         let id = text(&input, "id");
         if id.len() != 64
@@ -515,8 +560,13 @@ impl Service {
             return Ok(());
         };
         let mut question = json!({
-        "id":id,"blocking":input["blocking"],"fields":fields,"runId":run_id,"status":"pending","createdAt":now()}
-        );
+            "id": id,
+            "blocking": input["blocking"],
+            "fields": fields,
+            "runId": run_id,
+            "status": "pending",
+            "createdAt": now(),
+        });
         self.store
             .transaction(move |db| {
                 let Some(chat) = db
@@ -544,6 +594,7 @@ impl Service {
             })
             .await
     }
+
     pub async fn question_release(&self, run_id: &str, id: Option<&str>) -> Result<()> {
         let (run_id, id) = (run_id.to_owned(), id.map(str::to_owned));
         self.store
@@ -564,15 +615,25 @@ impl Service {
             })
             .await
     }
+
     pub async fn question_answer(&self, chat_id: &str, id: &str, input: Value) -> Result<Value> {
         let values = parse("answer", input)?;
         let (chat_id, id) = (chat_id.to_owned(), id.to_owned());
-        let result = self.store
+        let result = self
+            .store
             .transaction(move |db| {
                 chat(db, &chat_id)?;
-                let question = required(questions(db, &chat_id)?.into_iter().find(|q| q["id"] == id), "Question not found")?;
-                let previous = db.messages(&chat_id)?.into_iter().find(|m| m["id"] == values["id"]);
-                if question["messageId"] == values["id"] && previous.is_some_and(|m| m["answers"] == values["answers"]) {
+                let question = required(
+                    questions(db, &chat_id)?.into_iter().find(|q| q["id"] == id),
+                    "Question not found",
+                )?;
+                let previous = db
+                    .messages(&chat_id)?
+                    .into_iter()
+                    .find(|m| m["id"] == values["id"]);
+                if question["messageId"] == values["id"]
+                    && previous.is_some_and(|m| m["answers"] == values["answers"])
+                {
                     return Ok(question);
                 }
                 if question["status"] != "pending" {
@@ -580,23 +641,54 @@ impl Service {
                 }
                 let fields = question["fields"].as_array().unwrap();
                 let answers = values["answers"].as_object().unwrap();
-                if answers.len() != fields.len() || fields.iter().any(|f| !answers.contains_key(text(f, "id"))) {
+                if answers.len() != fields.len()
+                    || fields.iter().any(|f| !answers.contains_key(text(f, "id")))
+                {
                     return Err(Error::bad("Answer each question before sending."));
                 }
-                let parts = fields.iter().map(|f| format!("{}\n{}", text(f, "title"), answers[text(f, "id")].as_array().unwrap().iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n"))).collect::<Vec<_>>();
+                let parts = fields
+                    .iter()
+                    .map(|f| {
+                        format!(
+                            "{}\n{}",
+                            text(f, "title"),
+                            answers[text(f, "id")]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        )
+                    })
+                    .collect::<Vec<_>>();
                 let message = parse(
                     "message",
                     json!({
-                    "id":values["id"],"mode":"steer","text":format!("My answers to your questions:\n\n{}",parts.join("\n\n"))}
-                    ),
+                        "id": values["id"],
+                        "mode": "steer",
+                        "text": format!(
+                            "My answers to your questions:\n\n{}",
+                            parts.join("\n\n")
+                        ),
+                    }),
                 )?;
-                send(db, &chat_id, message, Some((question, values["answers"].clone())))?;
-                required(questions(db, &chat_id)?.into_iter().find(|q| q["id"] == id), "Question not found")
+                send(
+                    db,
+                    &chat_id,
+                    message,
+                    Some((question, values["answers"].clone())),
+                )?;
+                required(
+                    questions(db, &chat_id)?.into_iter().find(|q| q["id"] == id),
+                    "Question not found",
+                )
             })
             .await?;
         self.worker.notify();
         Ok(result)
     }
+
     pub async fn chat_tick(&self, active: &HashSet<String>) -> Result<()> {
         for chat in self.store.list("chats").await? {
             if crate::conversation_lifecycle::state(&chat) != "active" {
@@ -707,6 +799,7 @@ impl Service {
         }
         Ok(())
     }
+
     async fn chat_prepare(&self, chat: Value, run: Option<Value>, message: Value) -> Result<()> {
         let prompt = if text(&message, "text").is_empty() {
             "Review the attached files."
@@ -716,14 +809,20 @@ impl Service {
         let mut task = parse(
             "task",
             json!({
-            "name":chat["title"],"prompt":prompt,"agentId":chat["agentId"],"projectId":chat["projectId"],"worktree":true}
-            ),
+                "name": chat["title"],
+                "prompt": prompt,
+                "agentId": chat["agentId"],
+                "projectId": chat["projectId"],
+                "worktree": true,
+            }),
         )?;
         merge(
             &mut task,
             &json!({
-            "id":chat["id"],"createdAt":chat["createdAt"],"nextRun":null}
-            ),
+                "id": chat["id"],
+                "createdAt": chat["createdAt"],
+                "nextRun": null,
+            }),
         );
         let mut snapshot = self.snapshot(task, "chat").await?;
         let provider = if !text(&message, "provider").is_empty() {
@@ -752,38 +851,98 @@ impl Service {
         self.store
             .transaction(move |db| {
                 let mut current_chat = self::chat(db, text(&chat, "id"))?;
-                let current = db.messages(text(&chat, "id"))?.into_iter().find(|m| m["id"] == message["id"]);
-                if crate::conversation_lifecycle::state(&current_chat) != "active" || current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"] || text(m,"provider") != text(&message,"provider") || text(m,"reasoning") != text(&message,"reasoning") || !crate::attachments::same(m,&message)) {
+                let current = db
+                    .messages(text(&chat, "id"))?
+                    .into_iter()
+                    .find(|m| m["id"] == message["id"]);
+                if crate::conversation_lifecycle::state(&current_chat) != "active"
+                    || current_chat["paused"] == true
+                    || current.as_ref().is_none_or(|m| {
+                        m["status"] != "queued"
+                            || m["text"] != message["text"]
+                            || m["model"] != message["model"]
+                            || text(m, "provider") != text(&message, "provider")
+                            || text(m, "reasoning") != text(&message, "reasoning")
+                            || !crate::attachments::same(m, &message)
+                    })
+                {
                     return Ok(());
                 }
                 let mut execution = json!({
-                "messageId":message["id"],"text":with_invoked_skills(text(&message, "text"), &snapshot["snapshot"]["skills"]),"attachments":message["attachments"],"recovery":false}
-                );
+                    "messageId": message["id"],
+                    "text": with_invoked_skills(
+                        text(&message, "text"),
+                        &snapshot["snapshot"]["skills"],
+                    ),
+                    "attachments": message["attachments"],
+                    "recovery": false,
+                });
                 if let Some(run) = run {
-                    let switched = crate::claude::provider(&snapshot["snapshot"]["agent"]) != crate::claude::provider(&run["snapshot"]["agent"]);
-                    if snapshot["snapshot"]["agent"]["access"] != run["snapshot"]["agent"]["access"] {
-                        return Err(Error::new(409, "Agent access changed. Start a new chat with the updated permissions."));
+                    let switched = crate::claude::provider(&snapshot["snapshot"]["agent"])
+                        != crate::claude::provider(&run["snapshot"]["agent"]);
+                    if snapshot["snapshot"]["agent"]["access"] != run["snapshot"]["agent"]["access"]
+                    {
+                        return Err(Error::new(
+                            409,
+                            "Agent access changed. Start a new chat with the updated permissions.",
+                        ));
                     }
                     let key = format!("run-checkpoint:{}", text(&run, "id"));
-                    let mut checkpoint = match db.kv(&key)? { Some(value) => value, None if current_chat["cancelledByDeletion"] == true => json!({}), None => return Err(Error::new(409,"Run checkpoint not found")) };
+                    let mut checkpoint = match db.kv(&key)? {
+                        Some(value) => value,
+                        None if current_chat["cancelledByDeletion"] == true => {
+                            json!({})
+                        }
+                        None => return Err(Error::new(409, "Run checkpoint not found")),
+                    };
                     if switched || checkpoint["freshSession"] == true {
                         checkpoint["freshSession"] = false.into();
                         execution["context"] = handoff_context(db, text(&run, "id"))?.into();
                         checkpoint["launched"] = false.into();
-                        checkpoint.as_object_mut().unwrap().remove("controllerRecoveries");
-                        db.patch_run(text(&run, "id"), &json!({"sessionId":null,"resumeAvailable":false}))?;
-                        db.event(text(&run,"id"), "status", &format!("Continuing with {} · conversation context and workspace preserved", if crate::claude::is_claude(&snapshot) { "Claude Code" } else { "Codex" }), None)?;
+                        checkpoint
+                            .as_object_mut()
+                            .unwrap()
+                            .remove("controllerRecoveries");
+                        db.patch_run(
+                            text(&run, "id"),
+                            &json!({
+                                "sessionId": null,
+                                "resumeAvailable": false,
+                            }),
+                        )?;
+                        db.event(
+                            text(&run, "id"),
+                            "status",
+                            &format!(
+                                "Continuing with {} · conversation context and workspace preserved",
+                                if crate::claude::is_claude(&snapshot) {
+                                    "Claude Code"
+                                } else {
+                                    "Codex"
+                                }
+                            ),
+                            None,
+                        )?;
                     }
                     checkpoint["completed"] = false.into();
-                    checkpoint["remainingMs"] = crate::run_limits::budget_ms(&snapshot["snapshot"]["agent"]).into();
+                    checkpoint["remainingMs"] =
+                        crate::run_limits::budget_ms(&snapshot["snapshot"]["agent"]).into();
                     checkpoint.as_object_mut().unwrap().remove("lastMessage");
                     checkpoint.as_object_mut().unwrap().remove("settled");
                     db.set(&key, &checkpoint, None)?;
                     db.patch_run(
                         text(&run, "id"),
                         &json!({
-                        "snapshot":snapshot["snapshot"],"status":"queued","summary":"","error":null,"outcome":null,"finishedAt":null,"cancelRequestedAt":null,"recoveryPending":true,"chatExecution":execution}
-                        ),
+                            "snapshot": snapshot["snapshot"],
+                            "status": "queued",
+                            "summary": "",
+                            "error": null,
+                            "outcome": null,
+                            "finishedAt": null,
+                            "cancelRequestedAt": null,
+                            "recoveryPending": true,
+                            "chatExecution": execution,
+                        }),
                     )?;
                 } else {
                     snapshot["chatExecution"] = execution;
@@ -813,10 +972,37 @@ mod handoff_tests {
         connection
             .execute_batch("CREATE TABLE runs(id TEXT,data TEXT);")
             .unwrap();
-        connection.execute("INSERT INTO runs VALUES('run',?)", [json!({"status":"running","snapshot":{"agent":{"provider":"codex","model":"gpt-6-sol","reasoning":"high"}}}).to_string()]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO runs VALUES('run',?)",
+                [json!({
+                    "status": "running",
+                    "snapshot": {
+                        "agent": {
+                            "provider": "codex",
+                            "model": "gpt-6-sol",
+                            "reasoning": "high",
+                        },
+                    },
+                })
+                .to_string()],
+            )
+            .unwrap();
         let db = Db(&connection);
-        let chat = json!({"runId":"run"});
-        let mut message = parse("message", json!({"id":id(),"text":"Continue", "provider":"claude","model":"opus[1m]","mode":"steer"})).unwrap();
+        let chat = json!({
+            "runId": "run",
+        });
+        let mut message = parse(
+            "message",
+            json!({
+                "id": id(),
+                "text": "Continue",
+                "provider": "claude",
+                "model": "opus[1m]",
+                "mode": "steer",
+            }),
+        )
+        .unwrap();
         assert_eq!(
             validate_steer(&db, &chat, &message).unwrap_err().status,
             409
@@ -830,7 +1016,11 @@ mod handoff_tests {
         assert!(
             parse(
                 "message",
-                json!({"id":id(),"text":"Continue","provider":"unknown"})
+                json!({
+                    "id": id(),
+                    "text": "Continue",
+                    "provider": "unknown"
+                })
             )
             .is_err()
         );
@@ -839,33 +1029,75 @@ mod handoff_tests {
     #[test]
     fn transcript_keeps_visible_history_and_omits_tool_secrets_and_stream_duplicates() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE events(id INTEGER PRIMARY KEY,run_id TEXT,created_at INTEGER,type TEXT,text TEXT,payload TEXT); CREATE TABLE runs(id TEXT,data TEXT);").unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE events(id INTEGER PRIMARY KEY,run_id TEXT,created_at INTEGER,type \
+                TEXT,text TEXT,payload TEXT); CREATE TABLE runs(id TEXT,data TEXT);",
+            )
+            .unwrap();
         let db = Db(&connection);
         db.event(
             "run",
             "chat.user",
             "Keep the existing design",
-            Some(&json!({"attachments":[{"id":"file","name":"brief.pdf"}]})),
+            Some(&json!({
+                "attachments": [{
+                    "id": "file",
+                    "name": "brief.pdf",
+                }],
+            })),
         )
         .unwrap();
         db.event(
             "run",
             "item.updated",
             "partial",
-            Some(&json!({"item":{"id":"reply","type":"agent_message","text":"partial"}})),
+            Some(&json!({
+                "item": {
+                    "id": "reply",
+                    "type": "agent_message",
+                    "text": "partial",
+                },
+            })),
         )
         .unwrap();
         for _ in 0..2 {
-            db.event("run", "item.completed", "", Some(&json!({"item":{"id":"reply","type":"agent_message","text":"Changes committed"}}))).unwrap();
+            db.event(
+                "run",
+                "item.completed",
+                "",
+                Some(&json!({
+                    "item": {
+                        "id": "reply",
+                        "type": "agent_message",
+                        "text": "Changes committed",
+                    },
+                })),
+            )
+            .unwrap();
         }
         db.event(
             "run",
             "chat.user",
             "Answered a private question.",
-            Some(&json!({"text":"private-answer-must-not-be-forwarded"})),
+            Some(&json!({
+                "text": "private-answer-must-not-be-forwarded",
+            })),
         )
         .unwrap();
-        db.event("run", "item.completed", "tool-secret", Some(&json!({"item":{"id":"tool","type":"command_execution","aggregated_output":"tool-secret"}}))).unwrap();
+        db.event(
+            "run",
+            "item.completed",
+            "tool-secret",
+            Some(&json!({
+                "item": {
+                    "id": "tool",
+                    "type": "command_execution",
+                    "aggregated_output": "tool-secret",
+                },
+            })),
+        )
+        .unwrap();
         let history = handoff_context(&db, "run").unwrap();
         assert!(history.contains("Keep the existing design"));
         assert!(history.contains("brief.pdf"));
@@ -873,16 +1105,33 @@ mod handoff_tests {
         assert!(!history.contains("partial"));
         assert!(!history.contains("tool-secret"));
         assert!(!history.contains("private-answer-must-not-be-forwarded"));
-        let plan = json!({"sessionId":"created-before-interruption","execution":{"text":"Continue", "context":history}});
+        let plan = json!({
+            "sessionId": "created-before-interruption",
+            "execution": {
+                "text": "Continue",
+                "context": history,
+            },
+        });
         assert!(execution_text(&plan).contains("Changes committed"));
         assert!(execution_text(&plan).ends_with("Current user message:\nContinue"));
     }
 
     #[test]
     fn dollar_mentions_invoke_only_listed_skills_outside_code() {
-        let skills = json!([{"name":"review"},{"name":"ship-it"},{"name":"docs"}]);
+        let skills = json!([
+            {
+                "name": "review",
+            },
+            {
+                "name": "ship-it",
+            },
+            {
+                "name": "docs",
+            },
+        ]);
         let text = with_invoked_skills(
-            "Use $review then ($ship-it), again $review, not $HOME, a$docs, \\$docs, $reviewer, `$docs` or\n```\n$docs\n```",
+            "Use $review then ($ship-it), again $review, not $HOME, a$docs, \\$docs, $reviewer, \
+            `$docs` or\n```\n$docs\n```",
             &skills,
         );
         assert!(text.ends_with("\n- review\n- ship-it\n</invoked_skills>"));
@@ -898,11 +1147,28 @@ mod handoff_tests {
     #[test]
     fn long_history_retains_original_scope_and_recent_unicode_without_unbounded_context() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
-        connection.execute_batch("CREATE TABLE events(id INTEGER PRIMARY KEY,run_id TEXT,created_at INTEGER,type TEXT,text TEXT,payload TEXT); CREATE TABLE runs(id TEXT,data TEXT);").unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE events(id INTEGER PRIMARY KEY,run_id TEXT,created_at INTEGER,type \
+                TEXT,text TEXT,payload TEXT); CREATE TABLE runs(id TEXT,data TEXT);",
+            )
+            .unwrap();
         let db = Db(&connection);
         db.event("run", "chat.user", "Original scope", None)
             .unwrap();
-        db.event("run","item.completed","",Some(&json!({"item":{"id":"huge","type":"agent_message","text":format!("{}Recent decision", "é".repeat(150_000))}}))).unwrap();
+        db.event(
+            "run",
+            "item.completed",
+            "",
+            Some(&json!({
+                "item": {
+                    "id": "huge",
+                    "type": "agent_message",
+                    "text": format!("{}Recent decision", "é".repeat(150_000)),
+                },
+            })),
+        )
+        .unwrap();
         let history = handoff_context(&db, "run").unwrap();
         assert!(history.contains("Original scope"));
         assert!(history.contains("Recent decision"));

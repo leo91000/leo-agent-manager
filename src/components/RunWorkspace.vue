@@ -3,7 +3,16 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { latestArtifacts } from '../../shared/artifacts'
 import { api, date, notify } from '../api'
-import { ArrowDown, ArrowLeft, Copy, FileText, Maximize2, RotateCw, Square, Terminal } from '../icons'
+import {
+  ArrowDown,
+  ArrowLeft,
+  Copy,
+  FileText,
+  Maximize2,
+  RotateCw,
+  Square,
+  Terminal,
+} from '../icons'
 import { iconButton } from '../ui'
 import { useLiveRun } from '../use-live-run'
 import ActivityFeed from './ActivityFeed.vue'
@@ -37,10 +46,12 @@ const confirmCleanup = ref(false)
 const active = computed(
   () => run.value && ['running', 'queued'].includes(run.value.status),
 )
+
 function requestStop() {
   if (active.value)
     confirm.value = true
 }
+
 defineExpose({
   requestStop,
   canStop: active,
@@ -61,6 +72,7 @@ watch([run, live.synced], ([value, synced]) => {
   if (active.value)
     tab.value = 'events'
 })
+
 async function cancel() {
   try {
     await api(`/runs/${run.value!.id}/cancel`, { method: 'POST' })
@@ -71,6 +83,7 @@ async function cancel() {
     error.value = (e as Error).message
   }
 }
+
 async function resume() {
   try {
     await api(`/runs/${run.value!.id}/resume`, { method: 'POST' })
@@ -79,6 +92,7 @@ async function resume() {
   }
   catch (e) { error.value = (e as Error).message }
 }
+
 async function retry() {
   try {
     const next = await api(`/runs/${run.value!.id}/retry`, { method: 'POST' })
@@ -91,6 +105,7 @@ async function retry() {
     error.value = (e as Error).message
   }
 }
+
 async function cleanup() {
   try {
     await api(`/runs/${run.value!.id}/cleanup`, { method: 'POST' })
@@ -101,6 +116,7 @@ async function cleanup() {
     error.value = (e as Error).message
   }
 }
+
 async function copy() {
   try {
     await navigator.clipboard.writeText(run.value?.summary ?? '')
@@ -128,7 +144,12 @@ async function copy() {
         <UiButton v-else size="small" @click="retry">
           Run again
         </UiButton>
-        <UiButton v-if="run.resumeAvailable && run.trigger !== 'chat'" size="small" variant="primary" @click="resume">
+        <UiButton
+          v-if="run.resumeAvailable && run.trigger !== 'chat'"
+          size="small"
+          variant="primary"
+          @click="resume"
+        >
           <Icon :name="RotateCw" :size="16" />Resume
         </UiButton>
       </div>
@@ -153,14 +174,30 @@ async function copy() {
       <p v-if="run.accountWaitReason" role="status" class="mb-3 shrink-0 text-sm text-warning">
         {{ run.accountWaitReason }}
       </p>
-      <UiButton v-if="embedded && run.resumeAvailable && !active" class="mb-3 self-start" size="small" @click="resume">
+      <UiButton
+        v-if="embedded && run.resumeAvailable && !active"
+        class="mb-3 self-start"
+        size="small"
+        @click="resume"
+      >
         Resume conversation
       </UiButton>
       <section class="panel run-panel flex flex-1 min-h-0 flex-col overflow-hidden">
         <header class="run-panel-head flex shrink-0 items-center justify-between border-b border-line p-[7px] phone:p-[5px]">
-          <UiSegments v-model="tab" label="Run view" :options="embedded ? [{ value: 'events', label: 'Conversation' }, { value: 'result', label: 'Result' }, { value: 'files', label: 'Files', count: latestArtifacts(deliverables).length }] : [{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Mission brief' }]" @update:model-value="autoTab = false" />
+          <UiSegments
+            v-model="tab"
+            label="Run view"
+            :options="embedded ? [{ value: 'events', label: 'Conversation' }, { value: 'result', label: 'Result' }, { value: 'files', label: 'Files', count: latestArtifacts(deliverables).length }] : [{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Mission brief' }]"
+            @update:model-value="autoTab = false"
+          />
           <div v-if="embedded && tab === 'events'" class="task-conversation-controls">
-            <button :class="iconButton" aria-label="Follow output" :aria-pressed="activity?.following" title="Toggle follow output" @click="activity?.toggleFollow()">
+            <button
+              :class="iconButton"
+              aria-label="Follow output"
+              :aria-pressed="activity?.following"
+              title="Toggle follow output"
+              @click="activity?.toggleFollow()"
+            >
               <Icon :name="ArrowDown" :size="16" />
             </button>
             <button :class="iconButton" aria-label="Open activity fullscreen" @click="activity?.enterFullscreen()">
@@ -179,7 +216,12 @@ async function copy() {
           </UiButton>
         </div>
         <div v-if="tab === 'result'" class="result-content flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] text-sm leading-[1.8] p-7.5 phone:p-5.5">
-          <ArtifactGallery v-if="deliverables.length" class="mb-6" :items="deliverables.filter(item => !deliverables.some(other => other.key === item.key && other.version > item.version))" @open="artifactViewer = $event.id" />
+          <ArtifactGallery
+            v-if="deliverables.length"
+            class="mb-6"
+            :items="deliverables.filter(item => !deliverables.some(other => other.key === item.key && other.version > item.version))"
+            @open="artifactViewer = $event.id"
+          />
           <Markdown v-if="run.summary" :content="run.summary" />
           <div v-else class="mini-empty flex flex-col items-center text-center pt-7 pb-8.5 text-subtle px-6">
             <span class="pulse-ring w-8 h-8 rounded-full border-2 border-line [border-top-color:light-dark(#6660a5,_var(--dark-border))] animate-spin mb-[17px]" />
@@ -189,7 +231,27 @@ async function copy() {
             </p>
           </div>
         </div>
-        <ActivityFeed v-else-if="tab === 'events'" ref="activity" :key="run.id" :compact-toolbar="embedded" :cache-key="`/runs/${run.id}/stream`" :position="live.position.value" :deliverables="deliverables" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="loading" :trimmed="0" :preview="embedded" @load="live.loadOlder" @position="live.savePosition" />
+        <ActivityFeed
+          v-else-if="tab === 'events'"
+          ref="activity"
+          :key="run.id"
+          :compact-toolbar="embedded"
+          :cache-key="`/runs/${run.id}/stream`"
+          :position="live.position.value"
+          :deliverables="deliverables"
+          :events="events"
+          :active="!!active"
+          :agent="run.snapshot.agent.name"
+          :task="run.snapshot.task.name"
+          :more="live.hasOlder.value"
+          :loading-older="live.loadingOlder.value"
+          :older-error="live.olderError.value"
+          :loading="loading"
+          :trimmed="0"
+          :preview="embedded"
+          @load="live.loadOlder"
+          @position="live.savePosition"
+        />
         <div v-else-if="tab === 'files'" class="result-content flex-1 min-h-0 overflow-auto p-5">
           <ArtifactGallery v-if="deliverables.length" :items="latestArtifacts(deliverables)" @open="artifactViewer = $event.id" />
           <p v-else class="text-sm text-muted">
@@ -207,7 +269,12 @@ async function copy() {
         Run {{ run.id
         }}<span v-if="run.sessionId"> · Codex session {{ run.sessionId }}</span>
       </p>
-      <Modal v-if="detailsOpen" title="Execution details" sheet @close="detailsOpen = false">
+      <Modal
+        v-if="detailsOpen"
+        title="Execution details"
+        sheet
+        @close="detailsOpen = false"
+      >
         <div class="task-details-body">
           <div class="run-title-meta flex flex-wrap gap-2">
             <Status :status="run.status" /><Outcome :outcome="run.outcome" :status="run.status" /><span>{{ run.codexAccountName }}</span><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
@@ -253,5 +320,10 @@ async function copy() {
       </footer>
     </Modal>
   </div>
-  <ArtifactViewer v-if="artifactViewer !== null" :items="deliverables" :initial="artifactViewer" @close="artifactViewer = null" />
+  <ArtifactViewer
+    v-if="artifactViewer !== null"
+    :items="deliverables"
+    :initial="artifactViewer"
+    @close="artifactViewer = null"
+  />
 </template>

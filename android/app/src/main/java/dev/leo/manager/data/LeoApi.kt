@@ -108,10 +108,12 @@ class LeoApi(val origin: HttpUrl, vault: SessionVault, client: OkHttpClient = Ok
             .callTimeout(java.time.Duration.ofMinutes(10))
             .readTimeout(java.time.Duration.ofSeconds(45))
             .build()
-    private val imports = http.newBuilder()
-        .callTimeout(java.time.Duration.ofMinutes(4))
-        .readTimeout(java.time.Duration.ofMinutes(4))
-        .build()
+    private val imports =
+        http
+            .newBuilder()
+            .callTimeout(java.time.Duration.ofMinutes(4))
+            .readTimeout(java.time.Duration.ofMinutes(4))
+            .build()
     internal val streamCalls = java.util.concurrent.ConcurrentHashMap.newKeySet<Call>()
     internal val streamGeneration = java.util.concurrent.atomic.AtomicLong()
     @Volatile var csrf: String = ""

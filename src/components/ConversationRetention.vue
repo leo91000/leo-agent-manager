@@ -5,7 +5,14 @@ import Modal from './Modal.vue'
 import UiAlert from './UiAlert.vue'
 import UiButton from './UiButton.vue'
 
-interface Policy { enabled: boolean, inactivityDays: number, coldAfterDays: number, eligible: number, configured: boolean }
+interface Policy {
+  enabled: boolean
+  inactivityDays: number
+  coldAfterDays: number
+  eligible: number
+  configured: boolean
+}
+
 const policy = ref<Policy>()
 const error = ref('')
 const busy = ref(false)
@@ -16,6 +23,7 @@ onMounted(async () => {
   }
   catch (e) { error.value = (e as Error).message }
 })
+
 async function save(confirmed = false) {
   if (!policy.value)
     return
@@ -28,6 +36,7 @@ async function save(confirmed = false) {
       confirming.value = true
       return
     }
+
     policy.value = await api('/conversation-retention', { method: 'PUT', body: JSON.stringify({ ...policy.value, confirmExisting: confirmed }) })
     confirming.value = false
   }
@@ -47,8 +56,20 @@ async function save(confirmed = false) {
       <p v-if="!policy.configured" class="text-muted text-sm">
         Configure S3 on the server to enable archival.
       </p>
-      <label>Archive after inactivity (days)<input v-model.number="policy.inactivityDays" type="number" min="1" max="3650" required></label>
-      <label>Keep archives immediately accessible before Glacier (days)<input v-model.number="policy.coldAfterDays" type="number" min="1" max="3650" required></label>
+      <label>Archive after inactivity (days)<input
+        v-model.number="policy.inactivityDays"
+        type="number"
+        min="1"
+        max="3650"
+        required
+      ></label>
+      <label>Keep archives immediately accessible before Glacier (days)<input
+        v-model.number="policy.coldAfterDays"
+        type="number"
+        min="1"
+        max="3650"
+        required
+      ></label>
       <p class="text-muted text-sm">
         Archives are kept until you delete them. Deleted conversations stay in the trash for 30 days. Glacier restoration can take several hours.
       </p>

@@ -358,7 +358,16 @@ private fun ProjectEditor(vm: LeoViewModel, state: Workspace, initial: Project, 
         save = {
             vm.perform {
                 if (github) {
-                    api.request("POST", "/projects/github", body("repository" to repository, "name" to form.name, "description" to form.description, "baseBranch" to form.baseBranch))
+                    api.request(
+                        "POST",
+                        "/projects/github",
+                        body(
+                            "repository" to repository,
+                            "name" to form.name,
+                            "description" to form.description,
+                            "baseBranch" to form.baseBranch,
+                        ),
+                    )
                     refresh()
                 } else save("projects", initial.id, wireJson.encodeToJsonElement(form))
                 close()
@@ -371,11 +380,23 @@ private fun ProjectEditor(vm: LeoViewModel, state: Workspace, initial: Project, 
                 form.baseBranch.isNotBlank(),
     ) {
         if (initial.id.isEmpty()) {
-            Choice("Ajouter depuis", mode, listOf("local" to "Dossier sur le serveur", "github" to "GitHub")) { if (!state.busy) mode = it }
-            if (github) GithubRepositoryPicker(vm.api, repository, !state.busy) {
-                repository = it.fullName
-                form = form.copy(name = it.name.take(100), description = it.description.take(500), baseBranch = it.defaultBranch)
+            Choice(
+                "Ajouter depuis",
+                mode,
+                listOf("local" to "Dossier sur le serveur", "github" to "GitHub"),
+            ) {
+                if (!state.busy) mode = it
             }
+            if (github)
+                GithubRepositoryPicker(vm.api, repository, !state.busy) {
+                    repository = it.fullName
+                    form =
+                        form.copy(
+                            name = it.name.take(100),
+                            description = it.description.take(500),
+                            baseBranch = it.defaultBranch,
+                        )
+                }
         }
         Field("Nom", form.name, { form = form.copy(name = it) })
         Field("Description", form.description, { form = form.copy(description = it) }, 3)

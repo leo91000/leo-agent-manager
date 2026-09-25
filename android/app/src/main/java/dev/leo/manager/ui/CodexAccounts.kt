@@ -265,7 +265,8 @@ fun CodexAccounts(vm: LeoViewModel, state: Workspace, openRun: (String) -> Unit)
                     load()
                 }
             },
-            valid = name.isNotBlank() && name.length <= 100 && (concurrency.toIntOrNull() ?: 0) >= 1,
+            valid =
+                name.isNotBlank() && name.length <= 100 && (concurrency.toIntOrNull() ?: 0) >= 1,
         ) {
             Field("Nom du compte", name, { name = it })
             if (initial != null)

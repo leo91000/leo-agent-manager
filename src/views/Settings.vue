@@ -9,7 +9,12 @@ import NotificationSettings from '../components/NotificationSettings.vue'
 import ThemeControl from '../components/ThemeControl.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
-import { Copy, ExternalLink, KeyRound, Plus } from '../icons'
+import {
+  Copy,
+  ExternalLink,
+  KeyRound,
+  Plus,
+} from '../icons'
 import { iconButton } from '../ui'
 
 const settings = ref<any>()
@@ -20,6 +25,7 @@ const label = ref('')
 const scopes = ref(['read'])
 const created = ref('')
 const error = ref('')
+
 async function load() {
   try {
     [settings.value, grants.value, audit.value] = await Promise.all([
@@ -32,7 +38,9 @@ async function load() {
     error.value = (e as Error).message
   }
 }
+
 onMounted(load)
+
 async function create() {
   try {
     created.value = (
@@ -47,6 +55,7 @@ async function create() {
     error.value = (e as Error).message
   }
 }
+
 async function revoke(id: string) {
   try {
     await api(`/tokens/${id}`, { method: 'DELETE' })
@@ -57,6 +66,7 @@ async function revoke(id: string) {
     error.value = (e as Error).message
   }
 }
+
 async function copy(value: string) {
   try {
     await navigator.clipboard.writeText(value)

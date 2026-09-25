@@ -5,7 +5,13 @@ import Modal from './Modal.vue'
 import UiAlert from './UiAlert.vue'
 import UiButton from './UiButton.vue'
 
-interface Account { id: string, name: string, enabled: boolean, agentIds: string[] }
+interface Account {
+  id: string
+  name: string
+  enabled: boolean
+  agentIds: string[]
+}
+
 const accounts = ref<Account[]>([])
 const agents = ref<{ id: string, name: string }[]>([])
 const loaded = ref(false)
@@ -18,6 +24,7 @@ const name = ref('')
 const token = ref('')
 const enabled = ref(true)
 const agentIds = ref<string[]>([])
+
 async function action(operation: () => Promise<void>) {
   busy.value = true
   error.value = ''
@@ -31,10 +38,12 @@ async function action(operation: () => Promise<void>) {
     busy.value = false
   }
 }
+
 async function load() {
   [accounts.value, agents.value] = await Promise.all([api('/onepassword'), api('/agents')])
   loaded.value = true
 }
+
 function edit(account?: Account) {
   editing.value = account?.id ?? ''
   name.value = account?.name ?? ''
@@ -44,17 +53,24 @@ function edit(account?: Account) {
   error.value = ''
   open.value = true
 }
+
 function close() {
   if (busy.value)
     return
   token.value = ''
   open.value = false
 }
+
 async function save() {
   await action(async () => {
     await api(`/onepassword${editing.value ? `/${editing.value}` : ''}`, {
       method: editing.value ? 'PUT' : 'POST',
-      body: JSON.stringify({ name: name.value, enabled: enabled.value, agentIds: agentIds.value, ...(token.value.trim() ? { token: token.value.trim() } : {}) }),
+      body: JSON.stringify({
+        name: name.value,
+        enabled: enabled.value,
+        agentIds: agentIds.value,
+        ...(token.value.trim() ? { token: token.value.trim() } : {}),
+      }),
     })
     token.value = ''
     open.value = false
@@ -62,12 +78,14 @@ async function save() {
     await load()
   })
 }
+
 async function test(account: Account) {
   await action(async () => {
     await api(`/onepassword/${account.id}/test`, { method: 'POST' })
     notify(`1Password: ${account.name} is connected`)
   })
 }
+
 onMounted(() => action(load))
 </script>
 
@@ -114,8 +132,21 @@ onMounted(() => action(load))
           {{ error }}
         </UiAlert>
         <fieldset :disabled="busy" class="space-y-4">
-          <label>Name<input v-model="name" required maxlength="100" autocomplete="off"></label>
-          <label>Service account token<input v-model="token" type="password" :required="!editing" maxlength="16384" autocomplete="new-password" spellcheck="false" :placeholder="editing ? 'Leave blank to keep saved token' : 'ops_…'"></label>
+          <label>Name<input
+            v-model="name"
+            required
+            maxlength="100"
+            autocomplete="off"
+          ></label>
+          <label>Service account token<input
+            v-model="token"
+            type="password"
+            :required="!editing"
+            maxlength="16384"
+            autocomplete="new-password"
+            spellcheck="false"
+            :placeholder="editing ? 'Leave blank to keep saved token' : 'ops_…'"
+          ></label>
           <p class="text-muted text-sm">
             Tokens are encrypted on the server and never shown again. Only read access is exposed to agents; choose the vault permissions in 1Password.
           </p>

@@ -13,8 +13,10 @@ use axum::{
 };
 use serde_json::{Value, json};
 use std::sync::{Arc, LazyLock};
+
 pub static CATALOG: LazyLock<Value> =
     LazyLock::new(|| serde_json::from_str(include_str!("../schemas/mcp-tools.json")).unwrap());
+
 const VERSIONS: &[&str] = &[
     "2026-07-28",
     "2025-11-25",
@@ -22,6 +24,7 @@ const VERSIONS: &[&str] = &[
     "2025-03-26",
     "2024-11-05",
 ];
+
 fn bearer(request: &Request) -> String {
     request
         .headers()
@@ -32,17 +35,22 @@ fn bearer(request: &Request) -> String {
         .map(|(_, value)| value.into())
         .unwrap_or_default()
 }
+
 fn rpc_error(id: Value, code: i64, message: &str, data: Option<Value>) -> Value {
     let mut error = json!({
-    "code":code,"message":message}
-    );
+        "code": code,
+        "message": message
+    });
     if let Some(data) = data {
         error["data"] = data;
     }
     json!({
-    "jsonrpc":"2.0","id":id,"error":error}
-    )
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": error
+    })
 }
+
 pub async fn handle(State(app): State<App>, request: Request) -> Result<Response> {
     let s = &app.service;
     let bearer = bearer(&request);
@@ -61,8 +69,8 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
         let mut response = (
             StatusCode::UNAUTHORIZED,
             Json(json!({
-            "error":"unauthorized"}
-            )),
+                "error": "unauthorized"
+            })),
         )
             .into_response();
         response.headers_mut().insert(
@@ -104,8 +112,9 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
             -32022,
             "Unsupported protocol version.",
             Some(json!({
-            "requested":version,"supported":VERSIONS}
-            )),
+                "requested": version,
+                "supported": VERSIONS
+            })),
         ))
         .into_response());
     }
@@ -135,35 +144,32 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
         return Ok(StatusCode::ACCEPTED.into_response());
     }
     let server_info = json!({
-    "name":if gateway.is_some(){
-    "leo-mcp-gateway"}
-    else{
-    "leo-agent-manager"}
-    ,"version":env!("CARGO_PKG_VERSION")}
-    );
+        "name": if gateway.is_some() {
+            "leo-mcp-gateway"
+        } else {
+            "leo-agent-manager"
+        },
+        "version": env!("CARGO_PKG_VERSION")
+    });
     let capabilities = if gateway.is_some() {
         json!({
-        "tools":{
-        }
-        ,"resources":{
-        }
-        ,"prompts":{
-        }
-        }
-        )
+            "tools": {},
+            "resources": {},
+            "prompts": {}
+        })
     } else {
         json!({
-        "tools":{
-        }
-        }
-        )
+            "tools": {}
+        })
     };
     let result = match method {
         "server/discover" => Ok(json!({
-        "supportedVersions":VERSIONS,"capabilities":capabilities,"_meta":{
-        "io.modelcontextprotocol/serverInfo":server_info}
-        }
-        )),
+            "supportedVersions": VERSIONS,
+            "capabilities": capabilities,
+            "_meta": {
+                "io.modelcontextprotocol/serverInfo": server_info
+            }
+        })),
         "initialize" if !modern => {
             let offered = text(&body["params"], "protocolVersion");
             let chosen = if VERSIONS[1..].contains(&offered) {
@@ -172,8 +178,10 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
                 "2025-11-25"
             };
             Ok(json!({
-            "protocolVersion":chosen,"capabilities":capabilities,"serverInfo":server_info}
-            ))
+                "protocolVersion": chosen,
+                "capabilities": capabilities,
+                "serverInfo": server_info
+            }))
         }
         "ping" => Ok(json!({})),
         _ => {
@@ -184,8 +192,8 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
             } else {
                 match method {
                     "tools/list" => Ok(json!({
-                    "tools":catalog()}
-                    )),
+                        "tools": catalog()
+                    })),
                     "tools/call" => {
                         call(
                             s,
@@ -199,14 +207,14 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
                         .await
                     }
                     "resources/list" => Ok(json!({
-                    "resources":[]}
-                    )),
+                        "resources": []
+                    })),
                     "resources/templates/list" => Ok(json!({
-                    "resourceTemplates":[]}
-                    )),
+                        "resourceTemplates": []
+                    })),
                     "prompts/list" => Ok(json!({
-                    "prompts":[]}
-                    )),
+                        "prompts": []
+                    })),
                     _ => Err(Error::new(404, "Method not found")),
                 }
             }
@@ -234,8 +242,10 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
                 object.remove("resultType");
             }
             json!({
-            "jsonrpc":"2.0","id":id,"result":result}
-            )
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": result
+            })
         }
         Err(error) => rpc_error(
             id,
@@ -254,6 +264,7 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
         .insert("cache-control", HeaderValue::from_static("no-store"));
     Ok(response)
 }
+
 fn catalog() -> Vec<Value> {
     CATALOG
         .as_array()
@@ -263,23 +274,36 @@ fn catalog() -> Vec<Value> {
             let name = text(tool, "name");
             let scope = text(tool, "scope");
             json!({
-            "name":name,"description":tool["description"],"title":name.replace('_'," "),"inputSchema":tool["inputSchema"],"outputSchema":{
-            "type":"object","properties":{
-            "result":{
-            }
-            }
-            ,"required":["result"]}
-            ,"_meta":{
-            "securitySchemes":[{
-            "type":"oauth2","scopes":[scope]}
-            ]}
-            ,"annotations":{
-            "readOnlyHint":scope=="read","destructiveHint":tool["destructive"]==true||scope=="run"||name.starts_with("update_")||name=="save_skill","openWorldHint":scope!="read"}
-            }
-            )
+                "name": name,
+                "description": tool["description"],
+                "title": name.replace('_', " "),
+                "inputSchema": tool["inputSchema"],
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "result": {}
+                    },
+                    "required": ["result"]
+                },
+                "_meta": {
+                    "securitySchemes": [{
+                        "type": "oauth2",
+                        "scopes": [scope]
+                    }]
+                },
+                "annotations": {
+                    "readOnlyHint": scope == "read",
+                    "destructiveHint": tool["destructive"] == true
+                        || scope == "run"
+                        || name.starts_with("update_")
+                        || name == "save_skill",
+                    "openWorldHint": scope != "read"
+                }
+            })
         })
         .collect()
 }
+
 async fn call(s: &Arc<Service>, bearer: &str, name: &str, args: Value) -> Result<Value> {
     let tool = CATALOG
         .as_array()
@@ -297,28 +321,38 @@ async fn call(s: &Arc<Service>, bearer: &str, name: &str, args: Value) -> Result
     Ok(match operation {
         Ok(result) => {
             json!({
-            "structuredContent":{
-            "result":result}
-            ,"content":[{
-            "type":"text","text":result.to_string()}
-            ]}
-            )
+                "structuredContent": {
+                    "result": result
+                },
+                "content": [{
+                    "type": "text",
+                    "text": result.to_string()
+                }]
+            })
         }
         Err(error) => {
             let mut result = json!({
-            "isError":true,"content":[{
-            "type":"text","text":error.message}
-            ]}
-            );
+                "isError": true,
+                "content": [{
+                    "type": "text",
+                    "text": error.message
+                }]
+            });
             if [401, 403].contains(&error.status) {
                 result["_meta"] = json!({
-                "mcp/www_authenticate":format!("Bearer error=\"insufficient_scope\", error_description=\"The {scope} scope is required\", scope=\"{scope}\", resource_metadata=\"{}/.well-known/oauth-protected-resource/mcp\"",s.config.public_url)}
-                );
+                    "mcp/www_authenticate": format!(
+                        "Bearer error=\"insufficient_scope\", error_description=\"The {scope} scope is \
+                            required\", scope=\"{scope}\", \
+                            resource_metadata=\"{}/.well-known/oauth-protected-resource/mcp\"",
+                        s.config.public_url
+                    )
+                });
             }
             result
         }
     })
 }
+
 async fn invoke(s: &Arc<Service>, name: &str, args: Value) -> Result<Value> {
     match name {
         "list_agents" => Ok(s.store.list("agents").await?.into()),
@@ -338,8 +372,8 @@ async fn invoke(s: &Arc<Service>, name: &str, args: Value) -> Result<Value> {
         "cancel_run" => {
             s.worker.cancel(s, text(&args, "runId")).await?;
             Ok(json!({
-            "cancelled":true}
-            ))
+                "cancelled": true
+            }))
         }
         "list_runs" => {
             s.store
@@ -361,8 +395,9 @@ async fn invoke(s: &Arc<Service>, name: &str, args: Value) -> Result<Value> {
             s.store
                 .read(move |db| {
                     Ok(json!({
-                    "run":crate::error::required(db.run(&id)?,"Run not found")?,"events":db.events(&id,args["after"].as_i64().unwrap(),100)?}
-                    ))
+                        "run": crate::error::required(db.run(&id)?, "Run not found")?,
+                        "events": db.events(&id, args["after"].as_i64().unwrap(), 100)?
+                    }))
                 })
                 .await
         }
@@ -413,12 +448,12 @@ async fn invoke(s: &Arc<Service>, name: &str, args: Value) -> Result<Value> {
                     s.mcps.disconnect(s, id, name == "delete_mcp").await?;
                     Ok(if name == "delete_mcp" {
                         json!({
-                        "deleted":true}
-                        )
+                            "deleted": true
+                        })
                     } else {
                         json!({
-                        "disconnected":true}
-                        )
+                            "disconnected": true
+                        })
                     })
                 }
             }
@@ -426,6 +461,7 @@ async fn invoke(s: &Arc<Service>, name: &str, args: Value) -> Result<Value> {
         _ => Err(Error::new(404, "Unknown tool")),
     }
 }
+
 async fn proxy(
     s: &Arc<Service>,
     id: &str,
@@ -443,22 +479,34 @@ async fn proxy(
         let result = match method {
             "tools/list" => client.discover().await.map(|tools| {
                 json!({
-                "tools":tools.into_iter().filter(|t|crate::service::allowed(&scope["tools"],text(t,"name"))).collect::<Vec<_>>()}
-                )
+                    "tools": tools
+                        .into_iter()
+                        .filter(|t| crate::service::allowed(&scope["tools"], text(t, "name")))
+                        .collect::<Vec<_>>()
+                })
             }),
-            "resources/list" | "resources/templates/list" if client.capabilities.get("resources").is_none() => Ok(if method == "resources/list" {
-                json!({
-                "resources":[]}
-                )
-            } else {
-                json!({
-                "resourceTemplates":[]}
-                )
-            }),
+            "resources/list" | "resources/templates/list"
+                if client.capabilities.get("resources").is_none() =>
+            {
+                Ok(if method == "resources/list" {
+                    json!({
+                        "resources": []
+                    })
+                } else {
+                    json!({
+                        "resourceTemplates": []
+                    })
+                })
+            }
             "prompts/list" if client.capabilities.get("prompts").is_none() => Ok(json!({
-            "prompts":[]}
-            )),
-            "tools/call" | "resources/list" | "resources/templates/list" | "resources/read" | "prompts/list" | "prompts/get" => client.request(method, params).await,
+                "prompts": []
+            })),
+            "tools/call"
+            | "resources/list"
+            | "resources/templates/list"
+            | "resources/read"
+            | "prompts/list"
+            | "prompts/get" => client.request(method, params).await,
             _ => Err(Error::new(404, "Method not found")),
         };
         client.close().await;
@@ -470,6 +518,7 @@ async fn proxy(
     }
     result
 }
+
 pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
     let segments = input
         .path
@@ -488,8 +537,8 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
             crate::validation::uuid(id)?;
             s.mcps.disconnect(s, id, true).await?;
             Ok(json!({
-            "ok":true}
-            ))
+                "ok": true
+            }))
         }
         ("POST", ["mcps", id, "test"]) => {
             crate::validation::uuid(id)?;
@@ -523,8 +572,8 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
             crate::validation::uuid(id)?;
             s.mcps.disconnect(s, id, false).await?;
             Ok(json!({
-            "ok":true}
-            ))
+                "ok": true
+            }))
         }
         _ => Err(Error::new(404, "Not found")),
     }

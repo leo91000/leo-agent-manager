@@ -12,6 +12,7 @@ fn path(path: &Path) -> Result<&str> {
     path.to_str()
         .ok_or_else(|| Error::bad("Workspace paths must use UTF-8."))
 }
+
 async fn git(config: &Config, args: &[&str]) -> Result<String> {
     let mut env = codex_environment(config, &config.home.join(".codex"));
     env.insert("GIT_TERMINAL_PROMPT".into(), "0".into());
@@ -40,6 +41,7 @@ async fn git(config: &Config, args: &[&str]) -> Result<String> {
     }
     Ok(output.stdout.trim().into())
 }
+
 fn remote(raw: &str) -> Result<String> {
     let raw = if let Some(repo) = raw
         .strip_prefix("git@github.com:")
@@ -57,6 +59,7 @@ fn remote(raw: &str) -> Result<String> {
     }
     Ok(raw)
 }
+
 pub async fn clone(source: &Path, target: &Path, project: &Value, config: &Config) -> Result<()> {
     let source = path(source)?;
     let target = path(target)?;

@@ -11,6 +11,7 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
       workspace.service.store.event(run.id, 'item.completed', text, { item: { id: `layout-${index}`, type: 'agent_message', text } })
     }
   }
+
   await page.goto('/tasks')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
@@ -35,6 +36,7 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
             await page.getByLabel('Mission actions', { exact: true }).click()
           await page.getByRole('link', { name: 'Open run', exact: true }).filter({ visible: true }).click()
         }
+
         await page.getByRole('button', { name: route === '/tasks' ? 'Conversation' : /^Activity/ }).click()
         await expect(page.locator('.activity-message').first()).toBeAttached()
         if (route === '/tasks') {
@@ -45,11 +47,13 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
         else {
           await page.getByLabel('Follow output').uncheck()
         }
+
         if (route === '/tasks') {
           await page.getByLabel('Mission actions', { exact: true }).click()
           await expect(page.locator('.task-action-menu button').last()).toBeInViewport({ ratio: 1 })
           await page.getByLabel('Mission actions', { exact: true }).click()
         }
+
         await expectSingleScroll(page)
         const scroller = page.getByRole('region', { name: 'Activity output' })
         const box = await scroller.boundingBox()
@@ -58,8 +62,15 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
           const chain = []
           for (let parent: Element | null = element; parent; parent = parent.parentElement) {
             const style = getComputedStyle(parent)
-            chain.push({ name: parent.className, height: parent.clientHeight, min: style.minHeight, flex: style.flex, display: style.display })
+            chain.push({
+              name: parent.className,
+              height: parent.clientHeight,
+              min: style.minHeight,
+              flex: style.flex,
+              display: style.display,
+            })
           }
+
           return chain
         })
         expect(box!.y + box!.height, JSON.stringify({ route, geometry })).toBeLessThanOrEqual(viewport.height)
@@ -86,6 +97,7 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
         else {
           await page.getByRole('button', { name: 'Mission brief', exact: true }).click()
         }
+
         await expectSingleScroll(page)
         await page.getByRole('button', { name: 'Result', exact: true }).click()
         await expectSingleScroll(page)

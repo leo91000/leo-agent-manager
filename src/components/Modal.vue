@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import { twMerge } from 'tailwind-merge'
-import { nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
+import {
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  useId,
+} from 'vue'
 import { X } from '../icons'
 import { iconButton } from '../ui'
 import Icon from './Icon.vue'
 
-const props = defineProps<{ title: string, wide?: boolean, sheet?: boolean, returnFocus?: HTMLElement }>()
+const props = defineProps<{
+  title: string
+  wide?: boolean
+  sheet?: boolean
+  returnFocus?: HTMLElement
+}>()
 const emit = defineEmits<{ close: [] }>()
 const dialog = ref<HTMLDialogElement>()
 const titleId = useId()

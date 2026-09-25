@@ -31,16 +31,32 @@ fun OnePasswordAccounts(vm: LeoViewModel, state: Workspace) {
         error = null
     }
     LaunchedEffect(Unit) {
-        try { load() } catch (e: Exception) { error = e.message; vm.report(e) }
+        try {
+            load()
+        } catch (e: Exception) {
+            error = e.message
+            vm.report(e)
+        }
     }
     Text("1Password", style = MaterialTheme.typography.titleLarge)
-    Text("Ajoutez vos comptes de service et autorisez les agents de votre choix. Aucun agent n’a accès par défaut, y compris l’agent principal.")
-    Button(onClick = { vm.clearMessage(); editing = OnePasswordAccount() }, enabled = loaded && !state.busy) {
+    Text(
+        "Ajoutez vos comptes de service et autorisez les agents de votre choix. Aucun agent n’a accès par défaut, y compris l’agent principal."
+    )
+    Button(
+        onClick = {
+            vm.clearMessage()
+            editing = OnePasswordAccount()
+        },
+        enabled = loaded && !state.busy,
+    ) {
         Text("Ajouter un compte 1Password")
     }
     if (!loaded) {
         if (error == null) LinearProgressIndicator()
-        else TextButton(onClick = { vm.perform { load() } }, enabled = !state.busy) { Text("Réessayer 1Password") }
+        else
+            TextButton(onClick = { vm.perform { load() } }, enabled = !state.busy) {
+                Text("Réessayer 1Password")
+            }
     }
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     notice?.let { Text(it) }
@@ -49,16 +65,39 @@ fun OnePasswordAccounts(vm: LeoViewModel, state: Workspace) {
         Panel {
             Text(account.name, style = MaterialTheme.typography.titleMedium)
             Text(if (account.enabled) "Activé" else "Désactivé")
-            Text("${account.agentIds.count { id -> state.agents.any { it.id == id } }} agents autorisés")
-            TextButton(onClick = { vm.clearMessage(); editing = account }, enabled = !state.busy) { Text("Modifier les accès / le token") }
-            TextButton(onClick = {
-                notice = null
-                vm.perform {
-                    api.request("POST", "/onepassword/${segment(account.id)}/test")
-                    notice = "${account.name} : connexion vérifiée"
-                }
-            }, enabled = !state.busy) { Text("Tester la connexion") }
-            TextButton(onClick = { vm.clearMessage(); removing = account }, enabled = !state.busy) { Text("Supprimer") }
+            Text(
+                "${account.agentIds.count { id -> state.agents.any { it.id == id } }} agents autorisés"
+            )
+            TextButton(
+                onClick = {
+                    vm.clearMessage()
+                    editing = account
+                },
+                enabled = !state.busy,
+            ) {
+                Text("Modifier les accès / le token")
+            }
+            TextButton(
+                onClick = {
+                    notice = null
+                    vm.perform {
+                        api.request("POST", "/onepassword/${segment(account.id)}/test")
+                        notice = "${account.name} : connexion vérifiée"
+                    }
+                },
+                enabled = !state.busy,
+            ) {
+                Text("Tester la connexion")
+            }
+            TextButton(
+                onClick = {
+                    vm.clearMessage()
+                    removing = account
+                },
+                enabled = !state.busy,
+            ) {
+                Text("Supprimer")
+            }
         }
     }
     editing?.let { initial ->
@@ -68,50 +107,88 @@ fun OnePasswordAccounts(vm: LeoViewModel, state: Workspace) {
         }
     }
     removing?.let { account ->
-        Confirm("Supprimer ${account.name} ?", "Le token sera supprimé et tous les agents perdront l’accès.", state.busy, state.error,
-            dismiss = { removing = null }, action = {
+        Confirm(
+            "Supprimer ${account.name} ?",
+            "Le token sera supprimé et tous les agents perdront l’accès.",
+            state.busy,
+            state.error,
+            dismiss = { removing = null },
+            action = {
                 vm.perform {
                     api.request("DELETE", "/onepassword/${segment(account.id)}")
                     removing = null
                     load()
                 }
-            })
+            },
+        )
     }
 }
 
 @Composable
-fun OnePasswordEditor(vm: LeoViewModel, state: Workspace, initial: OnePasswordAccount, close: () -> Unit, saved: suspend () -> Unit) {
+fun OnePasswordEditor(
+    vm: LeoViewModel,
+    state: Workspace,
+    initial: OnePasswordAccount,
+    close: () -> Unit,
+    saved: suspend () -> Unit,
+) {
     var name by remember(initial.id) { mutableStateOf(initial.name) }
     // Deliberately not saveable: never persist a token in saved instance state.
     var token by remember(initial.id) { mutableStateOf("") }
     var enabled by remember(initial.id) { mutableStateOf(initial.enabled) }
-    var agents by remember(initial.id) { mutableStateOf(initial.agentIds.filter { id -> state.agents.any { it.id == id } }) }
-    Editor(if (initial.id.isBlank()) "Ajouter un compte 1Password" else "Modifier le compte 1Password", state.busy, state.error,
+    var agents by
+        remember(initial.id) {
+            mutableStateOf(initial.agentIds.filter { id -> state.agents.any { it.id == id } })
+        }
+    Editor(
+        if (initial.id.isBlank()) "Ajouter un compte 1Password" else "Modifier le compte 1Password",
+        state.busy,
+        state.error,
         close = close,
-        valid = name.isNotBlank() && name.length <= 100 && (initial.id.isNotBlank() || token.isNotBlank()),
+        valid =
+            name.isNotBlank() &&
+                name.length <= 100 &&
+                (initial.id.isNotBlank() || token.isNotBlank()),
         save = {
             vm.perform {
-                api.request(if (initial.id.isBlank()) "POST" else "PUT", "/onepassword" + if (initial.id.isBlank()) "" else "/${segment(initial.id)}",
+                api.request(
+                    if (initial.id.isBlank()) "POST" else "PUT",
+                    "/onepassword" + if (initial.id.isBlank()) "" else "/${segment(initial.id)}",
                     buildJsonObject {
                         put("name", name.trim())
                         put("enabled", enabled)
                         put("agentIds", JsonArray(agents.map(::JsonPrimitive)))
                         if (token.isNotBlank()) put("token", token.trim())
-                    })
+                    },
+                )
                 token = ""
                 saved()
             }
-        }) {
+        },
+    ) {
         Field("Nom", name, { name = it }, enabled = !state.busy)
-        OutlinedTextField(token, { token = it }, Modifier.fillMaxWidth(),
-            label = { Text("Token de compte de service") }, singleLine = true,
+        OutlinedTextField(
+            token,
+            { token = it },
+            Modifier.fillMaxWidth(),
+            label = { Text("Token de compte de service") },
+            singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = InputKeyboards.Password, enabled = !state.busy)
-        Text(if (initial.id.isBlank()) "Token ops_… chiffré sur le serveur, jamais réaffiché." else "Laissez vide pour conserver le token enregistré.")
-        Text("Les agents disposent uniquement de la lecture. Les coffres accessibles dépendent des permissions du compte dans 1Password.")
+            keyboardOptions = InputKeyboards.Password,
+            enabled = !state.busy,
+        )
+        Text(
+            if (initial.id.isBlank()) "Token ops_… chiffré sur le serveur, jamais réaffiché."
+            else "Laissez vide pour conserver le token enregistré."
+        )
+        Text(
+            "Les agents disposent uniquement de la lecture. Les coffres accessibles dépendent des permissions du compte dans 1Password."
+        )
         Toggle("Activer ce compte", enabled) { if (!state.busy) enabled = it }
         Text("Agents autorisés", style = MaterialTheme.typography.titleMedium)
-        Text("Retirer un agent bloque immédiatement ses prochaines lectures. Les secrets déjà récupérés ne peuvent pas être rappelés.")
+        Text(
+            "Retirer un agent bloque immédiatement ses prochaines lectures. Les secrets déjà récupérés ne peuvent pas être rappelés."
+        )
         state.agents.forEach { agent ->
             Toggle(agent.name, agent.id in agents) { allowed ->
                 if (!state.busy) agents = if (allowed) agents + agent.id else agents - agent.id

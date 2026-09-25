@@ -11,21 +11,48 @@ class ConversationPresentationTest {
 
     @Test
     fun `queued Claude message explains reconnection and clears notice when running`() {
-        val run = Run("run", status = "queued", chatExecution = ChatExecution("one"),
-            accountWaitReason = "Reconnect Claude Code after an interrupted credential synchronization.")
+        val run =
+            Run(
+                "run",
+                status = "queued",
+                chatExecution = ChatExecution("one"),
+                accountWaitReason =
+                    "Reconnect Claude Code after an interrupted credential synchronization.",
+            )
         val chat = Chat("chat", run = run, messages = listOf(first))
         assertTrue(chatWaitNotice(run)!!.reconnectClaude)
-        assertEquals("En attente de connexion à Claude Code", chatDelivery(chat, emptyList()).sending.single().label)
+        assertEquals(
+            "En attente de connexion à Claude Code",
+            chatDelivery(chat, emptyList()).sending.single().label,
+        )
         assertNull(chatWaitNotice(run.copy(status = "running")))
-        assertEquals("Démarrage de l’agent…", chatDelivery(chat.copy(run = run.copy(status = "running")), emptyList()).sending.single().label)
+        assertEquals(
+            "Démarrage de l’agent…",
+            chatDelivery(chat.copy(run = run.copy(status = "running")), emptyList())
+                .sending
+                .single()
+                .label,
+        )
     }
 
     @Test
     fun `other waiting reasons stay visible without a reconnect action`() {
         val reason = "Waiting for the previous execution to stop before recovery."
-        val run = Run("run", status = "queued", accountWaitReason = reason, chatExecution = ChatExecution("one"))
+        val run =
+            Run(
+                "run",
+                status = "queued",
+                accountWaitReason = reason,
+                chatExecution = ChatExecution("one"),
+            )
         assertEquals(ChatWaitNotice(reason, false), chatWaitNotice(run))
-        assertEquals("En attente de l’agent…", chatDelivery(Chat("chat", run = run, messages = listOf(first)), emptyList()).sending.single().label)
+        assertEquals(
+            "En attente de l’agent…",
+            chatDelivery(Chat("chat", run = run, messages = listOf(first)), emptyList())
+                .sending
+                .single()
+                .label,
+        )
         assertNull(chatWaitNotice(run.copy(accountWaitReason = "")))
         assertNull(chatWaitNotice(run.copy(status = "succeeded")))
     }

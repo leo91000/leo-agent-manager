@@ -50,12 +50,16 @@ constructor(
 ) : AndroidViewModel(application) {
     val historyCache = HistoryCache.encrypted(application)
     private val retentionPreferences = application.getSharedPreferences("conversation-cache", 0)
+
     suspend fun acceptCacheRevision(revision: String?) {
-        if (revision != null && retentionPreferences.getString(state.value.origin, null) != revision) {
+        if (
+            revision != null && retentionPreferences.getString(state.value.origin, null) != revision
+        ) {
             historyCache.clear()
             retentionPreferences.edit().putString(state.value.origin, revision).apply()
         }
     }
+
     val files = Files(application)
     val chatDrafts = mutableMapOf<String, ChatDraft>()
 
@@ -216,10 +220,14 @@ constructor(
             }
         }
         val claudeModels = async {
-            try { api.get<ModelCatalog>("/claude/models") }
-            catch (e: Exception) {
+            try {
+                api.get<ModelCatalog>("/claude/models")
+            } catch (e: Exception) {
                 if (e is CancellationException || (e is ApiException && e.status == 401)) throw e
-                state.value.claudeModels.copy(stale = true, error = "Catalogue Claude temporairement indisponible.")
+                state.value.claudeModels.copy(
+                    stale = true,
+                    error = "Catalogue Claude temporairement indisponible.",
+                )
             }
         }
         val overview = async { api.get<Overview>("/overview") }
@@ -268,7 +276,11 @@ constructor(
             }
             mutable.update {
                 val cached = if (provider == "claude") it.claudeModels else it.models
-                val unavailable = cached.copy(stale = true, error = "Catalogue temporairement indisponible. Réessayez.")
+                val unavailable =
+                    cached.copy(
+                        stale = true,
+                        error = "Catalogue temporairement indisponible. Réessayez.",
+                    )
                 if (provider == "claude") it.copy(claudeModels = unavailable)
                 else it.copy(models = unavailable)
             }

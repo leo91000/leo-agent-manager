@@ -31,7 +31,10 @@ private val topLevel = setOf("fil", "missions", "atelier")
 
 /** Screens that take the whole height: no dock, no generic top bar. */
 private fun focusedRoute(route: String) =
-    route.startsWith("chat/") || route.startsWith("new-chat") || route.startsWith("run/") || route == "search"
+    route.startsWith("chat/") ||
+        route.startsWith("new-chat") ||
+        route.startsWith("run/") ||
+        route == "search"
 
 internal fun dockSelection(route: String): String =
     when {
@@ -97,8 +100,13 @@ fun LeoApp(
         }
     }
     fun create() = nav.navigate("new-chat") { launchSingleTop = true }
-    CompositionLocalProvider(LocalFocusMode provides { focusedContent = it }, LocalSnackbar provides snackbar) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    CompositionLocalProvider(
+        LocalFocusMode provides { focusedContent = it },
+        LocalSnackbar provides snackbar,
+    ) {
+        BoxWithConstraints(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+        ) {
             val wide = maxWidth >= 700.dp
             Row {
                 if (wide && !focusedContent)
@@ -125,11 +133,12 @@ fun LeoApp(
                                 { navigate(d.route) },
                                 icon = { Icon(d.icon, d.label) },
                                 label = { Text(d.label) },
-                                colors = NavigationRailItemDefaults.colors(
-                                    indicatorColor = MaterialTheme.colorScheme.primary,
-                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                ),
+                                colors =
+                                    NavigationRailItemDefaults.colors(
+                                        indicatorColor = MaterialTheme.colorScheme.primary,
+                                        selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    ),
                             )
                         }
                     }
@@ -154,9 +163,10 @@ fun LeoApp(
                                         Icon(Icons.Default.Refresh, "Actualiser l’espace")
                                     }
                                 },
-                                colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = MaterialTheme.colorScheme.background,
-                                ),
+                                colors =
+                                    TopAppBarDefaults.topAppBarColors(
+                                        containerColor = MaterialTheme.colorScheme.background
+                                    ),
                             )
                     },
                     bottomBar = {
@@ -201,7 +211,9 @@ fun LeoApp(
                                     openRun = { nav.navigate("run/$it") { popUpTo("fil") } },
                                     openMission = { navigate("missions") },
                                     newChat = { agent ->
-                                        nav.navigate("new-chat?agent=$agent&project=") { popUpTo("fil") }
+                                        nav.navigate("new-chat?agent=$agent&project=") {
+                                            popUpTo("fil")
+                                        }
                                     },
                                     open = { nav.navigate(it) { popUpTo("fil") } },
                                 )
@@ -224,7 +236,8 @@ fun LeoApp(
                                     state,
                                     null,
                                     initialAgent =
-                                        entry.arguments?.getString("agent")?.ifBlank { null } ?: MAIN_AGENT_ID,
+                                        entry.arguments?.getString("agent")?.ifBlank { null }
+                                            ?: MAIN_AGENT_ID,
                                     initialProject =
                                         entry.arguments?.getString("project").orEmpty(),
                                     openChat = { nav.navigate("chat/$it") { popUpTo("fil") } },
@@ -246,7 +259,9 @@ fun LeoApp(
                                     openChat = { nav.navigate("chat/$it") },
                                     back = { nav.popBackStack() },
                                 ) {
-                                    nav.navigate("run/$it") { popUpTo("run/{id}") { inclusive = true } }
+                                    nav.navigate("run/$it") {
+                                        popUpTo("run/{id}") { inclusive = true }
+                                    }
                                 }
                             }
                             composable("atelier") {
@@ -393,7 +408,11 @@ private fun LoginScreen(vm: LeoViewModel, state: Workspace) {
 
 @Composable
 fun RunCard(run: Run, open: (String) -> Unit) {
-    SignalCard(Modifier.fillMaxWidth(), onClick = { open(run.id) }, padding = PaddingValues(14.dp)) {
+    SignalCard(
+        Modifier.fillMaxWidth(),
+        onClick = { open(run.id) },
+        padding = PaddingValues(14.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             RunStatusTile(run.status)
             Spacer(Modifier.width(12.dp))
@@ -422,8 +441,10 @@ internal fun RunStatusTile(status: String, size: androidx.compose.ui.unit.Dp = 3
     val tint =
         when (status) {
             "succeeded" -> signal.success
-            "failed", "interrupted" -> signal.attention
-            "running", "queued" -> MaterialTheme.colorScheme.primary
+            "failed",
+            "interrupted" -> signal.attention
+            "running",
+            "queued" -> MaterialTheme.colorScheme.primary
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         }
     Box(
@@ -435,8 +456,10 @@ internal fun RunStatusTile(status: String, size: androidx.compose.ui.unit.Dp = 3
         Icon(
             when (status) {
                 "succeeded" -> LeoIcons.Check
-                "failed", "interrupted" -> LeoIcons.Close
-                "running", "queued" -> LeoIcons.Play
+                "failed",
+                "interrupted" -> LeoIcons.Close
+                "running",
+                "queued" -> LeoIcons.Play
                 else -> LeoIcons.Pause
             },
             null,

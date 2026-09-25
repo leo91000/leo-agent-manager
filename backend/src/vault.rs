@@ -10,11 +10,13 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use rand::RngCore;
 use serde_json::Value;
 use std::{io::Write, os::unix::fs::OpenOptionsExt, path::Path, sync::Arc};
+
 #[derive(Clone)]
 pub struct Vault {
     key: Arc<[u8; 32]>,
     store: Store,
 }
+
 impl Vault {
     pub fn new(store: Store, directory: &Path) -> Result<Self> {
         let file = directory.join("mcp-encryption-key");
@@ -39,6 +41,7 @@ impl Vault {
             store,
         })
     }
+
     pub fn encrypt(&self, id: &str, value: &Value) -> Result<Value> {
         let mut iv = [0; 12];
         rand::rng().fill_bytes(&mut iv);
@@ -59,6 +62,7 @@ impl Vault {
         result.extend(encrypted);
         Ok(STANDARD.encode(result).into())
     }
+
     pub fn decrypt(&self, id: &str, value: &Value) -> Result<Value> {
         let bytes = STANDARD
             .decode(value.as_str().unwrap_or(""))
@@ -80,6 +84,7 @@ impl Vault {
             .map_err(|_| Error::internal("Unable to decrypt credential"))?;
         Ok(serde_json::from_slice(&plain)?)
     }
+
     pub async fn get(&self, id: &str) -> Result<Option<Value>> {
         self.store
             .kv(&format!("mcp-secret:{id}"))
@@ -87,14 +92,17 @@ impl Vault {
             .map(|v| self.decrypt(id, &v))
             .transpose()
     }
+
     pub async fn set(&self, id: &str, value: &Value) -> Result<()> {
         self.store
             .set(&format!("mcp-secret:{id}"), self.encrypt(id, value)?, None)
             .await
     }
+
     pub fn set_in(&self, db: &Db<'_>, id: &str, value: &Value) -> Result<()> {
         db.set(&format!("mcp-secret:{id}"), &self.encrypt(id, value)?, None)
     }
+
     pub async fn delete(&self, id: &str) -> Result<()> {
         self.store.delete(&format!("mcp-secret:{id}")).await
     }

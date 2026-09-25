@@ -19,27 +19,81 @@ class SignalPresentationTest {
     fun `feed puts questions, failures and reconnections first, then live work, then the rest`() {
         val chats =
             listOf(
-                Chat("question", "Choisir la pagination", agentName = "Designer", pendingQuestions = 2, updatedAt = 5),
-                Chat("running", "Refonte Android", agentName = "Leo", projectName = "Manager", status = "running",
-                    run = Run("r1", status = "running", startedAt = 100), updatedAt = 4),
+                Chat(
+                    "question",
+                    "Choisir la pagination",
+                    agentName = "Designer",
+                    pendingQuestions = 2,
+                    updatedAt = 5,
+                ),
+                Chat(
+                    "running",
+                    "Refonte Android",
+                    agentName = "Leo",
+                    projectName = "Manager",
+                    status = "running",
+                    run = Run("r1", status = "running", startedAt = 100),
+                    updatedAt = 4,
+                ),
                 Chat("queued", "En file", agentName = "Leo", status = "queued", updatedAt = 3),
-                Chat("paused", "Mise en pause", agentName = "Leo", status = "running", paused = true, updatedAt = 2),
-                Chat("failed", "Échec du build", agentName = "Ops", status = "failed", error = "Tests rouges\ndétail", updatedAt = 1),
-                Chat("reconnect", "Attente Claude", agentName = "Claude", status = "queued", updatedAt = 6,
-                    run = Run("r2", status = "queued", accountWaitReason = "Connect Claude Code in Connections before running this agent.")),
+                Chat(
+                    "paused",
+                    "Mise en pause",
+                    agentName = "Leo",
+                    status = "running",
+                    paused = true,
+                    updatedAt = 2,
+                ),
+                Chat(
+                    "failed",
+                    "Échec du build",
+                    agentName = "Ops",
+                    status = "failed",
+                    error = "Tests rouges\ndétail",
+                    updatedAt = 1,
+                ),
+                Chat(
+                    "reconnect",
+                    "Attente Claude",
+                    agentName = "Claude",
+                    status = "queued",
+                    updatedAt = 6,
+                    run =
+                        Run(
+                            "r2",
+                            status = "queued",
+                            accountWaitReason =
+                                "Connect Claude Code in Connections before running this agent.",
+                        ),
+                ),
                 Chat("idle", "Ancienne conversation", agentName = "Leo", updatedAt = 0),
             )
-        val tasks = listOf(Task("daily", "Revue quotidienne", agentId = "agent"), Task("old", "Archivée", archived = true))
+        val tasks =
+            listOf(
+                Task("daily", "Revue quotidienne", agentId = "agent"),
+                Task("old", "Archivée", archived = true),
+            )
         val activity =
             listOf(
-                Run("t1", taskId = "daily", status = "failed", trigger = "manual", finishedAt = 50,
-                    snapshot = Snapshot(agent = Agent("agent", "Reviewer"))),
+                Run(
+                    "t1",
+                    taskId = "daily",
+                    status = "failed",
+                    trigger = "manual",
+                    finishedAt = 50,
+                    snapshot = Snapshot(agent = Agent("agent", "Reviewer")),
+                ),
                 Run("t2", taskId = "old", status = "failed", trigger = "manual"),
                 Run("t3", taskId = "chat-task", status = "failed", trigger = "chat"),
             )
         val feed = buildFeed(chats, activity, tasks)
         assertEquals(
-            listOf(FeedKind.RECONNECT, FeedKind.QUESTION, FeedKind.FAILED_CHAT, FeedKind.FAILED_TASK),
+            listOf(
+                FeedKind.RECONNECT,
+                FeedKind.QUESTION,
+                FeedKind.FAILED_CHAT,
+                FeedKind.FAILED_TASK,
+            ),
             feed.forYou.map { it.kind },
         )
         assertEquals("2 questions vous attendent", feed.forYou[1].subtitle)
@@ -64,7 +118,12 @@ class SignalPresentationTest {
         val tasks = listOf(Task("a", "Audit"), Task("b", "Veille"))
         val activity =
             listOf(
-                Run("r1", taskId = "a", status = "succeeded", outcome = TaskOutcome("blocked", "Accès manquant")),
+                Run(
+                    "r1",
+                    taskId = "a",
+                    status = "succeeded",
+                    outcome = TaskOutcome("blocked", "Accès manquant"),
+                ),
                 Run("r2", taskId = "b", status = "running", startedAt = 10),
             )
         val feed = buildFeed(emptyList(), activity, tasks)
@@ -79,7 +138,10 @@ class SignalPresentationTest {
     fun `summary and greeting describe the feed`() {
         assertEquals("Tout est calme.", feedSummary(Feed(emptyList(), emptyList(), emptyList())))
         val item = FeedItem("k", FeedKind.CHAT, "t", "s", "a", "a")
-        assertEquals("1 agent au travail · 2 éléments pour vous", feedSummary(Feed(listOf(item, item), listOf(item), emptyList())))
+        assertEquals(
+            "1 agent au travail · 2 éléments pour vous",
+            feedSummary(Feed(listOf(item, item), listOf(item), emptyList())),
+        )
         assertEquals("Bonjour.", greeting(9))
         assertEquals("Bonsoir.", greeting(21))
         assertEquals("Bonsoir.", greeting(3))
@@ -104,7 +166,10 @@ class SignalPresentationTest {
         assertEquals("Cron · 0 9-17 * * *", describeCron("0 9-17 * * *"))
         assertEquals("Cron · @daily", describeCron("@daily"))
         assertEquals("Ponctuelle", describeSchedule(Task(cron = null)))
-        assertEquals("En pause · Tous les jours · 09:00", describeSchedule(Task(cron = "0 9 * * *", enabled = false)))
+        assertEquals(
+            "En pause · Tous les jours · 09:00",
+            describeSchedule(Task(cron = "0 9 * * *", enabled = false)),
+        )
         assertEquals("Archivée", describeSchedule(Task(cron = "0 9 * * *", archived = true)))
     }
 
@@ -116,7 +181,10 @@ class SignalPresentationTest {
         val paused = Task("p", "En pause", cron = "0 9 * * *", enabled = false)
         val archived = Task("x", "Archivée", archived = true, enabled = false)
         val all = listOf(scheduled, soon, once, paused, archived)
-        assertEquals(listOf("s", "n", "o", "p"), all.filter { missionFilter(it, "all") }.map { it.id })
+        assertEquals(
+            listOf("s", "n", "o", "p"),
+            all.filter { missionFilter(it, "all") }.map { it.id },
+        )
         assertEquals(listOf("s", "n"), all.filter { missionFilter(it, "scheduled") }.map { it.id })
         assertEquals(listOf("o"), all.filter { missionFilter(it, "once") }.map { it.id })
         assertEquals(listOf("p"), all.filter { missionFilter(it, "paused") }.map { it.id })
@@ -126,22 +194,44 @@ class SignalPresentationTest {
                 "o" to Run("r1", taskId = "o", status = "failed"),
                 "p" to Run("r2", taskId = "p", status = "running"),
             )
-        assertEquals(listOf("p", "o", "n", "s"), missionOrder(listOf(scheduled, soon, once, paused), latest).map { it.id })
+        assertEquals(
+            listOf("p", "o", "n", "s"),
+            missionOrder(listOf(scheduled, soon, once, paused), latest).map { it.id },
+        )
     }
 
     @Test
     fun `search finds every kind of item with title matches first`() {
         val state =
             Workspace(
-                agents = listOf(Agent("rev", "Revue de code", description = "Relit les PR"), Agent("ops", "Ops", description = "Revue des déploiements")),
-                projects = listOf(Project("p", "Leo Agent Manager", description = "Revue continue")),
-                tasks = listOf(Task("t", "Revue hebdomadaire", cron = "0 9 * * 1"), Task("z", "Revue archivée", archived = true)),
+                agents =
+                    listOf(
+                        Agent("rev", "Revue de code", description = "Relit les PR"),
+                        Agent("ops", "Ops", description = "Revue des déploiements"),
+                    ),
+                projects =
+                    listOf(Project("p", "Leo Agent Manager", description = "Revue continue")),
+                tasks =
+                    listOf(
+                        Task("t", "Revue hebdomadaire", cron = "0 9 * * 1"),
+                        Task("z", "Revue archivée", archived = true),
+                    ),
                 skills = listOf(Skill("revue", "Guide de revue")),
             )
-        val chats = listOf(Chat("c", "Relecture PR", agentName = "Revue de code", agentId = "rev"), Chat("d", "Autre", agentName = "Leo"))
+        val chats =
+            listOf(
+                Chat("c", "Relecture PR", agentName = "Revue de code", agentId = "rev"),
+                Chat("d", "Autre", agentName = "Leo"),
+            )
         val hits = searchWorkspace("revue", chats, state)
         assertEquals(
-            setOf(SearchKind.CHAT, SearchKind.MISSION, SearchKind.AGENT, SearchKind.PROJECT, SearchKind.SKILL),
+            setOf(
+                SearchKind.CHAT,
+                SearchKind.MISSION,
+                SearchKind.AGENT,
+                SearchKind.PROJECT,
+                SearchKind.SKILL,
+            ),
             hits.map { it.kind }.toSet(),
         )
         assertTrue(hits.none { it.id == "z" || it.id == "d" })
@@ -206,14 +296,22 @@ class SignalPresentationTest {
         assertTrue(disconnected.claudeMissing)
         assertEquals(2, disconnected.codexReady)
         assertEquals(70.0, disconnected.codexRemaining!!, 0.0)
-        assertFalse(ConnectionSummary(false, ClaudeConnectionState(connected = false), codex).claudeMissing)
+        assertFalse(
+            ConnectionSummary(false, ClaudeConnectionState(connected = false), codex).claudeMissing
+        )
         // Unknown state is not reported as a disconnection.
         assertFalse(ConnectionSummary(true, null, null).claudeMissing)
         assertNull(ConnectionSummary(true, null, null).codexRemaining)
         val usage =
             ClaudeConnectionState(
                 connected = true,
-                usage = ClaudeUsage(listOf(ClaudeUsageWindow("five_hour", usedPercent = 20.0), ClaudeUsageWindow("seven_day", usedPercent = 81.0))),
+                usage =
+                    ClaudeUsage(
+                        listOf(
+                            ClaudeUsageWindow("five_hour", usedPercent = 20.0),
+                            ClaudeUsageWindow("seven_day", usedPercent = 81.0),
+                        )
+                    ),
             )
         assertEquals(81.0, ConnectionSummary(true, usage, codex).claudeUsed!!, 0.0)
     }

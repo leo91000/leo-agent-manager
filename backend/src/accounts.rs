@@ -17,6 +17,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::{Mutex, OnceCell};
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Lease {
@@ -25,6 +26,7 @@ pub struct Lease {
     pub home: PathBuf,
     pub model: String,
 }
+
 #[derive(Default)]
 pub struct Accounts {
     // Leases are keyed by run ID; credentials are owned by the account monitor.
@@ -36,6 +38,7 @@ pub struct Accounts {
     pub selection: Mutex<()>,
     pub connecting: Mutex<Option<String>>,
 }
+
 fn buckets<'a>(limits: &'a Value, model: &str) -> HashMap<String, &'a Value> {
     if limits.is_null() {
         return HashMap::new();
@@ -52,6 +55,7 @@ fn buckets<'a>(limits: &'a Value, model: &str) -> HashMap<String, &'a Value> {
     }
     result
 }
+
 pub fn remaining(limits: &Value, model: &str) -> Option<f64> {
     buckets(limits, model)
         .values()
@@ -61,12 +65,14 @@ pub fn remaining(limits: &Value, model: &str) -> Option<f64> {
         .map(|n| (100. - n).clamp(0., 100.))
         .reduce(f64::min)
 }
+
 pub fn blocked(limits: &Value, model: &str) -> bool {
     limits["ordinaryUsageAllowed"] == false
         || buckets(limits, model).values().any(|b| {
             !text(b, "rateLimitReachedType").is_empty() || b["spendControlReached"] == true
         })
 }
+
 pub fn recovered(before: &Value, after: &Value, model: &str) -> bool {
     if blocked(after, model) || remaining(after, model).unwrap_or(0.) <= 0. {
         return false;
@@ -86,6 +92,7 @@ pub fn recovered(before: &Value, after: &Value, model: &str) -> bool {
         })
     })
 }
+
 fn subject(token: &str) -> String {
     token
         .split('.')
@@ -95,6 +102,7 @@ fn subject(token: &str) -> String {
         .and_then(|v| v["sub"].as_str().map(str::to_owned))
         .unwrap_or_default()
 }
+
 fn auth_input(value: Value) -> Result<Value> {
     if text(&value["tokens"], "access_token").is_empty() {
         return Err(Error::bad(
@@ -103,6 +111,7 @@ fn auth_input(value: Value) -> Result<Value> {
     }
     Ok(value)
 }
+
 fn limits_input(value: Value) -> Result<Value> {
     if !value["rateLimits"].is_object() {
         return Err(Error::new(502, "Codex returned invalid usage data."));
@@ -127,6 +136,7 @@ fn limits_input(value: Value) -> Result<Value> {
     }
     Ok(value)
 }
+
 async fn remove_file(path: &Path) -> Result<()> {
     match tokio::fs::remove_file(path).await {
         Ok(()) => Ok(()),
@@ -134,6 +144,7 @@ async fn remove_file(path: &Path) -> Result<()> {
         Err(e) => Err(e.into()),
     }
 }
+
 async fn remove_directory(path: &Path) -> Result<()> {
     match tokio::fs::remove_dir_all(path).await {
         Ok(()) => Ok(()),
@@ -141,6 +152,7 @@ async fn remove_directory(path: &Path) -> Result<()> {
         Err(e) => Err(e.into()),
     }
 }
+
 impl Accounts {
     pub async fn prepare_run(&self, home: &Path) -> Result<()> {
         private_dir(home).await?;
@@ -148,6 +160,7 @@ impl Accounts {
         remove_file(&home.join("auth.json")).await?;
         Ok(())
     }
+
     pub async fn access_tokens(
         &self,
         s: &Service,
@@ -193,7 +206,12 @@ impl Accounts {
             self.materialize(s, &lease.account_id, &home).await?;
             let mut session = Session::codex(&s.config, &home, &[], None).await?;
             let result = session
-                .request("account/read", json!({"refreshToken":true}))
+                .request(
+                    "account/read",
+                    json!({
+                        "refreshToken": true
+                    }),
+                )
                 .await;
             session.close().await;
             // Save even when the RPC failed after rotating credentials. Never
@@ -208,10 +226,13 @@ impl Accounts {
         if account_id.is_empty() {
             return Err(Error::bad("Reconnect this account to verify its identity."));
         }
-        Ok(
-            json!({"accessToken":auth["tokens"]["access_token"],"chatgptAccountId":account_id,"chatgptPlanType":account["plan"]}),
-        )
+        Ok(json!({
+            "accessToken": auth["tokens"]["access_token"],
+            "chatgptAccountId": account_id,
+            "chatgptPlanType": account["plan"]
+        }))
     }
+
     pub async fn lock(&self, id: &str) -> tokio::sync::OwnedMutexGuard<()> {
         self.locks
             .lock()
@@ -222,6 +243,7 @@ impl Accounts {
             .lock_owned()
             .await
     }
+
     pub async fn active(&self, id: &str) -> Vec<Lease> {
         let mut leases = self
             .leases
@@ -234,12 +256,14 @@ impl Accounts {
         leases.sort_by(|a, b| a.run_id.cmp(&b.run_id));
         leases
     }
+
     pub async fn get(&self, s: &Service, id: &str) -> Result<Value> {
         required(
             s.store.get("codexAccounts", id).await?,
             "Codex account not found.",
         )
     }
+
     pub async fn view(&self, mut account: Value) -> Value {
         account["remainingPercent"] = remaining(&account["limits"], "")
             .map(Value::from)
@@ -264,6 +288,7 @@ impl Accounts {
         account.as_object_mut().unwrap().remove("identity");
         account
     }
+
     pub async fn list(&self, s: &Service) -> Result<Vec<Value>> {
         let mut accounts = s.store.list("codexAccounts").await?;
         accounts.sort_by(|a, b| {
@@ -278,14 +303,27 @@ impl Accounts {
         }
         Ok(result)
     }
+
     pub async fn new_account(&self, s: &Service, name: &str) -> Result<Value> {
         let name = name.trim();
         if name.is_empty() || name.chars().count() > 100 {
             return Err(Error::bad("Choose a name of 1–100 characters."));
         }
         let account = json!({
-        "id":id(),"name":name,"enabled":true,"email":null,"plan":null,"identity":null,"createdAt":now(),"checkedAt":null,"state":"pending","error":"","limits":null,"lastUsedAt":null,"exhausted":null}
-        );
+            "id": id(),
+            "name": name,
+            "enabled": true,
+            "email": null,
+            "plan": null,
+            "identity": null,
+            "createdAt": now(),
+            "checkedAt": null,
+            "state": "pending",
+            "error": "",
+            "limits": null,
+            "lastUsedAt": null,
+            "exhausted": null
+        });
         s.store
             .transaction(move |db| {
                 db.put("codexAccounts", &account)?;
@@ -294,6 +332,7 @@ impl Accounts {
             })
             .await
     }
+
     pub async fn capture(&self, s: &Service, id: &str, home: &Path) -> Result<()> {
         if home.join("leo-managed-auth").exists() {
             return Ok(());
@@ -329,6 +368,7 @@ impl Accounts {
         .await?;
         Ok(())
     }
+
     pub async fn materialize(&self, s: &Service, id: &str, home: &Path) -> Result<()> {
         // A previous process may have refreshed just before a crash or a failed
         // vault write. Recover that authoritative copy before overwriting it.
@@ -347,6 +387,7 @@ impl Accounts {
         )
         .await
     }
+
     async fn recovering(&self, s: &Service, id: &str) -> Result<bool> {
         let id = id.to_owned();
         s.store
@@ -358,6 +399,7 @@ impl Accounts {
             })
             .await
     }
+
     pub async fn recover_run(&self, s: &Service, run: &Value) -> Result<()> {
         let id = text(run, "codexAccountId");
         let _guard = if id.is_empty() {
@@ -386,6 +428,7 @@ impl Accounts {
             .retain(|_, lease| lease.run_id != text(run, "id"));
         Ok(())
     }
+
     pub async fn initialize(&self, s: &Service) -> Result<()> {
         self.initialized
             .get_or_try_init(|| async {
@@ -438,14 +481,15 @@ impl Accounts {
                     .audit(
                         "codex.account.imported",
                         json!({
-                        "id":account["id"]}
-                        ),
+                            "id": account["id"]
+                        }),
                     )
                     .await
             })
             .await
             .map(|_| ())
     }
+
     pub async fn refresh(&self, s: &Service, id: &str) -> Result<()> {
         let _guard = self.lock(id).await;
         if s.store.get("codexAccounts", id).await?.is_none()
@@ -487,12 +531,13 @@ impl Accounts {
             merge(
                 &mut account,
                 &json!({
-                "state":"error","error":if error.status<500{
-                error.message}
-                else{
-                "Unable to read this Codex account. Reconnect it and try again.".into()}
-                }
-                ),
+                    "state": "error",
+                    "error": if error.status < 500 {
+                        error.message
+                    } else {
+                        "Unable to read this Codex account. Reconnect it and try again.".into()
+                    }
+                }),
             );
             s.store.put("codexAccounts", account).await?;
         }
@@ -502,6 +547,7 @@ impl Accounts {
         }
         Ok(())
     }
+
     pub async fn discover_models(&self, s: &Service, id: &str) -> Result<Value> {
         let _guard = self.lock(id).await;
         self.get(s, id).await?;
@@ -526,6 +572,7 @@ impl Accounts {
         }
         result
     }
+
     async fn read_usage(
         &self,
         s: &Service,
@@ -538,8 +585,8 @@ impl Accounts {
             .request(
                 "account/read",
                 json!({
-                "refreshToken":false}
-                ),
+                    "refreshToken": false
+                }),
             )
             .await?;
         if identity["account"]["type"] != "chatgpt" {
@@ -580,8 +627,14 @@ impl Accounts {
         merge(
             &mut account,
             &json!({
-            "identity":fingerprint,"email":identity["account"]["email"],"plan":identity["account"]["planType"],"state":"ready","checkedAt":now(),"error":"","limits":limits}
-            ),
+                "identity": fingerprint,
+                "email": identity["account"]["email"],
+                "plan": identity["account"]["planType"],
+                "state": "ready",
+                "checkedAt": now(),
+                "error": "",
+                "limits": limits
+            }),
         );
         if !account["exhausted"].is_null()
             && recovered(
@@ -625,12 +678,14 @@ impl Accounts {
         merge(
             &mut account,
             &json!({
-            "limits":limits,"resetError":reset_error}
-            ),
+                "limits": limits,
+                "resetError": reset_error
+            }),
         );
         s.store.put("codexAccounts", account).await?;
         Ok(())
     }
+
     async fn reset(
         &self,
         s: &Service,
@@ -687,10 +742,12 @@ impl Accounts {
                 })
                 .min_by_key(|c| c["expiresAt"].as_i64().unwrap_or(i64::MAX));
             let mut value = json!({
-            "params":{
-            "idempotencyKey":id()}
-            ,"model":model,"confirmed":false}
-            );
+                "params": {
+                    "idempotencyKey": id()
+                },
+                "model": model,
+                "confirmed": false
+            });
             if let Some(credit) = credit {
                 value["params"]["creditId"] = credit["id"].clone();
             }
@@ -726,8 +783,9 @@ impl Accounts {
                         .audit(
                             "codex.account.reset",
                             json!({
-                            "id":account["id"],"outcome":result["outcome"]}
-                            ),
+                                "id": account["id"],
+                                "outcome": result["outcome"]
+                            }),
                         )
                         .await?;
                     limits = read_limits(rpc, auth).await?;
@@ -751,6 +809,7 @@ impl Accounts {
         .await;
         Ok(result.unwrap_or_else(|_: Error| (limits, "Unable to confirm banked reset. Retrying automatically without spending another reset.".into(), false)))
     }
+
     pub async fn poll(&self, s: &Service, only_due: bool) -> Result<()> {
         let Ok(_guard) = self.polling.try_lock() else {
             return Ok(());
@@ -800,6 +859,7 @@ impl Accounts {
         }
         Ok(())
     }
+
     pub async fn acquire(&self, s: &Service, run_id: &str, model: &str) -> Result<Option<Lease>> {
         self.initialize(s).await?;
         if s.store.kv("codex-accounts-enabled").await?.is_none() {
@@ -867,12 +927,14 @@ impl Accounts {
         s.store.put("codexAccounts", account).await?;
         Ok(Some(lease))
     }
+
     pub async fn release(&self, _s: &Service, lease: &Lease) -> Result<()> {
         let _guard = self.lock(&lease.account_id).await;
         let removed = remove_file(&lease.home.join("auth.json")).await;
         self.leases.lock().await.remove(&lease.run_id);
         removed
     }
+
     pub async fn relocate(&self, _s: &Service, lease: &mut Lease, home: &Path) -> Result<()> {
         let _guard = self.lock(&lease.account_id).await;
         if lease.home == home {
@@ -887,6 +949,7 @@ impl Accounts {
             .insert(lease.run_id.clone(), lease.clone());
         Ok(())
     }
+
     pub async fn exhausted(&self, s: &Service, id: &str, model: &str) -> Result<()> {
         let _guard = self.lock(id).await;
         let (id, model) = (id.to_owned(), model.to_owned());
@@ -894,18 +957,21 @@ impl Accounts {
             .transaction(move |db| {
                 let mut a = required(db.get("codexAccounts", &id)?, "Codex account not found.")?;
                 a["exhausted"] = json!({
-                "at":now(),"model":model,"limits":a["limits"]}
-                );
+                    "at": now(),
+                    "model": model,
+                    "limits": a["limits"]
+                });
                 db.put("codexAccounts", &a)?;
                 db.audit(
                     "codex.account.exhausted",
                     &json!({
-                    "id":id}
-                    ),
+                        "id": id
+                    }),
                 )
             })
             .await
     }
+
     pub async fn update(&self, s: &Service, id: &str, input: Value) -> Result<Value> {
         let _guard = self.lock(id).await;
         if self.connecting.lock().await.as_deref() == Some(id) {
@@ -937,11 +1003,13 @@ impl Accounts {
         merge(
             &mut a,
             &json!({
-            "name":name,"enabled":input.get("enabled").cloned().unwrap_or(json!(true))}
-            ),
+                "name": name,
+                "enabled": input.get("enabled").cloned().unwrap_or(json!(true))
+            }),
         );
         Ok(self.view(s.store.put("codexAccounts", a).await?).await)
     }
+
     pub async fn remove(&self, s: &Service, id: &str) -> Result<()> {
         let _selection = self.selection.lock().await;
         let _guard = self.lock(id).await;
@@ -964,12 +1032,13 @@ impl Accounts {
                 db.audit(
                     "codex.account.removed",
                     &json!({
-                    "id":id}
-                    ),
+                        "id": id
+                    }),
                 )
             })
             .await
     }
+
     pub async fn redactions(&self, s: &Service, id: &str) -> Result<Vec<String>> {
         let auth = s
             .vault
@@ -987,6 +1056,7 @@ impl Accounts {
             .collect())
     }
 }
+
 async fn read_limits(rpc: &mut Session, auth: &Value) -> Result<Value> {
     let limits = limits_input(rpc.request("account/rateLimits/read", json!({})).await?)?;
     if !text(&limits, "accountId").is_empty()
