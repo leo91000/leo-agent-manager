@@ -123,7 +123,7 @@ impl Service {
     ) -> Result<Response> {
         uuid(chat)?;
         uuid(id)?;
-        self.get("chats", chat).await?;
+        crate::conversation_lifecycle::require_active(&self.get("chats", chat).await?)?;
         let k = key(chat, id);
         match request.method().as_str() {
             "PUT" => {
@@ -175,7 +175,20 @@ impl Service {
                 let path = self.attachment_path(chat, id);
                 private_dir(path.parent().unwrap()).await?;
                 atomic_write(&path, &bytes).await?;
-                self.store.set(&k, attachment.clone(), None).await?;
+                let chat_id = chat.to_owned();
+                let saved = attachment.clone();
+                let commit = self
+                    .store
+                    .transaction(move |db| {
+                        let chat = required(db.get("chats", &chat_id)?, "Chat not found")?;
+                        crate::conversation_lifecycle::require_active(&chat)?;
+                        db.set(&k, &saved, None)
+                    })
+                    .await;
+                if let Err(error) = commit {
+                    let _ = tokio::fs::remove_file(&path).await;
+                    return Err(error);
+                }
                 Ok(Json(attachment).into_response())
             }
             "GET" => {

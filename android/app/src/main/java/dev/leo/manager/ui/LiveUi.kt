@@ -57,7 +57,7 @@ fun rememberLive(
     }
     LaunchedEffect(path, api, owner) {
         if (enabled && api != null) {
-            val cacheGeneration = vm.historyCache.generation
+            var cacheGeneration = vm.historyCache.generation
             val key = vm.historyCache.key(workspace.origin, api.csrf, path)
             vm.historyCache.read(key)?.let {
                 session.restore(it, path, api.streamGeneration.get())
@@ -67,8 +67,10 @@ fun rememberLive(
                 owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     try {
                         api.live(path, session).collect {
+                            vm.acceptCacheRevision(it.state?.cacheRevision)
+                            cacheGeneration = vm.historyCache.generation
                             if (!it.catchingUp || it.httpStatus != null) value = display(it)
-                            if (it.httpStatus in listOf(401, 403, 404)) {
+                            if (it.httpStatus in listOf(401, 403, 404, 409)) {
                                 vm.historyCache.remove(key)
                                 value =
                                     LiveSnapshot(

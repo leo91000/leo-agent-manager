@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -81,8 +81,10 @@ if(mode==='first') {
   assert.match(execFileSync('docker',['compose','-f',root+'/workspace/compose.yaml','run','--rm','probe'],{encoding:'utf8',timeout:30000}),/compose-ok/);
   execFileSync('docker',['compose','-f',root+'/workspace/compose.yaml','down'],{timeout:30000});
   fs.writeFileSync(root+'/workspace/preserved','uncommitted work');
+  fs.writeFileSync('/home/node/.codex/archive-session-probe.json','preserved session state');
 } else {
   assert.equal(fs.readFileSync(root+'/workspace/preserved','utf8'),'uncommitted work');
+  assert.equal(fs.readFileSync('/home/node/.codex/archive-session-probe.json','utf8'),'preserved session state');
   assert.equal(fs.readFileSync(project+'/hello','utf8'),'guest edit','on-demand project survives restart');
   console.log(execFileSync('docker',['run','--rm','--pull=never','busybox:1.37','echo','cached-docker-ok'],{encoding:'utf8',timeout:30000}));
 }
@@ -248,6 +250,19 @@ console.log('probe.done');
       }
       assert.equal(await readFile(path.join(source, 'workspace/preserved'), 'utf8').catch(() => null), null, 'guest edits must not affect host checkout')
       await api(`/runs/${id}`, 'DELETE')
+      if (mode === 'first') {
+        const transfer = randomUUID()
+        const staging = path.join(root, 'data/archive-transfers', transfer)
+        await mkdir(staging, { recursive: true, mode: 0o700 })
+        await api(`/disks/${runId}/export`, 'POST', { transfer })
+        assert.ok((await stat(path.join(staging, 'workspace.tar.gz'))).size > 0)
+        await api(`/disks/${runId}/delete`, 'POST', {})
+        docker('exec', name, 'test', '!', '-e', `/runner-state/disks/${runId}/data.ext4`)
+        await api(`/disks/${runId}/import`, 'POST', { transfer })
+        docker('exec', name, 'test', '-s', `/runner-state/disks/${runId}/data.ext4`)
+        await rm(staging, { recursive: true })
+        // The next real guest must find dirty files, session state and cached Docker images.
+      }
       process.stdout.write(`${JSON.stringify({ mode, durationMs: Date.now() - start, status: 'passed' })}\n`)
     }
     // Independent disks must run concurrently and enforce each guest policy.

@@ -39,7 +39,7 @@ ARG CODEX_VERSION=0.156.1
 ARG CLAUDE_VERSION=2.1.280
 ARG TARGETARCH
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4310 DATA_DIR=/data AGENT_HOME=/home/node WORKSPACE_ROOTS=/workspaces
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl wget git git-lfs openssh-client python3 build-essential bubblewrap socat \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl wget git git-lfs openssh-client python3 awscli build-essential bubblewrap socat \
     zip unzip xz-utils zstd bzip2 rsync file less tree sqlite3 postgresql-client \
     dnsutils iproute2 iputils-ping netcat-openbsd procps lsof strace patch diffutils \
     pkg-config libssl-dev libffi-dev ninja-build poppler-utils imagemagick ffmpeg \

@@ -67,6 +67,12 @@ data class Chat(
     val run: Run? = null,
     val messages: List<ChatMessage> = emptyList(),
     val error: String? = null,
+    val lifecycle: String = "active",
+    val purgeAt: Long? = null,
+    val restoredAt: Long? = null,
+    val sessionRestartRequested: Boolean = false,
+    val lifecycleError: String? = null,
+    val storageClass: String? = null,
 )
 
 @Serializable
@@ -106,6 +112,7 @@ data class LiveState(
     val chat: Chat? = null,
     val chats: List<Chat>? = null,
     val artifacts: List<Deliverable> = emptyList(),
+    val cacheRevision: String? = null,
 )
 
 @Serializable

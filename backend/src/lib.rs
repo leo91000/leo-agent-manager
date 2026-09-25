@@ -10,6 +10,7 @@ pub mod chats;
 mod codex_login;
 pub mod config;
 pub mod connections;
+pub mod conversation_lifecycle;
 pub mod error;
 pub mod execution;
 pub mod http;
@@ -49,3 +50,6 @@ pub mod claude_process;
 pub mod claude_tokens;
 
 pub mod github_projects;
+
+pub mod archive_storage;
+pub mod conversation_archive;

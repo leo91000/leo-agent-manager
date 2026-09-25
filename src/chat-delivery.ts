@@ -23,7 +23,7 @@ export function chatWaitNotice(run: Run | null | undefined) {
 /** The dispatch queue is durable storage; only waiting follow-ups belong in the UI queue. */
 export function chatDelivery(chat: ChatDetail | null, events: RunEvent[], outgoing: ChatMessage | null = null) {
   const acknowledged = new Set(events.filter(event => event.type === 'chat.user').map(event => event.payload?.messageId))
-  const messages = (chat?.messages ?? []).filter(message => message.status !== 'delivered')
+  const messages = (chat?.messages ?? []).filter(message => message.status === 'queued' || message.status === 'sending')
   if (outgoing && !messages.some(message => message.id === outgoing.id))
     messages.push(outgoing)
   const active = !!chat?.run && ['queued', 'running'].includes(chat.run.status)

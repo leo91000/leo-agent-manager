@@ -53,7 +53,11 @@ async fn page(
             let run = if scope.chat {
                 chat["run"].clone()
             } else {
-                crate::error::required(db.run(&scope.id)?, "Run not found")?
+                if crate::conversation_lifecycle::require_active_run(&db, &scope.id).is_err() {
+                    Value::Null
+                } else {
+                    crate::error::required(db.run(&scope.id)?, "Run not found")?
+                }
             };
             let run_id = text(&run, "id");
             let (first, max): (i64, i64) = db.0.query_row(
@@ -91,7 +95,7 @@ async fn page(
                     .collect()
             };
             artifacts.sort_by_key(|v| v["createdAt"].as_i64().unwrap_or(0));
-            let mut state = json!({"run":run,"chat":chat,"artifacts":artifacts});
+            let mut state = json!({"run":run,"chat":chat,"artifacts":artifacts,"cacheRevision":db.kv("conversation-cache-revision")?.unwrap_or("initial".into())});
             if scope.chat {
                 state["chats"] = crate::chats::list(&db)?.into();
             }

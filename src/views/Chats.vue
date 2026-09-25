@@ -29,6 +29,7 @@ const router = useRouter()
 const route = useRoute()
 const chats = ref<ChatView[]>([])
 const detail = ref<(ChatDetail & { error?: string }) | null>(null)
+const inactive = computed(() => !!detail.value?.lifecycle && detail.value.lifecycle !== 'active')
 const live = useLiveRun(() => route.params.id ? `/chats/${route.params.id}/stream` : '/chats/stream')
 const { events, connectionNotice, catchingUp } = live
 const deliverables = computed(() => live.snapshot.value?.artifacts ?? [])
@@ -71,7 +72,7 @@ const files = new Map<string, File>()
 const uploaded = new Set<string>()
 const dragging = ref(0)
 const uploadProgress = ref('')
-const canSend = computed(() => (!route.params.id || detail.value?.id === route.params.id) && !live.error.value && (!!draft.value.trim() || attachments.value.length > 0))
+const canSend = computed(() => !inactive.value && (!route.params.id || detail.value?.id === route.params.id) && !live.error.value && (!!draft.value.trim() || attachments.value.length > 0))
 function removeAttachment(id: string) {
   if (previews.value[id])
     URL.revokeObjectURL(previews.value[id])
@@ -231,7 +232,8 @@ async function send(mode: 'queue' | 'steer' = 'queue') {
     uploadProgress.value = ''
   }
 }
-async function action(name: 'pause' | 'stop', body?: object) {
+const newSession = ref(false)
+async function action(name: 'pause' | 'stop' | 'restore' | 'new-session', body?: object) {
   if (!detail.value || busy.value)
     return
   busy.value = true
@@ -275,6 +277,14 @@ function key(event: KeyboardEvent) {
 </script>
 
 <template>
+  <Modal v-if="newSession" title="Start a fresh agent session?" @close="newSession = false">
+    <div class="p-6">
+      <p>The conversation history and working files will be preserved. The next message will use a new native agent session.</p>
+      <UiButton :disabled="busy" @click="action('new-session', { confirm: true }).then(() => { if (!error) newSession = false })">
+        Confirm new session
+      </UiButton>
+    </div>
+  </Modal>
   <Modal v-if="notifications" title="Notifications" @close="notifications = false">
     <div class="p-6">
       <NotificationSettings />
@@ -380,6 +390,23 @@ function key(event: KeyboardEvent) {
         <div v-if="route.params.id && !detail" role="status" class="flex flex-1 items-center justify-center text-sm text-muted">
           Loading conversation…
         </div>
+        <div v-else-if="inactive" class="m-auto w-full max-w-xl px-6 py-12 text-center">
+          <h2 class="mb-3 text-xl">
+            {{ detail?.lifecycle === 'purging' ? 'Permanently deleting conversation…' : detail?.lifecycle === 'trash' ? 'This conversation is in the trash.' : detail?.lifecycle === 'restoring' ? 'Restoring conversation…' : detail?.lifecycle === 'archiving' ? 'Archiving conversation…' : 'This conversation is archived.' }}
+          </h2>
+          <p v-if="detail?.purgeAt" class="mb-5 text-sm text-muted">
+            Permanently deleted on {{ new Date(detail.purgeAt).toLocaleDateString() }}.
+          </p>
+          <p v-else class="mb-5 text-sm text-muted">
+            {{ detail?.storageClass === 'GLACIER' ? 'Restoration from cold storage can take a few hours.' : 'Restore this conversation to access its history and working files.' }}
+          </p>
+          <UiAlert v-if="error || detail?.lifecycleError" class="mb-4">
+            {{ error || detail?.lifecycleError }}
+          </UiAlert>
+          <UiButton v-if="detail?.lifecycle === 'trash' || detail?.lifecycle === 'archived' || (detail?.lifecycle === 'restoring' && detail.lifecycleError)" :disabled="busy" variant="primary" @click="action('restore')">
+            {{ detail?.lifecycle === 'restoring' ? 'Retry restoration' : 'Restore conversation' }}
+          </UiButton>
+        </div>
         <div v-else-if="!detail?.run && !delivery.sending.length" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 pb-[8vh] pt-8 text-center phone:px-2 phone:py-5">
           <h2 class="mb-7 text-[30px] font-semibold tracking-tight phone:text-2xl">
             What are we building?
@@ -391,7 +418,7 @@ function key(event: KeyboardEvent) {
           </div>
         </div>
         <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail?.run?.status === 'succeeded' ? detail.run.outcome : null" :sending="delivery.sending" :events="events" :active="detail?.run?.status === 'running'" :agent="detail?.agentName || selectedAgent?.name || 'Main agent'" :task="detail?.title || 'New conversation'" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" :skills="skillNames" chat @load="live.loadOlder" @position="live.savePosition" />
-        <div class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
+        <div v-if="!inactive" class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
           <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" />
           <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
             {{ connectionNotice }}
@@ -437,6 +464,29 @@ function key(event: KeyboardEvent) {
               </li>
             </ul>
           </div>
+          <div v-if="detail?.restoredAt && ['failed', 'interrupted'].includes(detail.run?.status ?? '') && !detail.sessionRestartRequested" class="mb-3 rounded-lg border border-line p-3 text-sm">
+            <p>If the restored native session is incompatible, start a fresh session using the preserved history and files.</p>
+            <UiButton :disabled="busy" @click="newSession = true">
+              Start a fresh agent session
+            </UiButton>
+          </div>
+          <p v-if="detail?.sessionRestartRequested" class="mb-3 text-sm text-muted">
+            Ready for a fresh session. Write a new message, then resume the queue.
+          </p>
+          <details v-if="detail?.messages.some(message => message.status === 'cancelled')" class="mb-3 rounded-lg border border-line p-3 text-xs">
+            <summary class="cursor-pointer text-muted">
+              Cancelled messages
+            </summary>
+            <div v-for="message in detail.messages.filter(message => message.status === 'cancelled')" :key="message.id" class="mt-3">
+              <p class="whitespace-pre-wrap wrap-anywhere">
+                {{ message.text }}
+              </p>
+              <ChatAttachments v-if="message.attachments?.length" :attachments="message.attachments" />
+              <button class="mt-2 text-accent" @click="draft = message.text; textarea?.focus()">
+                Copy to message
+              </button>
+            </div>
+          </details>
           <form class="chat-composer relative rounded-2xl border border-line/60 bg-raised p-4 shadow-[0_4px_24px_#00000006] focus-within:border-accent/50 phone:p-3" @submit.prevent="send()" @dragenter.prevent="dragging++" @dragover.prevent @dragleave.prevent="dragging = Math.max(0, dragging - 1)" @drop.prevent="dropFiles" @paste="pasteFiles">
             <div v-if="dragging" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-accent bg-surface/95 text-sm font-semibold text-accent">
               <Icon :name="Paperclip" :size="20" />Drop files here

@@ -3,6 +3,7 @@ import type { ChatDetail, ChatView } from './chats'
 import type { Run, RunEvent } from './contracts'
 
 export interface LiveState {
+  cacheRevision?: string
   run: Run | null
   chat: ChatDetail | null
   chats?: ChatView[]

@@ -49,6 +49,13 @@ constructor(
     private val vault: SessionVault = KeystoreSessionVault(application),
 ) : AndroidViewModel(application) {
     val historyCache = HistoryCache.encrypted(application)
+    private val retentionPreferences = application.getSharedPreferences("conversation-cache", 0)
+    suspend fun acceptCacheRevision(revision: String?) {
+        if (revision != null && retentionPreferences.getString(state.value.origin, null) != revision) {
+            historyCache.clear()
+            retentionPreferences.edit().putString(state.value.origin, revision).apply()
+        }
+    }
     val files = Files(application)
     val chatDrafts = mutableMapOf<String, ChatDraft>()
 

@@ -26,7 +26,17 @@ export interface ChatAttachment {
   mediaType: string
   kind: 'image' | 'file'
 }
+export type ConversationLifecycle = 'active' | 'archiving' | 'archived' | 'restoring' | 'trash' | 'purging'
 export interface Chat {
+  lifecycle?: ConversationLifecycle
+  trashedAt?: number | null
+  purgeAt?: number | null
+  restoredAt?: number
+  sessionRestartRequested?: boolean
+  archiveNotBefore?: number
+  storageClass?: 'STANDARD' | 'GLACIER'
+  lifecycleError?: string | null
+  pendingMessages?: number
   id: string
   title: string
   agentId: string
@@ -47,7 +57,7 @@ export interface ChatMessage {
   model: string
   reasoning?: string
   mode: 'queue' | 'steer'
-  status: 'queued' | 'sending' | 'delivered'
+  status: 'queued' | 'sending' | 'delivered' | 'cancelled'
   createdAt: number
 }
 export interface ChatView extends Chat {
@@ -73,7 +83,7 @@ export interface ChatQuestion {
   runId: string
   blocking: boolean
   fields: z.infer<typeof questionFields>
-  status: 'pending' | 'answering' | 'answered'
+  status: 'pending' | 'answering' | 'answered' | 'cancelled'
   createdAt: number
   messageId?: string
 }

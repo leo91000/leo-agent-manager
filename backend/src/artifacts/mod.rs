@@ -199,6 +199,7 @@ impl Artifacts {
         artifact = s
             .store
             .transaction(move |db| {
+                crate::conversation_lifecycle::require_active_run(db, &owned_run)?;
                 let current = crate::project_workspaces::authorize_in(db, &token)?;
                 let checkpoint = db
                     .kv(&format!("run-checkpoint:{owned_run}"))?

@@ -11,6 +11,8 @@ services:
     environment:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4310}
       RUNNER_URL: http://runner:4311
+      ARCHIVE_S3_BUCKET: ${ARCHIVE_S3_BUCKET:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-}
       CONCURRENCY: ${CONCURRENCY:-4}
     volumes:
       - data:/data

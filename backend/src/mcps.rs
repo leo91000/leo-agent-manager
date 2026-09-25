@@ -390,6 +390,7 @@ impl Mcps {
                 let scope = grant["servers"][&id].clone();
                 let item = db.get("mcps", &id)?.ok_or_else(expired)?;
                 if scope.is_null()
+                    || !run["cancelRequestedAt"].is_null()
                     || run["status"] != "running"
                     || item["enabled"] != true
                     || item["revision"] != scope["revision"]

@@ -381,6 +381,13 @@ async fn api(State(app): State<App>, request: Request) -> Result<Response> {
     if let ["", "api", "public", "artifacts", token] = segments.as_slice() {
         return crate::artifacts::sharing::http(&app.service, token, request).await;
     }
+    if let ["", "api", "runs", run, ..] = segments.as_slice() {
+        let run = (*run).to_owned();
+        app.service
+            .store
+            .read(move |db| crate::conversation_lifecycle::require_active_run(db, &run))
+            .await?;
+    }
     if let ["", "api", "runs", run, "artifacts", artifact, "visibility"] = segments.as_slice() {
         if request.method() != "PUT" {
             return Err(Error::new(405, "Method not allowed."));

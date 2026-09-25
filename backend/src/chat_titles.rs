@@ -300,7 +300,8 @@ fn apply(db: &Db<'_>, chat: &Value, pending: &Value, title: &str) -> Result<bool
     };
     let run = db.run(text(chat, "runId"))?;
     // A newer user message or turn must never be relabelled by an older result.
-    let fresh = current["updatedAt"] == chat["updatedAt"]
+    let fresh = crate::conversation_lifecycle::state(&current) == "active"
+        && current["updatedAt"] == chat["updatedAt"]
         && current["title"] == chat["title"]
         && current["runId"] == chat["runId"]
         && run.is_some_and(|r| r["status"] == "succeeded");
@@ -330,7 +331,9 @@ pub async fn tick(s: &Service) -> Result<()> {
             s.store.delete(&key).await?;
             continue;
         };
-        if chat["runId"] != pending["runId"] {
+        if crate::conversation_lifecycle::state(&chat) != "active"
+            || chat["runId"] != pending["runId"]
+        {
             s.store.delete(&key).await?;
             continue;
         }

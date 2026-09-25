@@ -1,7 +1,7 @@
 use super::*;
 use std::process::Stdio;
 use tokio::process::Command;
-static JOBS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+pub(crate) static JOBS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 fn command(program: &str) -> Command {
     let mut cmd = Command::new(program);
@@ -33,6 +33,14 @@ pub async fn prepare(s: Service, mut artifact: Value) -> Result<()> {
         return Ok(());
     }
     let _permit = JOBS.acquire().await.map_err(Error::internal)?;
+    let run = text(&artifact, "runId").to_owned();
+    if s.store
+        .read(move |db| crate::conversation_lifecycle::require_active_run(db, &run))
+        .await
+        .is_err()
+    {
+        return Ok(());
+    }
     let directory = s.config.data_dir.join("artifacts");
     let path = directory.join(text(&artifact, "id"));
     let target = directory.join(format!("{}.jpg", text(&artifact, "id")));

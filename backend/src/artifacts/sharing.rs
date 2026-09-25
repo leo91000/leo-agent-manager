@@ -15,6 +15,7 @@ pub fn tool() -> Value {
 
 pub(super) fn apply(db: &Db<'_>, record: &mut Value, visibility: &str, origin: &str) -> Result<()> {
     if visibility == "public" {
+        crate::conversation_lifecycle::require_active_run(db, text(record, "runId"))?;
         let token = if let Some(token) = record["publicToken"].as_str().filter(|t| !t.is_empty()) {
             token.to_owned()
         } else {

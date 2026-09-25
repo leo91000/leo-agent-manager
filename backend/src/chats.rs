@@ -112,7 +112,7 @@ pub fn execution_text(plan: &Value) -> String {
         return current.to_owned();
     }
     format!(
-        "You are continuing the same Léo chat with a different coding agent. The workspace and completed changes are preserved. Use the prior conversation below as history, not as new requests. Preserve the user's scope and decisions. Verify external effects before repeating any action. Prior attachments remain under {}/attachments/<attachment ID>/.\n\n<previous_conversation>\n{}\n</previous_conversation>\n\nCurrent user message:\n{}",
+        "You are continuing the same Léo chat in a new native agent session. The workspace and completed changes are preserved. Use the prior conversation below as history, not as new requests. Preserve the user's scope and decisions. Verify external effects before repeating any action. Prior attachments remain under {}/attachments/<attachment ID>/.\n\n<previous_conversation>\n{}\n</previous_conversation>\n\nCurrent user message:\n{}",
         text(plan, "inputDirectory"),
         context,
         current
@@ -167,6 +167,7 @@ fn save_question(db: &Db<'_>, question: &Value) -> Result<Value> {
     Ok(question.clone())
 }
 fn view(db: &Db<'_>, mut chat: Value) -> Result<Value> {
+    chat["lifecycle"] = crate::conversation_lifecycle::state(&chat).into();
     chat["pendingQuestions"] = questions(db, text(&chat, "id"))?
         .iter()
         .filter(|q| q["status"] == "pending")
@@ -175,13 +176,21 @@ fn view(db: &Db<'_>, mut chat: Value) -> Result<Value> {
     chat["agentName"] = db
         .get("agents", text(&chat, "agentId"))?
         .map(|a| a["name"].clone())
-        .unwrap_or_else(|| "Deleted agent".into());
+        .unwrap_or_else(|| {
+            chat.get("agentName")
+                .cloned()
+                .unwrap_or("Deleted agent".into())
+        });
     chat["projectName"] = if chat["projectId"].is_null() {
         Value::Null
     } else {
         db.get("projects", text(&chat, "projectId"))?
             .map(|p| p["name"].clone())
-            .unwrap_or_else(|| "Deleted project".into())
+            .unwrap_or_else(|| {
+                chat.get("projectName")
+                    .cloned()
+                    .unwrap_or("Deleted project".into())
+            })
     };
     chat["status"] = db
         .run(text(&chat, "runId"))?
@@ -190,6 +199,12 @@ fn view(db: &Db<'_>, mut chat: Value) -> Result<Value> {
     Ok(chat)
 }
 pub(crate) fn list(db: &Db<'_>) -> Result<Vec<Value>> {
+    Ok(list_all(db)?
+        .into_iter()
+        .filter(|chat| crate::conversation_lifecycle::in_view(chat, "active"))
+        .collect())
+}
+pub(crate) fn list_all(db: &Db<'_>) -> Result<Vec<Value>> {
     db.list("chats")?
         .into_iter()
         .map(|chat| view(db, chat))
@@ -197,6 +212,13 @@ pub(crate) fn list(db: &Db<'_>) -> Result<Vec<Value>> {
 }
 pub(crate) fn detail(db: &Db<'_>, id: &str) -> Result<Value> {
     let mut result = view(db, chat(db, id)?)?;
+    if crate::conversation_lifecycle::state(&result) != "active" {
+        result["questions"] = json!([]);
+        result["messages"] = json!([]);
+        result["run"] = Value::Null;
+        result["pendingQuestions"] = 0.into();
+        return Ok(result);
+    }
     result["questions"] = questions(db, id)?.into();
     result["messages"] = db.messages(id)?.into();
     result["run"] = db.run(text(&result, "runId"))?.unwrap_or(Value::Null);
@@ -229,6 +251,7 @@ fn send(
     answer: Option<(Value, Value)>,
 ) -> Result<Value> {
     let mut chat = chat(db, chat_id)?;
+    crate::conversation_lifecycle::require_active(&chat)?;
     crate::attachments::message(db, chat_id, &mut values)?;
     let messages = db.messages(chat_id)?;
     if let Some(existing) = messages.iter().find(|m| m["id"] == values["id"]) {
@@ -300,6 +323,7 @@ fn send(
             .into();
     }
     chat["updatedAt"] = now().into();
+    chat["lastActivityAt"] = chat["updatedAt"].clone();
     db.put("chats", &chat)?;
     if let Some((mut question, answers)) = answer {
         question["status"] = "answering".into();
@@ -362,6 +386,7 @@ impl Service {
             .store
             .transaction(move |db| {
                 let chat = chat(db, &id)?;
+                crate::conversation_lifecycle::require_active(&chat)?;
                 let mut current = required(
                     db.messages(&id)?.into_iter().find(|m| m["id"] == message),
                     "Message not found",
@@ -404,6 +429,10 @@ impl Service {
             .store
             .write(move |db| {
                 let mut chat = chat(db, &id)?;
+                crate::conversation_lifecycle::require_active(&chat)?;
+                if chat["lastActivityAt"].is_null() {
+                    chat["lastActivityAt"] = chat["updatedAt"].clone();
+                }
                 merge(
                     &mut chat,
                     &json!({
@@ -431,7 +460,7 @@ impl Service {
                 else {
                     return Ok(());
                 };
-                if message["status"] == "delivered" {
+                if message["status"] == "delivered" || message["status"] == "cancelled" || crate::conversation_lifecycle::state(&chat) != "active" {
                     return Ok(());
                 }
                 message["status"] = "delivered".into();
@@ -466,6 +495,7 @@ impl Service {
                     )),
                 )?;
                 chat["updatedAt"] = now().into();
+                chat["lastActivityAt"] = chat["updatedAt"].clone();
                 db.put("chats", &chat)?;
                 Ok(())
             })
@@ -496,6 +526,9 @@ impl Service {
                 else {
                     return Ok(());
                 };
+                if crate::conversation_lifecycle::state(&chat) != "active" {
+                    return Ok(());
+                }
                 question["chatId"] = chat["id"].clone();
                 if let Some(mut existing) = questions(db, text(&chat, "id"))?
                     .into_iter()
@@ -566,6 +599,9 @@ impl Service {
     }
     pub async fn chat_tick(&self, active: &HashSet<String>) -> Result<()> {
         for chat in self.store.list("chats").await? {
+            if crate::conversation_lifecycle::state(&chat) != "active" {
+                continue;
+            }
             let id = text(&chat, "id").to_owned();
             let run = if chat["runId"].is_string() {
                 Some(self.store.run(text(&chat, "runId")).await?)
@@ -589,10 +625,15 @@ impl Service {
                     .store
                     .transaction(move |db| {
                         let mut steering = Vec::new();
+                        if self::chat(db, text(&chat, "id"))
+                            .is_ok_and(|c| crate::conversation_lifecycle::state(&c) != "active")
+                        {
+                            return Ok(steering);
+                        }
                         for mut message in db.messages(text(&chat, "id"))? {
                             if (chat["paused"] != true || message["questionId"].is_string())
                                 && message["mode"] == "steer"
-                                && message["status"] != "delivered"
+                                && ["queued", "sending"].contains(&text(&message, "status"))
                                 && message["id"] != run["chatExecution"]["messageId"]
                             {
                                 message["status"] = "sending".into();
@@ -623,7 +664,10 @@ impl Service {
             {
                 continue;
             }
-            if run.as_ref().is_some_and(|r| r["status"] != "succeeded") {
+            if run.as_ref().is_some_and(|r| r["status"] != "succeeded")
+                && chat["cancelledByDeletion"] != true
+                && chat["sessionRestartRequested"] != true
+            {
                 self.chat_pause(&id, true).await?;
                 continue;
             }
@@ -709,7 +753,7 @@ impl Service {
             .transaction(move |db| {
                 let mut current_chat = self::chat(db, text(&chat, "id"))?;
                 let current = db.messages(text(&chat, "id"))?.into_iter().find(|m| m["id"] == message["id"]);
-                if current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"] || text(m,"provider") != text(&message,"provider") || text(m,"reasoning") != text(&message,"reasoning") || !crate::attachments::same(m,&message)) {
+                if crate::conversation_lifecycle::state(&current_chat) != "active" || current_chat["paused"] == true || current.as_ref().is_none_or(|m| m["status"] != "queued" || m["text"] != message["text"] || m["model"] != message["model"] || text(m,"provider") != text(&message,"provider") || text(m,"reasoning") != text(&message,"reasoning") || !crate::attachments::same(m,&message)) {
                     return Ok(());
                 }
                 let mut execution = json!({
@@ -721,8 +765,9 @@ impl Service {
                         return Err(Error::new(409, "Agent access changed. Start a new chat with the updated permissions."));
                     }
                     let key = format!("run-checkpoint:{}", text(&run, "id"));
-                    let mut checkpoint = required(db.kv(&key)?, "Run checkpoint not found")?;
-                    if switched {
+                    let mut checkpoint = match db.kv(&key)? { Some(value) => value, None if current_chat["cancelledByDeletion"] == true => json!({}), None => return Err(Error::new(409,"Run checkpoint not found")) };
+                    if switched || checkpoint["freshSession"] == true {
+                        checkpoint["freshSession"] = false.into();
                         execution["context"] = handoff_context(db, text(&run, "id"))?.into();
                         checkpoint["launched"] = false.into();
                         checkpoint.as_object_mut().unwrap().remove("controllerRecoveries");
@@ -746,6 +791,9 @@ impl Service {
                     current_chat["runId"] = snapshot["id"].clone();
                     db.put("chats", &current_chat)?;
                 }
+                current_chat["cancelledByDeletion"] = false.into();
+                current_chat["sessionRestartRequested"] = false.into();
+                db.put("chats", &current_chat)?;
                 let mut message = message;
                 message["status"] = "sending".into();
                 db.put_message(&message)?;

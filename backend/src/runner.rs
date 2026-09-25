@@ -165,6 +165,11 @@ impl Broker {
         let socket = Arc::new(tokio::sync::OnceCell::new());
         let stop = self.stop.child_token();
         let (done, receiver) = watch::channel(false);
+        atomic_write(
+            &self.state.join(format!("{id}.run")),
+            text(&plan, "runId").as_bytes(),
+        )
+        .await?;
         atomic_write(&self.state.join(format!("{id}.active")), b"1").await?;
         active.insert(
             id.into(),
@@ -270,6 +275,68 @@ impl Broker {
         Ok(())
     }
 }
+async fn erase_attempt_content(broker: &Broker, run: &str) -> Result<()> {
+    let mut attempts = std::collections::HashSet::new();
+    let plans = broker.data.join("runner-plans");
+    if plans.is_dir() {
+        let mut entries = tokio::fs::read_dir(&plans).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(attempt) = name.strip_suffix(".json").filter(|v| uuid(v).is_ok()) else {
+                continue;
+            };
+            let value: Value = serde_json::from_slice(&tokio::fs::read(entry.path()).await?)?;
+            if value["runId"] == run {
+                // Fence a delayed start before removing its short-lived credentials.
+                atomic_write(&broker.state.join(format!("{attempt}.stopped")), b"").await?;
+                tokio::fs::remove_file(entry.path()).await?;
+                attempts.insert(attempt.to_owned());
+            }
+        }
+    }
+    let mut entries = tokio::fs::read_dir(&broker.state).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(attempt) = name.strip_suffix(".run").filter(|v| uuid(v).is_ok()) {
+            if tokio::fs::read_to_string(entry.path()).await? == run {
+                atomic_write(&broker.state.join(format!("{attempt}.stopped")), b"").await?;
+                attempts.insert(attempt.to_owned());
+                tokio::fs::remove_file(entry.path()).await?;
+            }
+            continue;
+        }
+        let Some(attempt) = name.strip_suffix(".vm.json").filter(|v| uuid(v).is_ok()) else {
+            continue;
+        };
+        let value: Value = serde_json::from_slice(&tokio::fs::read(entry.path()).await?)?;
+        if value["runId"] != run {
+            continue;
+        }
+        atomic_write(&broker.state.join(format!("{attempt}.stopped")), b"").await?;
+        attempts.insert(attempt.to_owned());
+        let vm = text(&value, "vmId");
+        if uuid(vm).is_ok() {
+            for suffix in ["boot.log", "vmm.log"] {
+                let path = broker.state.join(format!("{vm}.{suffix}"));
+                match tokio::fs::remove_file(path).await {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+        tokio::fs::remove_file(entry.path()).await?;
+    }
+    for attempt in attempts {
+        match tokio::fs::remove_file(broker.state.join(format!("{attempt}.log"))).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
+}
+
 async fn handler(State(broker): State<Broker>, request: Request) -> Result<Response> {
     if request.uri().path() == "/health" {
         return Ok(Json(json!({"status":"ok","backend":"firecracker","runtimeId":std::env::var("APP_RUNTIME_ID").unwrap_or_else(|_|"development".into()),"activeRuns":broker.active.lock().await.len(),"pool":broker.pool.health().await})).into_response());
@@ -289,140 +356,239 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
         .trim_start_matches('/')
         .split('/')
         .collect::<Vec<_>>();
-    let id = segments
-        .get(1)
-        .filter(|_| segments.first() == Some(&"runs"))
-        .ok_or_else(|| Error::new(404, "Not found"))?;
-    uuid(id)?;
-    match (request.method().as_str(), segments.as_slice()) {
-        ("POST", ["runs", id, "artifact"]) => {
-            let id = (*id).to_owned();
-            let bytes = axum::body::to_bytes(request.into_body(), 16384)
-                .await
-                .map_err(|_| Error::bad("Invalid artifact request."))?;
-            let value: Value = serde_json::from_slice(&bytes)?;
-            let (socket, run, stop) = {
-                let active = broker.active.lock().await;
-                let attempt = active
-                    .get(&id)
-                    .ok_or_else(|| Error::new(409, "VM is not active."))?;
-                if attempt.plan["runId"] != value["runId"] {
-                    return Err(Error::new(403, "Wrong artifact scope."));
+    if let ["disks", run, action] = segments.as_slice() {
+        let run = (*run).to_owned();
+        let action = (*action).to_owned();
+        if request.method() != "POST" || !["export", "import", "delete"].contains(&action.as_str())
+        {
+            return Err(Error::new(405, "Invalid workspace operation."));
+        }
+        uuid(&run)?;
+        let bytes = axum::body::to_bytes(request.into_body(), 4096)
+            .await
+            .map_err(|_| Error::bad("Invalid workspace request."))?;
+        let body: Value = serde_json::from_slice(&bytes)?;
+        let active = broker.active.lock().await;
+        if active.values().any(|a| a.plan["runId"] == run) {
+            return Err(Error::new(409, "The workspace still has an active agent."));
+        }
+        let directory = broker.state.join("disks").join(&run);
+        private_dir(&directory).await?;
+        use std::os::fd::AsRawFd;
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(directory.join("lock"))?;
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(Error::new(409, "The workspace is still in use."));
+        }
+        let disk = directory.join("data.ext4");
+        if action == "delete" {
+            match tokio::fs::remove_file(&disk).await {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+            erase_attempt_content(&broker, &run).await?;
+            let mut leftovers = tokio::fs::read_dir(&directory).await?;
+            while let Some(entry) = leftovers.next_entry().await? {
+                if entry.file_name() == "lock" {
+                    continue;
                 }
-                (
-                    attempt
-                        .socket
-                        .get()
-                        .cloned()
-                        .ok_or_else(|| Error::new(409, "VM is not ready."))?,
-                    text(&attempt.plan, "runId").to_owned(),
-                    attempt.stop.clone(),
+                if entry.file_type().await?.is_dir() {
+                    tokio::fs::remove_dir_all(entry.path()).await?;
+                } else {
+                    tokio::fs::remove_file(entry.path()).await?;
+                }
+            }
+            // Preserve the lock inode: an overlapping boot must contend on it.
+            return Ok(Json(json!({"deleted":true})).into_response());
+        }
+        drop(active);
+        let transfer = text(&body, "transfer");
+        uuid(transfer)?;
+        let staging = broker.data.join("archive-transfers").join(transfer);
+        if tokio::fs::canonicalize(&staging).await? != staging {
+            return Err(Error::bad("Invalid workspace transfer directory."));
+        }
+        if action == "export" {
+            if disk.exists() {
+                crate::archive_storage::tar(vec![
+                    "--sparse".into(),
+                    "-czf".into(),
+                    staging.join("workspace.tar.gz").to_string_lossy().into(),
+                    "-C".into(),
+                    directory.to_string_lossy().into(),
+                    "data.ext4".into(),
+                ])
+                .await?;
+                std::fs::File::open(staging.join("workspace.tar.gz"))?.sync_all()?;
+            }
+        } else if !disk.exists() {
+            let target = directory.join(format!("restore-{transfer}"));
+            if target.exists() {
+                tokio::fs::remove_dir_all(&target).await?;
+            }
+            private_dir(&target).await?;
+            crate::archive_storage::tar(vec![
+                "--no-same-owner".into(),
+                "-xzf".into(),
+                staging.join("workspace.tar.gz").to_string_lossy().into(),
+                "-C".into(),
+                target.to_string_lossy().into(),
+                "data.ext4".into(),
+            ])
+            .await?;
+            let restored = target.join("data.ext4");
+            let meta = tokio::fs::symlink_metadata(&restored).await?;
+            if !meta.is_file() {
+                return Err(Error::bad("Invalid restored workspace."));
+            }
+            std::fs::File::open(&restored)?.sync_all()?;
+            tokio::fs::rename(restored, &disk).await?;
+            std::fs::File::open(&directory)?.sync_all()?;
+            tokio::fs::remove_dir_all(target).await?;
+        }
+        Ok(Json(json!({"ready":true})).into_response())
+    } else {
+        let id = segments
+            .get(1)
+            .filter(|_| segments.first() == Some(&"runs"))
+            .ok_or_else(|| Error::new(404, "Not found"))?;
+        uuid(id)?;
+        match (request.method().as_str(), segments.as_slice()) {
+            ("POST", ["runs", id, "artifact"]) => {
+                let id = (*id).to_owned();
+                let bytes = axum::body::to_bytes(request.into_body(), 16384)
+                    .await
+                    .map_err(|_| Error::bad("Invalid artifact request."))?;
+                let value: Value = serde_json::from_slice(&bytes)?;
+                let (socket, run, stop) = {
+                    let active = broker.active.lock().await;
+                    let attempt = active
+                        .get(&id)
+                        .ok_or_else(|| Error::new(409, "VM is not active."))?;
+                    if attempt.plan["runId"] != value["runId"] {
+                        return Err(Error::new(403, "Wrong artifact scope."));
+                    }
+                    (
+                        attempt
+                            .socket
+                            .get()
+                            .cloned()
+                            .ok_or_else(|| Error::new(409, "VM is not ready."))?,
+                        text(&attempt.plan, "runId").to_owned(),
+                        attempt.stop.clone(),
+                    )
+                };
+                let root = broker.data.join("runs").join(run);
+                let (stream, size) = tokio::select! {
+                    _=stop.cancelled()=>return Err(Error::new(409,"VM stopped.")),
+                    result=tokio::time::timeout(Duration::from_secs(10),host::export_artifact(&socket,text(&value,"path"),&root))=>result.map_err(|_|Error::new(408,"Artifact export timed out."))??,
+                };
+                let stream = tokio_util::io::ReaderStream::new(stream.take(size))
+                    .take_until(async move { stop.cancelled().await });
+                Ok((
+                    [(axum::http::header::CONTENT_LENGTH, size.to_string())],
+                    Body::from_stream(stream),
                 )
-            };
-            let root = broker.data.join("runs").join(run);
-            let (stream, size) = tokio::select! {
-                _=stop.cancelled()=>return Err(Error::new(409,"VM stopped.")),
-                result=tokio::time::timeout(Duration::from_secs(10),host::export_artifact(&socket,text(&value,"path"),&root))=>result.map_err(|_|Error::new(408,"Artifact export timed out."))??,
-            };
-            let stream = tokio_util::io::ReaderStream::new(stream.take(size))
-                .take_until(async move { stop.cancelled().await });
-            Ok((
-                [(axum::http::header::CONTENT_LENGTH, size.to_string())],
-                Body::from_stream(stream),
-            )
-                .into_response())
-        }
-        ("POST", ["runs", id]) => {
-            broker.start(id).await?;
-            Ok(Json(json!({})).into_response())
-        }
-        ("POST", ["runs", id, "projects", project_id]) => {
-            let (id, project_id) = ((*id).to_owned(), (*project_id).to_owned());
-            let bytes = axum::body::to_bytes(request.into_body(), 16384)
-                .await
-                .map_err(|_| Error::bad("Invalid project request."))?;
-            let value = serde_json::from_slice(&bytes)?;
-            Ok(Json(broker.open_project(&id, &project_id, value).await?).into_response())
-        }
-        ("DELETE", ["runs", id]) => {
-            broker.stop(id).await?;
-            Ok(Json(json!({})).into_response())
-        }
-        ("GET", ["runs", id, "logs"]) => {
-            let id = (*id).to_owned();
-            let stream = futures_util::stream::try_unfold(
-                (broker, id, 0_u64, Vec::new()),
-                |(broker, id, offset, mut pending)| async move {
-                    let mut offset = offset;
-                    loop {
-                        if let Ok(mut file) =
-                            tokio::fs::File::open(broker.state.join(format!("{id}.log"))).await
+                    .into_response())
+            }
+            ("POST", ["runs", id]) => {
+                broker.start(id).await?;
+                Ok(Json(json!({})).into_response())
+            }
+            ("POST", ["runs", id, "projects", project_id]) => {
+                let (id, project_id) = ((*id).to_owned(), (*project_id).to_owned());
+                let bytes = axum::body::to_bytes(request.into_body(), 16384)
+                    .await
+                    .map_err(|_| Error::bad("Invalid project request."))?;
+                let value = serde_json::from_slice(&bytes)?;
+                Ok(Json(broker.open_project(&id, &project_id, value).await?).into_response())
+            }
+            ("DELETE", ["runs", id]) => {
+                broker.stop(id).await?;
+                Ok(Json(json!({})).into_response())
+            }
+            ("GET", ["runs", id, "logs"]) => {
+                let id = (*id).to_owned();
+                let stream = futures_util::stream::try_unfold(
+                    (broker, id, 0_u64, Vec::new()),
+                    |(broker, id, offset, mut pending)| async move {
+                        let mut offset = offset;
+                        loop {
+                            if let Ok(mut file) =
+                                tokio::fs::File::open(broker.state.join(format!("{id}.log"))).await
+                            {
+                                use tokio::io::AsyncSeekExt;
+                                file.seek(std::io::SeekFrom::Start(offset)).await?;
+                                let mut chunk = vec![0; 65536];
+                                let count = file.read(&mut chunk).await?;
+                                pending.extend_from_slice(&chunk[..count]);
+                                offset += count as u64;
+                            }
+                            if let Some(end) = pending.iter().rposition(|b| *b == b'\n') {
+                                let rest = pending.split_off(end + 1);
+                                return Ok::<_, std::io::Error>(Some((
+                                    Bytes::from(pending),
+                                    (broker, id, offset, rest),
+                                )));
+                            }
+                            if broker.state.join(format!("{id}.exit")).exists()
+                                || broker.stop.is_cancelled()
+                            {
+                                return Ok(None);
+                            }
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            if pending.is_empty() {
+                                return Ok(Some((
+                                    Bytes::from_static(b"{\"type\":\"heartbeat\"}\n"),
+                                    (broker, id, offset, pending),
+                                )));
+                            }
+                        }
+                    },
+                );
+                Ok((
+                    [("content-type", "application/x-ndjson")],
+                    Body::from_stream(stream),
+                )
+                    .into_response())
+            }
+            ("POST", ["runs", id, "wait"]) => {
+                let id = (*id).to_owned();
+                let stream = futures_util::stream::unfold(
+                    (broker, id, false),
+                    |(broker, id, done)| async move {
+                        if done {
+                            return None;
+                        }
+                        if let Ok(code) =
+                            tokio::fs::read_to_string(broker.state.join(format!("{id}.exit"))).await
                         {
-                            use tokio::io::AsyncSeekExt;
-                            file.seek(std::io::SeekFrom::Start(offset)).await?;
-                            let mut chunk = vec![0; 65536];
-                            let count = file.read(&mut chunk).await?;
-                            pending.extend_from_slice(&chunk[..count]);
-                            offset += count as u64;
+                            return Some((
+                                Ok::<_, std::io::Error>(Bytes::from(
+                                    json!({"StatusCode":code.parse::<i32>().unwrap_or(1)})
+                                        .to_string(),
+                                )),
+                                (broker, id, true),
+                            ));
                         }
-                        if let Some(end) = pending.iter().rposition(|b| *b == b'\n') {
-                            let rest = pending.split_off(end + 1);
-                            return Ok::<_, std::io::Error>(Some((
-                                Bytes::from(pending),
-                                (broker, id, offset, rest),
-                            )));
-                        }
-                        if broker.state.join(format!("{id}.exit")).exists()
-                            || broker.stop.is_cancelled()
-                        {
-                            return Ok(None);
-                        }
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                        if pending.is_empty() {
-                            return Ok(Some((
-                                Bytes::from_static(b"{\"type\":\"heartbeat\"}\n"),
-                                (broker, id, offset, pending),
-                            )));
-                        }
-                    }
-                },
-            );
-            Ok((
-                [("content-type", "application/x-ndjson")],
-                Body::from_stream(stream),
-            )
-                .into_response())
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        let stop = broker.stop.is_cancelled();
+                        Some((Ok(Bytes::from_static(b" ")), (broker, id, stop)))
+                    },
+                );
+                Ok((
+                    [("content-type", "application/json")],
+                    Body::from_stream(stream),
+                )
+                    .into_response())
+            }
+            _ => Err(Error::new(405, "Method not allowed.")),
         }
-        ("POST", ["runs", id, "wait"]) => {
-            let id = (*id).to_owned();
-            let stream = futures_util::stream::unfold(
-                (broker, id, false),
-                |(broker, id, done)| async move {
-                    if done {
-                        return None;
-                    }
-                    if let Ok(code) =
-                        tokio::fs::read_to_string(broker.state.join(format!("{id}.exit"))).await
-                    {
-                        return Some((
-                            Ok::<_, std::io::Error>(Bytes::from(
-                                json!({"StatusCode":code.parse::<i32>().unwrap_or(1)}).to_string(),
-                            )),
-                            (broker, id, true),
-                        ));
-                    }
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    let stop = broker.stop.is_cancelled();
-                    Some((Ok(Bytes::from_static(b" ")), (broker, id, stop)))
-                },
-            );
-            Ok((
-                [("content-type", "application/json")],
-                Body::from_stream(stream),
-            )
-                .into_response())
-        }
-        _ => Err(Error::new(405, "Method not allowed.")),
     }
 }
 
@@ -584,6 +750,115 @@ pub async fn client(id: &str, stop: CancellationToken) -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn workspace_disk_round_trip_uses_authenticated_http_and_preserves_the_lock() {
+        use std::io::{Read, Seek, SeekFrom, Write};
+        use std::os::unix::fs::MetadataExt;
+        use tower::ServiceExt;
+        let root = tempfile::TempDir::new().unwrap();
+        let data = root.path().join("data");
+        let state = root.path().join("state");
+        private_dir(&data).await.unwrap();
+        private_dir(&state).await.unwrap();
+        std::fs::write(data.join("runner-secret"), "synthetic-runner-secret").unwrap();
+        let stop = CancellationToken::new();
+        let pool = crate::microvm::pool::Pool::new(
+            state.clone(),
+            root.path().join("unused-image"),
+            stop.clone(),
+            1,
+        )
+        .await
+        .unwrap();
+        let broker = Broker {
+            data: data.clone(),
+            state: state.clone(),
+            pool,
+            active: Default::default(),
+            stop,
+        };
+        let app = Router::new().fallback(any(handler)).with_state(broker);
+        let run = crate::config::id();
+        let failed_attempt = crate::config::id();
+        std::fs::write(state.join(format!("{failed_attempt}.run")), &run).unwrap();
+        std::fs::write(
+            state.join(format!("{failed_attempt}.log")),
+            "private agent output",
+        )
+        .unwrap();
+        let transfer = crate::config::id();
+        let directory = state.join("disks").join(&run);
+        private_dir(&directory).await.unwrap();
+        let mut file = std::fs::File::create(directory.join("data.ext4")).unwrap();
+        file.seek(SeekFrom::Start(8 * 1024 * 1024)).unwrap();
+        file.write_all(b"native session and unpublished work")
+            .unwrap();
+        file.sync_all().unwrap();
+        private_dir(&data.join("archive-transfers").join(&transfer))
+            .await
+            .unwrap();
+        async fn request(
+            app: &Router,
+            run: &str,
+            action: &str,
+            transfer: &str,
+            credential: &str,
+        ) -> u16 {
+            app.clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("POST")
+                        .uri(format!("/disks/{run}/{action}"))
+                        .header("authorization", format!("Bearer {credential}"))
+                        .body(Body::from(json!({"transfer":transfer}).to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }
+        assert_eq!(request(&app, &run, "export", &transfer, "wrong").await, 401);
+        assert_eq!(
+            request(&app, &run, "export", &transfer, "synthetic-runner-secret").await,
+            200
+        );
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(directory.join("lock"))
+            .unwrap();
+        assert_eq!(
+            unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            0
+        );
+        assert_eq!(
+            request(&app, &run, "delete", &transfer, "synthetic-runner-secret").await,
+            409
+        );
+        let inode = lock.metadata().unwrap().ino();
+        drop(lock);
+        assert_eq!(
+            request(&app, &run, "delete", &transfer, "synthetic-runner-secret").await,
+            200
+        );
+        assert!(!directory.join("data.ext4").exists());
+        assert!(!state.join(format!("{failed_attempt}.log")).exists());
+        assert!(state.join(format!("{failed_attempt}.stopped")).exists());
+        assert_eq!(
+            std::fs::metadata(directory.join("lock")).unwrap().ino(),
+            inode
+        );
+        assert_eq!(
+            request(&app, &run, "import", &transfer, "synthetic-runner-secret").await,
+            200
+        );
+        let mut file = std::fs::File::open(directory.join("data.ext4")).unwrap();
+        file.seek(SeekFrom::Start(8 * 1024 * 1024)).unwrap();
+        let mut text = String::new();
+        file.read_to_string(&mut text).unwrap();
+        assert_eq!(text, "native session and unpublished work");
+    }
     #[test]
     fn claude_credentials_have_one_private_destination() {
         let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

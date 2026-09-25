@@ -8,8 +8,12 @@ use tokio::{
     process::Command,
 };
 pub type Environment = HashMap<String, String>;
+pub fn remove_archive_environment(env: &mut Environment) {
+    env.retain(|key, _| !key.starts_with("AWS_") && !key.starts_with("ARCHIVE_"));
+}
 pub fn codex_environment(config: &Config, home: &Path) -> Environment {
     let mut env = std::env::vars().collect::<Environment>();
+    remove_archive_environment(&mut env);
     env.insert("HOME".into(), config.home.to_string_lossy().into_owned());
     env.insert("CODEX_HOME".into(), home.to_string_lossy().into_owned());
     for key in ["CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_THREAD_ID"] {

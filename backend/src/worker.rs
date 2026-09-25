@@ -102,6 +102,22 @@ impl Worker {
     pub async fn start(self: &Arc<Self>, s: Arc<Service>) -> Result<()> {
         self.initialize(&s).await?;
         self.tasks.spawn(crate::chat_titles::run(s.clone()));
+        let retention = s.clone();
+        self.tasks.spawn(async move {
+            let mut timer = tokio::time::interval(Duration::from_secs(15));
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! { _ = retention.shutdown.cancelled() => break, _ = timer.tick() => {} }
+                tokio::select! {
+                    _ = retention.shutdown.cancelled() => break,
+                    result = retention.retention_tick() => {
+                        if let Err(error) = result {
+                            let _ = retention.store.audit("conversation.retention_failed", json!({"message":error.message})).await;
+                        }
+                    }
+                }
+            }
+        });
         let worker = self.clone();
         self.tasks.spawn(async move {
             let mut timer = tokio::time::interval(Duration::from_secs(1));
@@ -716,6 +732,7 @@ impl Worker {
         } else {
             crate::toolkit::environment(&s.config.home, std::env::vars().collect()).await?
         };
+        crate::process::remove_archive_environment(&mut env);
         env.insert("HOME".into(), s.config.home.to_string_lossy().into_owned());
         env.insert(
             "CODEX_HOME".into(),
@@ -1203,6 +1220,10 @@ impl Worker {
         let result = s.store
             .transaction(move |db| {
                 let run = required(db.run(&id)?, "Run not found")?;
+                crate::conversation_lifecycle::require_active_run(db, &id)?;
+                if db.list("chats")?.iter().any(|c| c["runId"] == id && (c["cancelledByDeletion"] == true || c["sessionRestartRequested"] == true)) {
+                    return Err(Error::new(409,"Send a new message and resume the conversation queue to continue; cancelled work will not replay."));
+                }
                 let key = format!("run-checkpoint:{id}");
                 let checkpoint = db.kv(&key)?;
                 let before_launch = run["chatExecution"].is_object() && ["failed", "cancelled"].contains(&text(&run, "status")) && checkpoint.as_ref().is_none_or(|c| c["launched"] != true);
@@ -1580,9 +1601,13 @@ pub async fn routes(s: &Arc<Service>, input: &crate::http::Input) -> Option<Resu
             async {
                 let paused = input.boolean("paused")?;
                 let chat = s.get("chats", id).await?;
+                crate::conversation_lifecycle::require_active(&chat)?;
                 if !paused && let Some(id) = chat["runId"].as_str() {
                     let run = s.store.run(id).await?;
-                    if ["failed", "interrupted", "cancelled"].contains(&text(&run, "status")) {
+                    if ["failed", "interrupted", "cancelled"].contains(&text(&run, "status"))
+                        && chat["cancelledByDeletion"] != true
+                        && chat["sessionRestartRequested"] != true
+                    {
                         s.worker.resume(s, id).await?;
                     }
                 }

@@ -123,6 +123,15 @@ export function useLiveRun(path: () => string) {
     }
     let checking = false
     connection = liveConnection(value, (batch, accepted) => {
+      if (batch.state?.cacheRevision) {
+        try {
+          if (localStorage.getItem('conversation-cache-revision') !== batch.state.cacheRevision) {
+            void clearHistoryCache()
+            localStorage.setItem('conversation-cache-revision', batch.state.cacheRevision)
+          }
+        }
+        catch { void clearHistoryCache() }
+      }
       const reset = batch.reset || (history && batch.history !== history)
         || (batch.state && detail?.run?.id !== batch.state.run?.id)
       if (reset) {
@@ -163,7 +172,7 @@ export function useLiveRun(path: () => string) {
         return
       checking = true
       void api(value.replace(/\/stream$/, '')).catch((e) => {
-        if (!disposed && current === generation && e instanceof ApiError && [401, 403, 404].includes(e.status)) {
+        if (!disposed && current === generation && e instanceof ApiError && [401, 403, 404, 409].includes(e.status)) {
           complete = false
           clearTimeout(saveTimer)
           error.value = e.message

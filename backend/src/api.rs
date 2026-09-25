@@ -75,7 +75,12 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
             s.enqueue(text(&run, "taskId"), "retry", None).await
         }
         ("GET", ["codex", "models"]) => s.models.list(s).await,
-        ("GET", ["chats"]) => Ok(s.chat_list().await?.into()),
+        ("GET", ["conversation-retention"]) => s.retention_preview(if input.query.contains_key("inactivityDays") { Some(input.number("inactivityDays",30,1,3650)?) } else { None }).await,
+        ("PUT", ["conversation-retention"]) => s.retention_save(input.body.clone()).await,
+        ("GET", ["chats"]) => Ok(s.chat_list_view(input.query.get("view").map(String::as_str).unwrap_or("active")).await?.into()),
+        ("DELETE", ["chats", id]) => s.chat_trash(id, input.body["confirm"] == true).await,
+        ("POST", ["chats", id, "new-session"]) => s.chat_new_session(id, input.body["confirm"] == true).await,
+        ("POST", ["chats", id, "restore"]) => s.chat_restore(id).await,
         ("POST", ["chats"]) => s.chat_create(input.body.clone()).await,
         ("GET", ["chats", id]) => {
             let mut detail = s.chat_detail(id).await?;
@@ -87,7 +92,7 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
                     message.as_object_mut().unwrap().remove("answers");
                 }
             }
-            detail["error"] = s.store.kv(&format!("chat-error:{id}")).await?.unwrap_or(Value::Null);
+            detail["error"] = if crate::conversation_lifecycle::state(&detail) == "active" { s.store.kv(&format!("chat-error:{id}")).await?.unwrap_or(Value::Null) } else { Value::Null };
             Ok(detail)
         }
         ("POST", ["chats", id, "messages"]) => s.chat_send(id, input.body.clone()).await,

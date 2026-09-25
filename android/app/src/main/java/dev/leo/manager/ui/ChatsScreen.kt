@@ -9,7 +9,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -50,18 +57,55 @@ fun ChatsScreen(vm: LeoViewModel, state: Workspace, open: (String) -> Unit, crea
         live.error,
         open,
         create,
+        vm,
     )
 }
 
 @Composable
 internal fun ConversationList(
-    chats: List<Chat>,
+    activeChats: List<Chat>,
     selected: String?,
     loading: Boolean,
     error: String?,
     open: (String) -> Unit,
     create: () -> Unit,
+    vm: LeoViewModel,
 ) {
+    var view by rememberSaveable { mutableStateOf("active") }
+    var menu by remember { mutableStateOf(false) }
+    var other by remember { mutableStateOf<List<Chat>>(emptyList()) }
+    var removed by remember { mutableStateOf(setOf<String>()) }
+    var revision by remember { mutableIntStateOf(0) }
+    var confirming by remember { mutableStateOf<Chat?>(null) }
+    var listError by remember { mutableStateOf<String?>(null) }
+    var fetching by remember { mutableStateOf(false) }
+    LaunchedEffect(view, revision) {
+        other = emptyList()
+        if (view != "active") {
+            fetching = true
+            try { other = vm.api.get("/chats?view=$view") }
+            catch (e: Exception) { listError = e.message }
+            finally { fetching = false }
+        }
+    }
+    fun trash(chat: Chat, confirm: Boolean = false) {
+        vm.perform {
+            try {
+                api.request("DELETE", "/chats/${segment(chat.id)}", buildJsonObject { put("confirm", confirm) })
+                removed = removed + chat.id
+                chatDrafts.remove(chat.id)
+                historyCache.clear()
+                confirming = null
+                revision++
+            } catch (e: ApiException) {
+                if (e.status == 409 && !confirm) confirming = chat else throw e
+            }
+        }
+    }
+    confirming?.let { chat ->
+        Confirm("Arrêter et supprimer ?", "Le travail sera arrêté et les envois annulés. La conversation restera récupérable pendant 30 jours.", vm.state.value.busy, vm.state.value.error, { confirming = null }) { trash(chat, true) }
+    }
+    val chats = if (view == "active") activeChats.filter { it.id !in removed } else other
     var query by rememberSaveable { mutableStateOf("") }
     val today =
         java.time.LocalDate.now()
@@ -90,11 +134,20 @@ internal fun ConversationList(
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Conversations", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+            Box {
+                ActionIcon("Afficher les conversations", LeoIcons.More) { menu = true }
+                DropdownMenu(menu, { menu = false }) {
+                    listOf("active" to "Actives", "archives" to "Archives", "trash" to "Corbeille").forEach { (key, label) ->
+                        DropdownMenuItem(text = { Text(label) }, onClick = { view = key; menu = false })
+                    }
+                }
+            }
             ActionIcon("Nouvelle conversation", LeoIcons.Plus, onClick = create)
         }
+        if (view != "active") Text(if (view == "archives") "Archives" else "Corbeille", style = MaterialTheme.typography.labelMedium)
         SearchField("Rechercher une conversation", query) { query = it }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (loading || fetching) LinearProgressIndicator(Modifier.fillMaxWidth())
+        (listError ?: error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn(
             Modifier.weight(1f),
             contentPadding = PaddingValues(vertical = 12.dp),
@@ -120,7 +173,23 @@ internal fun ConversationList(
                         )
                     }
                     items(items, key = { it.id }) { chat ->
+                        var revealed by remember(chat.id, view) { mutableStateOf(false) }
+                        var drag by remember { mutableFloatStateOf(0f) }
+                        val distance = with(LocalDensity.current) { 104.dp.roundToPx() }
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))) {
+                        if (revealed && view != "trash")
+                            TextButton(onClick = { trash(chat) }, modifier = Modifier.align(Alignment.CenterEnd).width(104.dp)) {
+                                Text("Supprimer", color = MaterialTheme.colorScheme.error)
+                            }
                         Surface(
+                            modifier = Modifier.offset { IntOffset(if (revealed) -distance else 0, 0) }
+                                .draggable(
+                                    state = rememberDraggableState { drag += it },
+                                    orientation = Orientation.Horizontal,
+                                    enabled = view != "trash",
+                                    onDragStarted = { drag = 0f },
+                                    onDragStopped = { if (drag < -32f) revealed = true else if (drag > 32f) revealed = false },
+                                ),
                             onClick = { open(chat.id) },
                             color =
                                 if (chat.id == selected) MaterialTheme.colorScheme.primaryContainer
@@ -173,6 +242,7 @@ internal fun ConversationList(
                                 )
                             }
                         }
+                        }
                     }
                 }
         }
@@ -223,6 +293,8 @@ fun ChatScreen(
     var menu by remember { mutableStateOf(false) }
     var fullscreen by rememberSaveable(id) { mutableStateOf(false) }
     var queueExpanded by rememberSaveable(id) { mutableStateOf(false) }
+    var newSession by remember(id) { mutableStateOf(false) }
+    var cancelledExpanded by rememberSaveable(id) { mutableStateOf(false) }
     BackHandler(fullscreen) { fullscreen = false }
     var choosing by rememberSaveable(id) { mutableStateOf(false) }
     var details by rememberSaveable(id) { mutableStateOf(false) }
@@ -638,6 +710,7 @@ fun ChatScreen(
                                 persistDraft()
                                 create()
                             },
+                            vm,
                         )
                     }
                 }
@@ -700,12 +773,41 @@ fun ChatScreen(
                     }
                 }
             }
-            Column(
+            if (chat != null && chat.lifecycle != "active") {
+                Column(Modifier.weight(1f).fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.Center) {
+                    Text(when (chat.lifecycle) {
+                        "trash" -> "Cette conversation est dans la corbeille."
+                        "purging" -> "Effacement en cours…"
+                        "restoring" -> "Restauration en cours…"
+                        "archiving" -> "Archivage en cours…"
+                        else -> "Cette conversation est archivée."
+                    }, style = MaterialTheme.typography.titleLarge)
+                    chat.purgeAt?.let { Text("Effacement prévu : ${date(it)}") }
+                    if (chat.storageClass == "GLACIER") Text("La restauration peut prendre plusieurs heures.")
+                    chat.lifecycleError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    if (chat.lifecycle in setOf("trash", "archived") || (chat.lifecycle == "restoring" && chat.lifecycleError != null)) Button(onClick = {
+                        vm.perform { api.request("POST", "/chats/${segment(chat.id)}/restore") }
+                    }, enabled = !state.busy) { Text(if (chat.lifecycle == "restoring") "Réessayer la restauration" else "Restaurer la conversation") }
+                }
+            } else Column(
                 Modifier.weight(1f)
                     .widthIn(max = 840.dp)
                     .fillMaxWidth()
                     .align(Alignment.CenterHorizontally)
             ) {
+                if (chat?.restoredAt != null && chat.run?.status in setOf("failed", "interrupted") && !chat.sessionRestartRequested)
+                    TextButton({ newSession = true }) { Text("Repartir avec une nouvelle session agent") }
+                if (chat?.sessionRestartRequested == true) Text("Écrivez un nouveau message, puis reprenez la file pour continuer.")
+                val cancelled = chat?.messages.orEmpty().filter { it.status == "cancelled" }
+                if (cancelled.isNotEmpty()) {
+                    TextButton({ cancelledExpanded = !cancelledExpanded }) { Text("Messages annulés (${cancelled.size})") }
+                    if (cancelledExpanded) Column(Modifier.heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
+                        cancelled.forEach { message ->
+                            Text(message.text)
+                            TextButton({ draft = message.text; attachments = message.attachments.map { DraftAttachment(it) }; cancelledExpanded = false }) { Text("Copier dans le message") }
+                        }
+                    }
+                }
                 if (live.catchingUp && id != null) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(28.dp))
@@ -1009,6 +1111,12 @@ fun ChatScreen(
             val current = questions.find { it.id == selected.id }
             if (current == null) LaunchedEffect(selected.id) { asking = null }
             else QuestionDialog(vm, state, current, questions, { asking = it }) { asking = null }
+        }
+        if (newSession && chat != null) Confirm("Nouvelle session agent ?", "L’historique et les fichiers sont conservés. Votre prochain message utilisera une nouvelle session native.", state.busy, state.error, { newSession = false }) {
+            vm.perform {
+                api.request("POST", "/chats/${segment(chat.id)}/new-session", buildJsonObject { put("confirm", true) })
+                newSession = false
+            }
         }
         if (stopping && chat != null)
             Confirm(

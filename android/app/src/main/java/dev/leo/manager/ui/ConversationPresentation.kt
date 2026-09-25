@@ -74,7 +74,7 @@ internal fun chatDelivery(
             .filter { it.type == "chat.user" }
             .mapNotNull { (it.payload?.get("messageId") as? JsonPrimitive)?.contentOrNull }
             .toSet()
-    val messages = chat?.messages.orEmpty().filter { it.status != "delivered" }.toMutableList()
+    val messages = chat?.messages.orEmpty().filter { it.status in setOf("queued", "sending") }.toMutableList()
     if (outgoing != null && messages.none { it.id == outgoing.id }) messages.add(outgoing)
     val active = chat?.run?.active == true
     val canStart = chat?.paused != true && (chat?.run == null || chat.run.status == "succeeded")

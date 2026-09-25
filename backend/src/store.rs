@@ -356,7 +356,9 @@ impl Db<'_> {
         } else {
             "json_set(json_remove(data,'$.snapshot','$.summary'),'$.taskName',json_extract(data,'$.snapshot.task.name'),'$.agentName',json_extract(data,'$.snapshot.agent.name'))"
         };
-        let mut filters = Vec::new();
+        let mut filters = vec![
+            "NOT EXISTS (SELECT 1 FROM records c WHERE c.kind='chats' AND json_extract(c.data,'$.runId')=runs.id AND COALESCE(json_extract(c.data,'$.lifecycle'),'active')<>'active')",
+        ];
         let mut values: Vec<rusqlite::types::Value> = Vec::new();
         if let Some(status) = status {
             filters.push("status=?");
@@ -417,6 +419,7 @@ impl Db<'_> {
             "SELECT json_object('id',r.id,'summary',json_extract(r.data,'$.summary'),
                 'finishedAt',json_extract(r.data,'$.finishedAt')) FROM runs r
              WHERE r.status='succeeded' AND json_extract(r.data,'$.trigger')='chat'
+               AND NOT EXISTS (SELECT 1 FROM records c WHERE c.kind='chats' AND json_extract(c.data,'$.runId')=r.id AND COALESCE(json_extract(c.data,'$.lifecycle'),'active')!='active')
                AND length(trim(COALESCE(json_extract(r.data,'$.summary'),''),char(9)||char(10)||char(13)||' '))>0
                AND NOT EXISTS (
                  SELECT 1 FROM events e WHERE e.run_id=r.id
