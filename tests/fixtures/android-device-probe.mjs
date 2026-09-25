@@ -121,6 +121,13 @@ async function main() {
   process.stdout.write('probe.done\n')
 }
 main().catch((error) => {
+  try {
+    const env = JSON.parse(execFileSync('/usr/local/bin/leo', ['toolkit-env'], { encoding: 'utf8' }))
+    // This disposable device contains only the synthetic probe application.
+    const logcat = execFileSync('adb', ['-s', 'emulator-5580', 'logcat', '-b', 'crash', '-b', 'system', '-d', '-t', '200'], { env, encoding: 'utf8', timeout: 15000 })
+    process.stderr.write(`Android failure diagnostics:\n${logcat}\n`)
+  }
+  catch {}
   const log = '/home/node/.android/leo-emulator.log'
   if (fs.existsSync(log))
     process.stderr.write(`Emulator log:\n${fs.readFileSync(log, 'utf8').slice(-20000).replace(/^.*(?:adb public key|adb.pubkey).*$/gm, '<REDACTED>')}\n`)
