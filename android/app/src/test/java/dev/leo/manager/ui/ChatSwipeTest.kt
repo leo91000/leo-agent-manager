@@ -1,8 +1,13 @@
 package dev.leo.manager.ui
 
 import android.app.Application
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.junit4.StateRestorationTester
+import org.robolectric.annotation.GraphicsMode
+import java.io.File
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
@@ -25,8 +30,12 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w412dp-h915dp-mdpi")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ChatSwipeTest {
     @get:Rule val compose = createComposeRule()
+    private var incomingChat by mutableStateOf("")
+    private val restoration = StateRestorationTester(compose)
+    private val pager get() = compose.onNodeWithTag("conversation-pager")
     private val history get() = compose.onNodeWithTag("conversation-history")
 
     @Before fun setup() {
@@ -46,6 +55,9 @@ class ChatSwipeTest {
         history.performTouchInput { swipeLeft() }
         waitForChat("Chat intermédiaire")
         compose.onNode(hasSetTextAction()).performTextInput("Brouillon intermédiaire")
+        restoration.emulateSavedInstanceStateRestore()
+        waitForChat("Chat intermédiaire")
+        compose.onNode(hasSetTextAction() and hasText("Brouillon intermédiaire")).assertExists()
         history.performTouchInput { swipeLeft() }
         waitForChat("Chat ancien")
         history.performTouchInput { swipeLeft() }
@@ -71,7 +83,7 @@ class ChatSwipeTest {
         title("Chat intermédiaire").assertExists()
         history.performTouchInput {
             down(Offset(width * .85f, centerY))
-            moveTo(Offset(width * .15f, centerY), 300)
+            moveTo(Offset(width * .65f, centerY), 300)
             cancel()
         }
         title("Chat intermédiaire").assertExists()
@@ -80,6 +92,83 @@ class ChatSwipeTest {
         // A cancelled gesture must not leak its accumulated distance into the next one.
         history.performTouchInput { swipeRight() }
         waitForChat("Chat récent")
+    }
+
+    @Test fun fingerRevealsTheActualNeighborBeforeReleaseAndCanReturnToTheCurrentChat() = withChats {
+        open("Chat récent")
+        compose.waitUntil(10000) { hasReply("Chat intermédiaire", visible = false) }
+        val bounds = pager.getUnclippedBoundsInRoot()
+        val width = bounds.right.value - bounds.left.value
+        pager.performTouchInput {
+            down(Offset(this.width * .90f, height * .4f))
+            moveTo(Offset(this.width * .48f, height * .4f), 350)
+        }
+        compose.waitForIdle()
+        val current = compose.onNodeWithTag("chat-page:recent").getUnclippedBoundsInRoot()
+        val next = compose.onNodeWithTag("chat-page:middle").getUnclippedBoundsInRoot()
+        Assert.assertTrue("The current screen follows the finger", current.left.value < -width * .25f)
+        Assert.assertTrue("The next screen is already visible", next.left.value in 0f..width * .85f)
+        Assert.assertEquals("Pages stay side by side", current.right.value, next.left.value, 1f)
+        Assert.assertTrue("The preview contains the real reply", hasReply("Chat intermédiaire", visible = true))
+        title("Chat récent").assertExists()
+        screenshot("chat-swipe-preview-left")
+        // Change your mind without lifting: the same screens follow the finger back.
+        pager.performTouchInput {
+            moveTo(Offset(this.width * .88f, height * .4f), 350)
+            up()
+        }
+        waitForChat("Chat récent")
+        Assert.assertEquals(0f, compose.onNodeWithTag("chat-page:recent").getUnclippedBoundsInRoot().left.value, 1f)
+        history.performTouchInput { swipeLeft() }
+        waitForChat("Chat intermédiaire")
+        pager.performTouchInput {
+            down(Offset(this.width * .10f, height * .4f))
+            moveTo(Offset(this.width * .52f, height * .4f), 350)
+        }
+        compose.waitForIdle()
+        val previous = compose.onNodeWithTag("chat-page:recent").getUnclippedBoundsInRoot()
+        val middle = compose.onNodeWithTag("chat-page:middle").getUnclippedBoundsInRoot()
+        Assert.assertTrue("The previous screen is visible while swiping right", previous.right.value in 1f..width * .85f)
+        Assert.assertEquals(previous.right.value, middle.left.value, 1f)
+        Assert.assertTrue(hasReply("Chat récent", visible = true))
+        screenshot("chat-swipe-preview-right")
+        pager.performTouchInput {
+            moveTo(Offset(this.width * .12f, height * .4f), 350)
+            up()
+        }
+        waitForChat("Chat intermédiaire")
+    }
+
+    private fun hasReply(chat: String, visible: Boolean): Boolean = compose.runOnIdle {
+        val activity = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+            .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED).first()
+        fun descendants(view: android.view.View): Sequence<android.view.View> = sequence {
+            yield(view)
+            if (view is android.view.ViewGroup)
+                for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
+        }
+        descendants(activity.window.decorView).filterIsInstance<android.widget.TextView>().any {
+            it.text.contains("de $chat") && (!visible || it.getGlobalVisibleRect(android.graphics.Rect()))
+        }
+    }
+
+    private fun screenshot(name: String) {
+        val dir = System.getProperty("leo.screenshots.dir") ?: return
+        File(dir).mkdirs()
+        File(dir, "$name.png").outputStream().use {
+            compose.onRoot().captureToImage().asAndroidBitmap()
+                .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        }
+    }
+
+    @Test fun notificationReopensItsRequestedChatAfterSwipingAwayFromIt() = withChats {
+        open("Chat récent")
+        history.performTouchInput { swipeLeft() }
+        waitForChat("Chat intermédiaire")
+        compose.runOnIdle { incomingChat = "recent" }
+        waitForChat("Chat récent")
+        compose.onNodeWithContentDescription("Retour").performClick()
+        compose.onNodeWithTag("fil").assertExists()
     }
 
     @Test fun singleAndNewConversationsDoNotNavigate() = withChats(single = true) {
@@ -154,12 +243,16 @@ class ChatSwipeTest {
                 override fun write(origin: String, cookie: String?) = Unit
             }
             val vm = LeoViewModel(ApplicationProvider.getApplicationContext<Application>(), vault)
-            compose.setContent {
+            restoration.setContent {
+                val state by vm.state.collectAsStateWithLifecycle()
                 LaunchedEffect(Unit) {
                     vm.state.first { it.ready }
                     vm.connect(server.url("/").toString())
                 }
-                LeoTheme { LeoApp(vm = vm) }
+                LeoTheme {
+                    LeoApp(vm = vm, targetChat = incomingChat, targetOrigin = state.origin,
+                        consumedTarget = { incomingChat = "" })
+                }
             }
             try { test() } finally { vm.api.closeStreams() }
         }

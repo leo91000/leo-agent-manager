@@ -234,10 +234,12 @@ internal fun ConversationList(
 }
 
 @Composable
-fun ChatScreen(
+internal fun ChatPage(
     vm: LeoViewModel,
     state: Workspace,
     id: String?,
+    conversations: LiveSnapshot,
+    selected: Boolean = true,
     initialAgent: String = MAIN_AGENT_ID,
     initialProject: String = "",
     openChat: (String) -> Unit,
@@ -247,24 +249,9 @@ fun ChatScreen(
     openConnections: () -> Unit = {},
 ) {
     val pageAnchor = remember(id) { HistoryPageAnchor() }
-    val live =
-        rememberLive(
-            vm,
-            state,
-            if (id == null) "/chats/stream" else "/chats/${segment(id)}/stream",
-            pageAnchor::beforeApply,
-        )
+    val live = if (id == null) conversations else
+        rememberLive(vm, state, "/chats/${segment(id)}/stream", pageAnchor::beforeApply)
     val chat = live.state?.chat?.takeIf { it.id == id }
-    val conversations = if (id == null) live else rememberLive(vm, state, "/chats/stream")
-    val conversationIds = remember(conversations.state?.chats) {
-        conversations.state?.chats.orEmpty()
-            .filter { it.lifecycle == "active" }
-            .sortedByDescending { it.updatedAt }
-            .map { it.id }
-    }
-    val conversationIndex = conversationIds.indexOf(id)
-    val previousChat = if (conversationIndex > 0) conversationIds[conversationIndex - 1] else null
-    val nextChat = if (conversationIndex >= 0) conversationIds.getOrNull(conversationIndex + 1) else null
     var createdId by rememberSaveable(id) { mutableStateOf<String?>(null) }
     var agent by rememberSaveable(id) { mutableStateOf(initialAgent) }
     var project by rememberSaveable(id) { mutableStateOf(initialProject) }
@@ -291,7 +278,7 @@ fun ChatScreen(
     var queueExpanded by rememberSaveable(id) { mutableStateOf(false) }
     var newSession by remember(id) { mutableStateOf(false) }
     var cancelledExpanded by rememberSaveable(id) { mutableStateOf(false) }
-    BackHandler(fullscreen) { fullscreen = false }
+    BackHandler(selected && fullscreen) { fullscreen = false }
     var choosing by rememberSaveable(id) { mutableStateOf(false) }
     var details by rememberSaveable(id) { mutableStateOf(false) }
     var outgoing by remember(id) { mutableStateOf<ChatMessage?>(null) }
@@ -311,29 +298,6 @@ fun ChatScreen(
     }
     SideEffect { persistDraft() }
     DisposableEffect(draftKey) { onDispose { persistDraft() } }
-    val switchChat by rememberUpdatedState<(String) -> Unit> {
-        persistDraft()
-        openChat(it)
-    }
-    val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
-    val chatSwipe = if (previousChat == null && nextChat == null) Modifier else
-        Modifier.pointerInput(id, previousChat, nextChat, swipeThreshold) {
-            var distance = 0f
-            detectHorizontalDragGestures(
-                onDragStart = { distance = 0f },
-                onHorizontalDrag = { _, amount -> distance += amount },
-                onDragCancel = { distance = 0f },
-                onDragEnd = {
-                    val target = when {
-                        distance <= -swipeThreshold -> nextChat
-                        distance >= swipeThreshold -> previousChat
-                        else -> null
-                    }
-                    distance = 0f
-                    target?.let { switchChat(it) }
-                },
-            )
-        }
     LaunchedEffect(chat?.messages, live.events) {
         outgoing?.let { pending ->
             if (
@@ -411,7 +375,7 @@ fun ChatScreen(
         else matchSkills(skillOptions, mention.query)
     val showSkills = mention != null && mention.start != dismissedMention &&
         (suggestions.isNotEmpty() || mention.query.firstOrNull()?.isDigit() != true)
-    BackHandler(showSkills) { dismissedMention = mention?.start }
+    BackHandler(selected && showSkills) { dismissedMention = mention?.start }
     val projects =
         state.projects.filter {
             selectedAgent?.access?.projects == null ||
@@ -574,7 +538,8 @@ fun ChatScreen(
             if (!fullscreen) {
                 val agentName = chat?.agentName?.ifBlank { null } ?: selectedAgent?.name ?: "Agent"
                 ConversationHeader(
-                    title = chat?.title ?: "Nouvelle conversation",
+                    title = chat?.title ?: conversations.state?.chats?.find { it.id == id }?.title
+                        ?: if (id == null) "Nouvelle conversation" else "Conversation",
                     agent = agentName,
                     agentKey = chat?.agentId ?: agent,
                     status = when {
@@ -840,7 +805,6 @@ fun ChatScreen(
                         LazyColumn(
                             Modifier.fillMaxSize()
                                 .testTag("conversation-history")
-                                .then(chatSwipe)
                                 .historyFollowGesture(followGesture),
                             state = listState,
                             contentPadding = PaddingValues(16.dp),
@@ -945,7 +909,9 @@ fun ChatScreen(
                     )
                 if (!fullscreen)
                     Surface(
-                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp).testTag("conversation-composer"),
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp).testTag("conversation-composer")
+                            // Text selection and editing own horizontal gestures in the composer.
+                            .pointerInput(Unit) { detectHorizontalDragGestures { _, _ -> } },
                         shape = RoundedCornerShape(26.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         color = MaterialTheme.colorScheme.surface,

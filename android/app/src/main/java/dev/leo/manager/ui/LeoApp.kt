@@ -76,7 +76,13 @@ fun LeoApp(
     }
     LaunchedEffect(targetChat, state.origin) {
         if (targetChat.isNotBlank() && targetOrigin == state.origin) {
-            nav.navigate("chat/${segment(targetChat)}") { launchSingleTop = true }
+            nav.navigate("chat/${segment(targetChat)}") {
+                // A pager may now display a different chat from its route's starting id.
+                if (nav.currentDestination?.route == "chat/{id}") {
+                    popUpTo("chat/{id}") { inclusive = true }
+                }
+                launchSingleTop = true
+            }
             consumedTarget()
         }
     }

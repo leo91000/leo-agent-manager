@@ -12,10 +12,13 @@ Version 0.30.1 shows waiting reasons in conversations and links to Connections w
 Version 0.30.0 adds in-app APK updates from stable Git tags. See [update distribution](docs/UPDATES.md).
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
-Swipe left or right across a conversation's history to open the next or previous
-active chat in the selector's most-recent-first order. Navigation stops at either
-end, preserves each chat's draft, and leaves vertical scrolling and composer
-gestures available. New conversations and archives do not participate.
+Swipe left or right across a conversation to slide between active chats in the
+selector's most-recent-first order. The full screens follow the finger, with the
+neighboring chat's real content prepared ahead of time; releasing snaps to a page,
+and reversing the gesture lets you stay in the current chat. Drafts and reading
+positions stay with each chat. The composer retains its editing gestures. List
+updates wait until a swipe settles, and navigation stops at either end. New
+conversations and archives do not participate.
 Version 0.15.0 adds a configurable limit for simultaneous Claude conversations in Connections (server 0.29.0). The default is four; lowering the limit lets active conversations finish.
 Version 0.14.0 displays Claude Code usage limits and reset dates in Connections (server 0.28.0).
 Version 0.13.0 adds the GitHub repository picker and automatic project imports (server 0.27.0).
