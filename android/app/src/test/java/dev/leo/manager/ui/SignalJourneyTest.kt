@@ -156,7 +156,8 @@ class SignalJourneyTest {
         compose.onNodeWithText("POUR VOUS").assertExists()
         compose.onNodeWithText("EN COURS").assertExists()
         compose.onNodeWithText("RÉCENTS").assertExists()
-        compose.onNodeWithText("1 agent au travail · 2 éléments pour vous").assertExists()
+        // Conversations and mission activity arrive through separate requests.
+        waitText("1 agent au travail · 2 éléments pour vous")
         compose.onNodeWithText("Une question vous attend").assertExists()
         compose.onNodeWithText("14 min").assertExists()
         compose.onNodeWithText("Revue quotidienne").assertExists()
