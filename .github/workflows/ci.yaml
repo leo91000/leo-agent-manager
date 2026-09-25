@@ -191,35 +191,11 @@ jobs:
         run: |
           node tests/container-smoke.mjs "$SMOKE_IMAGE"
           node tests/runner-smoke.mjs "$SMOKE_IMAGE"
-  nested-android:
-    name: Intel nested Android qualification
-    needs: [resolve, image]
-    if: github.event_name != 'pull_request' && needs.resolve.outputs.reuse != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      statuses: read
-    outputs:
-      status-id: ${{ steps.validation.outputs.status-id }}
-      report-url: ${{ steps.validation.outputs.report-url }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: pnpm/setup@v2.1.0
-        with:
-          runtime: node@24
-          require-lockfile: true
-          install: false
-      - name: Require the external Intel test of this exact image
-        id: validation
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
-          NESTED_KVM_VALIDATOR: ${{ vars.NESTED_KVM_VALIDATOR || github.repository_owner }}
-        run: node scripts/nested-android-validation.mjs wait
   publish:
-    needs: [resolve, quality, browser, image, nested-android]
-    if: always() && !cancelled() && github.event_name != 'pull_request' && needs.resolve.outputs.reuse != 'true' && needs.quality.result == 'success' && needs.browser.result == 'success' && needs.image.result == 'success' && needs.nested-android.result == 'success'
+    # The Intel nested Android test needs hardware GitHub does not provide; it runs locally
+    # before releases when Android or runner changes need it (docs/DEPLOYMENT.md) and does not gate CI.
+    needs: [resolve, quality, browser, image]
+    if: always() && !cancelled() && github.event_name != 'pull_request' && needs.resolve.outputs.reuse != 'true' && needs.quality.result == 'success' && needs.browser.result == 'success' && needs.image.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -256,13 +232,11 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
-          INTEL_STATUS_ID: ${{ needs.nested-android.outputs.status-id }}
-          INTEL_REPORT_URL: ${{ needs.nested-android.outputs.report-url }}
         run: |
           mkdir -p release-evidence
           node --input-type=module <<'JS'
           import { writeFileSync } from 'node:fs'
-          writeFileSync('release-evidence/image.json', JSON.stringify({ schema: 1, repository: process.env.GITHUB_REPOSITORY.toLowerCase(), commit: process.env.GITHUB_SHA, digest: process.env.IMAGE_DIGEST, runId: Number(process.env.GITHUB_RUN_ID), intelQualification: { statusId: Number(process.env.INTEL_STATUS_ID), reportUrl: process.env.INTEL_REPORT_URL } }))
+          writeFileSync('release-evidence/image.json', JSON.stringify({ schema: 1, repository: process.env.GITHUB_REPOSITORY.toLowerCase(), commit: process.env.GITHUB_SHA, digest: process.env.IMAGE_DIGEST, runId: Number(process.env.GITHUB_RUN_ID) }))
           JS
       - uses: actions/upload-artifact@v7.0.1
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

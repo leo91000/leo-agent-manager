@@ -199,11 +199,13 @@ and [Codex authentication](https://learn.chatgpt.com/docs/auth) for the underlyi
 then replace both services when idle, with runtime verification and rollback.
 The VPS timer runs independently of your computer and does not change app versions.
 
-### Intel qualification before publishing an image
+### Local Intel qualification
 
 The main pipeline builds an immutable image and runs the normal backend, browser,
-Android and Firecracker checks on GitHub. The nested Android test runs separately
-on an Intel Linux host with nested KVM enabled. The GitHub-hosted AMD diagnostic
+Android and Firecracker checks on GitHub; those checks alone gate publication and
+deployment. The nested Android test needs an Intel Linux host with nested KVM, which
+GitHub does not provide, so it is not part of CI. Run it locally before a release
+that changes Android or the runner. The GitHub-hosted AMD diagnostic
 remains available through **Nested Android probe**; it is not release evidence for
 Intel. No persistent GitHub runner or GitHub credential is installed on the Intel
 host.
@@ -233,15 +235,7 @@ from the trusted operator environment (not the Intel host), record the result:
 node scripts/nested-android-validation.mjs record /path/to/intel.json https://<durable-report-url>
 ```
 
-The operator needs GitHub commit-status write permission. CI only has status-read
-permission. The validation job waits up to 40 minutes for a successful status from
-`NESTED_KVM_VALIDATOR` (a repository variable, defaulting to the repository owner).
-The status is attached to the exact commit and its context includes the full image
-digest. A different digest, untrusted author, failed result or missing report cannot
-unlock publication. Evidence for one build never approves another build of the
-same commit. If the check expires before the host test finishes, record the result
-and rerun only the failed validation job, preserving the built image.
+The recorded commit status documents the result; CI does not wait for it.
 
-Image promotion requires this qualification and all ordinary CI checks. The
-`validated-image` artifact records the Intel status ID and report URL alongside
-the image digest. Tag releases reuse the successful main pipeline's exact image.
+Image promotion requires the ordinary CI checks. Tag releases reuse the successful
+main pipeline's exact image.
