@@ -110,6 +110,14 @@ async fn official_login_cancellation_failure_retry_identity_and_logout() {
             .iter()
             .any(|effort| effort["reasoningEffort"] == "high")
     );
+    // The default alias shows the model and effort Claude Code actually uses.
+    assert_eq!(catalog["models"][0]["defaultReasoningEffort"], "high");
+    assert_eq!(catalog["models"][2]["model"], "default");
+    assert_eq!(
+        catalog["models"][2]["displayName"],
+        "Opus Fixture (1M context)"
+    );
+    assert_eq!(catalog["models"][2]["defaultReasoningEffort"], "medium");
     route(&s, "DELETE", "connection", json!({})).await.unwrap();
     assert_eq!(
         route(&s, "GET", "connection", Value::Null).await.unwrap()["connected"],

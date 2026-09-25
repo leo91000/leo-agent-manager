@@ -166,6 +166,12 @@ class SignalJourneyTest {
         waitCall("POST", "/api/tasks/daily/run")
         waitDescription("Retour")
         compose.onNodeWithContentDescription("Retour").performClick()
+        // A running conversation shows the live working indicator.
+        waitText("Refonte de l’application")
+        compose.onNodeWithText("Refonte de l’application").performClick()
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent-working").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("agent-working").assert(hasContentDescription("Agent principal travaille"))
+        compose.onNodeWithContentDescription("Retour").performClick()
         // Answering a question opens its conversation.
         waitText("Répondre")
         compose.onNodeWithText("Répondre").performClick()

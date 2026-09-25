@@ -200,16 +200,19 @@ internal fun ConversationList(
                                 Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                AgentAvatar(
-                                    chat.agentName.ifBlank { chat.title },
-                                    chat.agentId,
-                                    40.dp,
-                                    when {
-                                        chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted") -> AvatarBadge.ATTENTION
-                                        !chat.paused && chat.status in setOf("running", "queued") -> AvatarBadge.LIVE
-                                        else -> null
-                                    },
-                                )
+                                val working = chat.pendingQuestions == 0 && !chat.paused && chat.status == "running"
+                                if (working) WorkingAvatar(chat.agentName.ifBlank { chat.title }, chat.agentId, 40.dp)
+                                else
+                                    AgentAvatar(
+                                        chat.agentName.ifBlank { chat.title },
+                                        chat.agentId,
+                                        40.dp,
+                                        when {
+                                            chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted") -> AvatarBadge.ATTENTION
+                                            !chat.paused && chat.status == "queued" -> AvatarBadge.LIVE
+                                            else -> null
+                                        },
+                                    )
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(
@@ -218,7 +221,8 @@ internal fun ConversationList(
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    Text(
+                                    if (working) WorkingLabel(statusLabel(chat.status))
+                                    else Text(
                                         when {
                                             chat.pendingQuestions > 0 -> "${chat.pendingQuestions} question(s) en attente"
                                             chat.paused -> "En pause"
@@ -875,10 +879,11 @@ fun ChatScreen(
                                 }
                             }
                             if (chat?.run?.status == "running" && !live.catchingUp)
-                                item {
-                                    Text(
-                                        "L’agent travaille…",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                item(key = "agent-working") {
+                                    WorkingIndicator(
+                                        remember(live.events, chat.agentName, chat.run.startedAt) {
+                                            workingStep(live.events, chat.agentName, chat.run.startedAt)
+                                        }
                                     )
                                 }
                         }

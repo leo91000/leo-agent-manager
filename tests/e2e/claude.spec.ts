@@ -108,6 +108,9 @@ test('switching coding agents preserves one chat, context and provider selection
   // Claude's own "default" alias is the same choice as the provider default row.
   await expect(menu.getByRole('radio', { name: 'Default (recommended)', exact: true })).toHaveCount(0)
   await expect(menu.getByRole('radio', { name: 'Claude Code default', exact: true })).toHaveAccessibleDescription('Opus with 1M context · Best for everyday tasks')
+  await expect(menu.getByRole('radio', { name: 'Claude Code default', exact: true })).toHaveAttribute('aria-checked', 'true')
+  // The picker value names the model and effort behind the default, not the alias.
+  await expect(picker).toHaveAccessibleName('Agent, model and reasoning: Claude Code · Opus Fixture (1M context) · Medium reasoning')
   await menu.getByRole('radio', { name: 'Sonnet', exact: true }).click()
   await expect(menu.getByRole('radiogroup', { name: 'Reasoning' })).toBeVisible()
   await menu.getByRole('button', { name: 'Close', exact: true }).click()

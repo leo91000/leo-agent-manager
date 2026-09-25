@@ -157,12 +157,50 @@ async fn query_metadata(s: &Service, request: Option<Value>) -> Result<Value> {
     drain.abort();
     result
 }
+// Claude Code caches its account's model catalog. Unlike the initialize response, it names the
+// model behind each alias and marks the default effort. A missing cache only hides those details.
+async fn cached_catalog(directory: &Path) -> Vec<Value> {
+    let mut newest = (i64::MIN, Vec::new());
+    let Ok(mut entries) = tokio::fs::read_dir(directory.join("cache/model-catalog")).await else {
+        return Vec::new();
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let Ok(bytes) = tokio::fs::read(entry.path()).await else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+            continue;
+        };
+        let at = value["fetchedAt"].as_i64().unwrap_or(0);
+        if let Some(models) = value["catalog"]["config"]["models"]
+            .as_array()
+            .filter(|_| at > newest.0)
+        {
+            newest = (at, models.clone());
+        }
+    }
+    newest.1
+}
 async fn discover_models(s: &Service) -> Result<Value> {
     let value = query_metadata(s, None).await?;
     let rows = value["models"]
         .as_array()
         .ok_or_else(|| Error::new(502, "Update Claude Code to load its model catalog."))?;
-    let models = rows.iter().filter(|row| !text(row, "value").is_empty()).map(|row| json!({"model":row["value"],"displayName":row["displayName"],"description":row["description"],"hidden":false,"isDefault":row["value"]=="default","defaultReasoningEffort":"","supportedReasoningEfforts":row["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|effort|json!({"reasoningEffort":effort,"description":""})).collect::<Vec<_>>()})).collect::<Vec<_>>();
+    let cached = cached_catalog(&home(&s.config)).await;
+    let models = rows.iter().filter(|row| !text(row, "value").is_empty()).map(|row| {
+        let resolved = text(row, "resolvedModel");
+        let entry = cached.iter().find(|model| model["id"] == resolved.strip_suffix("[1m]").unwrap_or(resolved));
+        let efforts = row["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>();
+        let effort = entry.and_then(|model| model["thinking"]["effort_options"].as_array()).into_iter().flatten().find(|option| option["badge"]["message"] == "Default").map(|option| text(option, "id")).filter(|effort| efforts.contains(effort)).unwrap_or_default();
+        // The "default" alias names itself "Default (recommended)". Show the model it runs instead.
+        let name = match entry.map(|model| text(model, "name")).filter(|name| !name.is_empty()) {
+            _ if row["value"] != "default" => text(row, "displayName").to_owned(),
+            Some(name) if resolved.ends_with("[1m]") => format!("{name} (1M context)"),
+            Some(name) => name.to_owned(),
+            None => text(row, "description").split(" · ").next().filter(|name| !name.is_empty()).unwrap_or(text(row, "displayName")).to_owned(),
+        };
+        json!({"model":row["value"],"displayName":name,"description":row["description"],"hidden":false,"isDefault":row["value"]=="default","defaultReasoningEffort":effort,"supportedReasoningEfforts":efforts.iter().map(|effort|json!({"reasoningEffort":effort,"description":""})).collect::<Vec<_>>()})
+    }).collect::<Vec<_>>();
     if models.is_empty() {
         return Err(Error::new(502, "Claude Code returned no available models."));
     }
