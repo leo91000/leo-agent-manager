@@ -191,26 +191,58 @@ async fn cached_catalog(directory: &Path) -> Vec<Value> {
     }
     newest.1
 }
+// Applied whenever the catalog is served, including one stored while runs blocked refreshes.
+fn present(catalog: &mut Value, cached: &[Value]) {
+    for row in catalog["models"].as_array_mut().into_iter().flatten() {
+        let resolved = text(row, "resolvedModel").to_owned();
+        let entry = cached.iter().find(|model| {
+            !resolved.is_empty()
+                && model["id"] == resolved.strip_suffix("[1m]").unwrap_or(&resolved)
+        });
+        let efforts = row["supportedReasoningEfforts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|effort| text(effort, "reasoningEffort").to_owned())
+            .collect::<Vec<_>>();
+        if text(row, "defaultReasoningEffort").is_empty()
+            && let Some(effort) = entry
+                .and_then(|model| model["thinking"]["effort_options"].as_array())
+                .into_iter()
+                .flatten()
+                .find(|option| option["badge"]["message"] == "Default")
+                .map(|option| text(option, "id").to_owned())
+                .filter(|effort| efforts.contains(effort))
+        {
+            row["defaultReasoningEffort"] = effort.into();
+        }
+        // The "default" alias names itself "Default (recommended)". Show the model it runs instead.
+        if row["model"] == "default" && text(row, "displayName").starts_with("Default") {
+            let name = match entry
+                .map(|model| text(model, "name"))
+                .filter(|name| !name.is_empty())
+            {
+                Some(name) if resolved.ends_with("[1m]") => format!("{name} (1M context)"),
+                Some(name) => name.to_owned(),
+                None => match text(row, "description")
+                    .split(" · ")
+                    .next()
+                    .filter(|name| !name.is_empty())
+                {
+                    Some(name) => name.to_owned(),
+                    None => continue,
+                },
+            };
+            row["displayName"] = name.into();
+        }
+    }
+}
 async fn discover_models(s: &Service) -> Result<Value> {
     let value = query_metadata(s, None).await?;
     let rows = value["models"]
         .as_array()
         .ok_or_else(|| Error::new(502, "Update Claude Code to load its model catalog."))?;
-    let cached = cached_catalog(&home(&s.config)).await;
-    let models = rows.iter().filter(|row| !text(row, "value").is_empty()).map(|row| {
-        let resolved = text(row, "resolvedModel");
-        let entry = cached.iter().find(|model| model["id"] == resolved.strip_suffix("[1m]").unwrap_or(resolved));
-        let efforts = row["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>();
-        let effort = entry.and_then(|model| model["thinking"]["effort_options"].as_array()).into_iter().flatten().find(|option| option["badge"]["message"] == "Default").map(|option| text(option, "id")).filter(|effort| efforts.contains(effort)).unwrap_or_default();
-        // The "default" alias names itself "Default (recommended)". Show the model it runs instead.
-        let name = match entry.map(|model| text(model, "name")).filter(|name| !name.is_empty()) {
-            _ if row["value"] != "default" => text(row, "displayName").to_owned(),
-            Some(name) if resolved.ends_with("[1m]") => format!("{name} (1M context)"),
-            Some(name) => name.to_owned(),
-            None => text(row, "description").split(" · ").next().filter(|name| !name.is_empty()).unwrap_or(text(row, "displayName")).to_owned(),
-        };
-        json!({"model":row["value"],"displayName":name,"description":row["description"],"hidden":false,"isDefault":row["value"]=="default","defaultReasoningEffort":effort,"supportedReasoningEfforts":efforts.iter().map(|effort|json!({"reasoningEffort":effort,"description":""})).collect::<Vec<_>>()})
-    }).collect::<Vec<_>>();
+    let models = rows.iter().filter(|row| !text(row, "value").is_empty()).map(|row| json!({"model":row["value"],"resolvedModel":text(row,"resolvedModel"),"displayName":row["displayName"],"description":row["description"],"hidden":false,"isDefault":row["value"]=="default","defaultReasoningEffort":"","supportedReasoningEfforts":row["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|effort|json!({"reasoningEffort":effort,"description":""})).collect::<Vec<_>>()})).collect::<Vec<_>>();
     if models.is_empty() {
         return Err(Error::new(502, "Claude Code returned no available models."));
     }
@@ -315,6 +347,11 @@ async fn usage(s: &Service, can_query: bool) -> Result<Value> {
 }
 
 async fn model_catalog(s: &Service) -> Result<Value> {
+    let mut catalog = stored_catalog(s).await?;
+    present(&mut catalog, &cached_catalog(&home(&s.config)).await);
+    Ok(catalog)
+}
+async fn stored_catalog(s: &Service) -> Result<Value> {
     let _guard = s.claude.gate.lock().await;
     let mut cached = s.store.kv("claude-models").await?.unwrap_or_else(models);
     if active(s).await?

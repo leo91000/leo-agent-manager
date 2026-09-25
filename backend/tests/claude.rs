@@ -118,6 +118,20 @@ async fn official_login_cancellation_failure_retry_identity_and_logout() {
         "Opus Fixture (1M context)"
     );
     assert_eq!(catalog["models"][2]["defaultReasoningEffort"], "medium");
+    // A catalog stored before these labels existed, served while refreshes are skipped.
+    s.store
+        .set(
+            "claude-models",
+            json!({"models":[{"model":"default","displayName":"Default (recommended)","description":"Opus 5.5 with 1M context · Best for everyday tasks","isDefault":true,"defaultReasoningEffort":"","supportedReasoningEfforts":[]}],"checkedAt":chrono::Utc::now().timestamp_millis(),"stale":false,"error":""}),
+            None,
+        )
+        .await
+        .unwrap();
+    let catalog = route(&s, "GET", "models", Value::Null).await.unwrap();
+    assert_eq!(
+        catalog["models"][0]["displayName"],
+        "Opus 5.5 with 1M context"
+    );
     route(&s, "DELETE", "connection", json!({})).await.unwrap();
     assert_eq!(
         route(&s, "GET", "connection", Value::Null).await.unwrap()["connected"],
