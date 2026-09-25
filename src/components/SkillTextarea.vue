@@ -34,6 +34,15 @@ function track() {
   caret.value = textarea.value?.selectionStart ?? model.value.length
   scrollTop.value = textarea.value?.scrollTop ?? 0
 }
+function focus() {
+  dismissed.value = null
+  track()
+  // WebKit restores the selection after dispatching focus.
+  requestAnimationFrame(() => {
+    if (document.activeElement === textarea.value)
+      track()
+  })
+}
 function scope(skill: SkillOption) {
   return skill.scope === 'global' ? 'Global' : state.projects.find(project => project.id === skill.scope)?.name ?? 'Project'
 }
@@ -116,7 +125,7 @@ defineExpose({ focus: () => textarea.value?.focus() })
     <textarea
       ref="textarea" v-model="model" v-bind="$attrs" aria-autocomplete="list" :aria-controls="open ? listId : undefined" :aria-activedescendant="open && matches.length ? `${listId}-${active}` : undefined"
       class="relative block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!"
-      @keydown="key" @input="track" @click="track" @keyup="track" @focus="dismissed = null; track()" @select="track" @scroll="track" @blur="dismissed = mention?.start ?? null"
+      @keydown="key" @input="track" @click="track" @keyup="track" @focus="focus" @select="track" @scroll="track" @blur="dismissed = mention?.start ?? null"
     />
   </div>
 </template>

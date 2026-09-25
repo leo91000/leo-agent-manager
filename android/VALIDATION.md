@@ -1,4 +1,16 @@
-# Android 0.9.0 — model and reasoning controls
+# Android 0.33.3 — empty skill suggestions
+
+`SkillMentionCases` is shared by the Robolectric and Android 16 device suites.
+It covers `$` with no available skills, a search with no matching skill,
+Back dismissal without losing the draft, ordinary `$HOME` and `$5` text,
+and sending the unchanged message while the empty state is visible.
+The existing suggestion selection and highlighted history journey also remains covered.
+
+Local validation: both UI journeys and the four skill logic tests pass, as does
+`lintDebug`. The Android workflow validates the complete suite and the device
+journeys before publishing the signed release APK.
+
+## Previous validation: Android 0.9.0 — model and reasoning controls
 
 `ModelPickerCases` runs in Robolectric and Android 16 instrumentation. It covers
 slider touch and accessibility actions, inherited defaults, model search and

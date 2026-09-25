@@ -64,7 +64,7 @@ test('typing $ suggests skills, inserts one with the keyboard and invokes it for
   await expect(sent).not.toContainText('invoked_skills')
 })
 
-test('an empty skill catalog explains why $ has no suggestions without trapping the keyboard', async ({ page, workspace }) => {
+test('an empty skill catalog explains why $ has no suggestions without trapping the keyboard', async ({ page, workspace, hasTouch }) => {
   await page.route('**/api/skills', route => route.fulfill({ json: [] }))
   const chat = await workspace.api('/api/chats', 'POST', {})
   await page.goto(`/chats/${chat.id}`)
@@ -101,6 +101,12 @@ test('an empty skill catalog explains why $ has no suggestions without trapping 
   await composer.fill('$css')
   await expect(empty).toBeVisible()
   await composer.press('Enter')
+  if (hasTouch) {
+    // Touch keyboards keep Enter for a newline; the send button submits.
+    await expect(composer).toHaveValue('$css\n')
+    await composer.press('Backspace')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+  }
   await expect.poll(async () => (await workspace.api(`/api/chats/${chat.id}`)).run?.status, { timeout: 20000 }).toBe('succeeded')
   expect((await workspace.api(`/api/chats/${chat.id}`)).run.chatExecution.text).toBe('$css')
 })
