@@ -13,6 +13,8 @@ test('selects live models and supported reasoning for agents and queued chat tur
   const menu = page.getByRole('dialog', { name: 'Agent & model' })
   const reasoning = menu.getByRole('radiogroup', { name: 'Reasoning' })
   const effort = (name: string) => reasoning.getByRole('radio', { name, exact: true })
+  // Before the menu opens, the picker names the model and effort Codex uses by default.
+  await expect(picker).toHaveAccessibleName('Agent, model and reasoning: Codex · Quick coder · Low reasoning')
   await picker.click()
   await expect(menu.getByRole('radio', { name: 'Deep thinker', exact: true })).toBeVisible()
   await expect(menu.getByRole('radio', { name: 'Quick coder', exact: true })).toHaveCount(1)
