@@ -1,6 +1,8 @@
 package dev.leo.manager.ui
 
 import android.app.Application
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -18,13 +20,17 @@ import org.junit.Assert.*
 abstract class SkillMentionCases {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun dollarSuggestsSkillsAndInsertsTheChosenOneBeforeSending() {
+    @Test fun dollarSuggestsSkillsAndInsertsTheChosenOneBeforeSending() = skillJourney(false)
+
+    @Test fun emptySkillsExplainsTheMissingSuggestionsAndCanBeDismissed() = skillJourney(true)
+
+    private fun skillJourney(noSkills: Boolean) {
         MockWebServer().use { server ->
             val sent = CopyOnWriteArrayList<JsonObject>()
             val agent = Agent(MAIN_AGENT_ID, "Agent principal")
             val run = Run("run", status = "succeeded", snapshot = Snapshot(agent = agent))
             val chat = Chat("chat", title = "Skills", runId = "run", agentName = agent.name, run = run)
-            val skills = listOf(
+            val skills = if (noSkills) emptyList() else listOf(
                 Skill("review", "Relire les changements en cours"),
                 Skill("deploy", "Publier une version"),
                 Skill("broken", "Invalide", valid = false),
@@ -53,12 +59,14 @@ abstract class SkillMentionCases {
             }
             server.start()
             val vm = LeoViewModel(ApplicationProvider.getApplicationContext<Application>(), SkillVault())
+            var backDispatcher: OnBackPressedDispatcher? = null
             compose.setContent {
+                backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
                 val state by vm.state.collectAsStateWithLifecycle()
                 LaunchedEffect(Unit) { vm.state.first { it.ready }; if (!vm.state.value.session.authenticated) vm.connect(server.url("/").toString()) }
                 LeoTheme { if (state.session.authenticated) ChatScreen(vm, state, "chat", openChat = {}, openRun = {}) }
             }
-            compose.waitUntil(20000) { compose.onAllNodesWithText("Votre message… $ pour les skills").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(20000) { compose.onAllNodesWithText(if (noSkills) "Votre message…" else "Votre message… $ pour les skills").fetchSemanticsNodes().isNotEmpty() }
             // History and suggestions render asynchronously on slower machines.
             fun shown(matcher: SemanticsMatcher) = compose.waitUntil(15000) {
                 runCatching { compose.onNode(matcher).assertIsDisplayed() }.isSuccess
@@ -68,6 +76,32 @@ abstract class SkillMentionCases {
             }
             shown(hasText("Merci d’utiliser \$review ici"))
             val field = compose.onNode(hasSetTextAction())
+            if (noSkills) {
+                val empty = hasText("Aucun skill disponible pour cette conversation")
+                field.performTextInput("$")
+                shown(empty)
+                shown(hasText("Gérez les skills globaux et de projet dans la bibliothèque Skills."))
+                compose.runOnIdle { checkNotNull(backDispatcher).onBackPressed() }
+                gone(hasTestTag("skill-suggestions"))
+                assertEquals("$", field.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+                field.performTextReplacement("")
+                field.performTextInput("\$css")
+                shown(empty)
+                field.performTextReplacement("\$5")
+                gone(hasTestTag("skill-suggestions"))
+                field.performTextReplacement("\$HOME")
+                gone(hasTestTag("skill-suggestions"))
+                field.performTextReplacement("\$css")
+                shown(empty)
+                compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("conversation-send") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithTag("conversation-send").performClick()
+                compose.waitUntil(10000) { sent.size == 1 }
+                assertEquals("\$css", sent[0]["text"]?.jsonPrimitive?.content)
+                return
+            }
+            field.performTextInput("\$unknown")
+            shown(hasText("Aucun skill ne correspond à votre recherche"))
+            field.performTextReplacement("")
             field.performTextInput("Lance $")
             shown(hasTestTag("skill-suggestion-review"))
             compose.onNodeWithTag("skill-suggestions").assertIsDisplayed()

@@ -289,12 +289,14 @@ fun ChatScreen(
         }
     val skillNames = remember(skillOptions) { skillOptions.map { it.name }.toSet() }
     val mention =
-        if (skillOptions.isEmpty() || !field.selection.collapsed) null
+        if (!field.selection.collapsed) null
         else mentionAt(field.text, field.selection.start)
     val suggestions =
         if (mention == null || mention.start == dismissedMention) emptyList()
         else matchSkills(skillOptions, mention.query)
-    BackHandler(suggestions.isNotEmpty()) { dismissedMention = mention?.start }
+    val showSkills = mention != null && mention.start != dismissedMention &&
+        (suggestions.isNotEmpty() || mention.query.firstOrNull()?.isDigit() != true)
+    BackHandler(showSkills) { dismissedMention = mention?.start }
     val projects =
         state.projects.filter {
             selectedAgent?.access?.projects == null ||
@@ -927,10 +929,11 @@ fun ChatScreen(
                                     Text("Modifier le message en attente", Modifier.weight(1f))
                                     TextButton(onClick = ::clearDraft) { Text("Annuler") }
                                 }
-                            if (suggestions.isNotEmpty())
+                            if (showSkills)
                                 SkillSuggestions(
                                     suggestions,
                                     mention!!.query,
+                                    skillOptions.isNotEmpty(),
                                     { scope ->
                                         if (scope == "global") "Global"
                                         else state.projects.find { it.id == scope }?.name ?: "Projet"

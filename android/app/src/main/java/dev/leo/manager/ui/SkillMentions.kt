@@ -12,6 +12,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -147,6 +150,7 @@ fun skillMentionStyle() =
 fun SkillSuggestions(
     skills: List<SkillOption>,
     query: String,
+    hasAvailableSkills: Boolean,
     scopeLabel: (String) -> String,
     pick: (SkillOption) -> Unit,
 ) {
@@ -157,7 +161,25 @@ fun SkillSuggestions(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        LazyColumn(Modifier.heightIn(max = 232.dp)) {
+        if (skills.isEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    if (hasAvailableSkills) "Aucun skill ne correspond à votre recherche"
+                    else "Aucun skill disponible pour cette conversation",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    if (hasAvailableSkills) "Essayez un autre nom de skill."
+                    else "Gérez les skills globaux et de projet dans la bibliothèque Skills.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else LazyColumn(Modifier.heightIn(max = 232.dp)) {
             items(skills, key = { it.name }) { skill ->
                 Row(
                     Modifier.fillMaxWidth()

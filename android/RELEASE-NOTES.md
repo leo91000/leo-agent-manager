@@ -1,4 +1,9 @@
-# Leo Android 0.33.2 — Titres fondés sur toute la conversation
+# Leo Android 0.33.3 — Explication des skills indisponibles
+
+- Taper `$` sans skill accessible affiche « Aucun skill disponible pour cette conversation », avec une indication vers la bibliothèque Skills.
+- Une recherche sans résultat affiche un message distinct. Retour ferme le panneau sans effacer le brouillon ; l’envoi reste disponible.
+
+## Leo Android 0.33.2 — Titres fondés sur toute la conversation
 
 - Le serveur prend en compte tout l’historique pour nommer les conversations, avec des résumés par blocs pour les longues discussions.
 - Les simples relances et confirmations ne doivent plus masquer le sujet général. Ce correctif serveur fonctionne aussi avec les applications déjà installées.
