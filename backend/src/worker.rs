@@ -100,6 +100,7 @@ impl Worker {
     }
     pub async fn start(self: &Arc<Self>, s: Arc<Service>) -> Result<()> {
         self.initialize(&s).await?;
+        self.tasks.spawn(crate::chat_titles::run(s.clone()));
         let worker = self.clone();
         self.tasks.spawn(async move {
             let mut timer = tokio::time::interval(Duration::from_secs(1));
@@ -1393,6 +1394,10 @@ async fn record(
                     Some(run_output::payload(&event, secrets)),
                 )
                 .await?;
+        }
+        if event["type"] == "turn.completed" {
+            // Title failures cannot change the outcome of the user's turn.
+            let _ = crate::chat_titles::enqueue(s, id).await;
         }
         return Ok(exhausted);
     }

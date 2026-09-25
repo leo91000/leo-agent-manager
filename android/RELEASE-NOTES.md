@@ -1,4 +1,10 @@
-# Leo Android 0.31.1 — Reprise des conversations Claude
+# Leo Android 0.32.0 — Titres de conversation automatiques
+
+- Le serveur adapte les titres au sujet des échanges récents avec GPT-6 Luna en xhigh.
+- Le renommage apparaît automatiquement dans les conversations, sans interrompre les réponses.
+- Nécessite le serveur 0.32.0 et un compte Codex compatible ; fonctionne aussi avec les conversations Claude.
+
+## Leo Android 0.31.1 — Reprise des conversations Claude
 
 - Le serveur 0.31.1 corrige les conversations Claude qui restent bloquées après une interruption malgré une reprise demandée.
 - L’historique et le travail déjà terminé sont conservés. Ce correctif serveur s’applique aussi aux applications déjà installées.

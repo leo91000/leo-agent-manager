@@ -107,6 +107,9 @@ impl Client {
         let path = std::env::var_os("LEO_AUTH_SOCKET")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(SOCKET));
+        Self::from_socket(path)
+    }
+    pub fn from_socket(path: PathBuf) -> Option<Self> {
         path.exists().then_some(Self {
             path,
             previous: String::new(),

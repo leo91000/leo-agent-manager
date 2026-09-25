@@ -5,6 +5,7 @@ pub mod artifacts;
 pub mod attachments;
 pub mod auth;
 pub mod chat_process;
+pub mod chat_titles;
 pub mod chats;
 mod codex_login;
 pub mod config;

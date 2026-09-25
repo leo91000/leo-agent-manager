@@ -6,6 +6,25 @@ Agents can now publish [persistent deliverables](DELIVERABLES.md): screenshots, 
 
 Chats and task activity use [resumable live streams](STREAMING.md). Multiple browsers can follow the same conversation; refresh and network recovery replay missed events without restarting the agent.
 
+Conversation titles follow recent work automatically. After a successful reply,
+a separate GPT-6 Luna session with `xhigh` reasoning reviews the current title,
+the last six user messages and up to six completed assistant replies (each
+limited to 2,000 characters). It keeps a title that still fits and writes a short
+title in the conversation's language when the topic changes. The initial title
+remains available immediately; subsequent evaluations are at least five minutes
+apart. Pending evaluations coalesce and survive server restarts. Older chats are
+evaluated when they receive another completed reply.
+
+This uses an available connected Codex account, including for Claude chats, and
+respects that account's capacity and model availability. No separate API key is
+needed. Queued Codex work takes priority and cancels a background title request
+to release its account slot. The temporary session uses an empty workspace, read-only permissions,
+disabled shell/apps/plugins/web search and no conversation tools. Tool output,
+reasoning and private question answers are excluded. Failures keep the current
+title and retry after the cooldown without interrupting the conversation. A
+result made obsolete by newer messages is discarded. Updates reach web and
+Android through the existing live stream and do not change the chat's recency.
+
 When an agent reports completion, **Task completed** appears beneath the reply in the conversation. **View evidence** expands the report and supporting details, including clickable commit and workflow links; **Hide evidence** collapses it. Reports without evidence use **View details**. **Blocked** and **Your input needed** show their reason immediately. These are agent-reported outcomes, and a new reply clears the previous report. The composer remains available while reading the evidence.
 
 Routine session updates (connecting, starting, finishing and success) are hidden from chat, including inside tool groups. The working indicator and completion footer provide that status. Failures and unresolved interruptions appear as inline notices; recovered connection retries disappear. Raw lifecycle events remain in run activity for troubleshooting.
