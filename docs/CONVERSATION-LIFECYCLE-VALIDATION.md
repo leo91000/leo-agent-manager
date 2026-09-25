@@ -6,9 +6,9 @@ Implémentation réalisée à partir de la conception validée le 25 septembre 2
 
 | Contrôle | Résultat |
 | --- | --- |
-| Suite backend Rust complète, exécution séquentielle | 154 tests réussis |
+| Suite backend Rust complète, exécution séquentielle | 155 tests réussis en CI |
 | Cycle de vie HTTP, relancé après la correction de récupération de corbeille | 10 tests réussis |
-| Suite JavaScript/TypeScript | 244 tests réussis, 34 fichiers |
+| Suite JavaScript/TypeScript | 246 tests réussis en CI, 34 fichiers |
 | Typage Vue et compilation web | Réussis |
 | Clippy, tous les targets, avertissements interdits | Réussi |
 | Navigation web responsive et conservation des brouillons | Réussie |
@@ -16,8 +16,8 @@ Implémentation réalisée à partir de la conception validée le 25 septembre 2
 | Archive froide : ouverture sans restauration implicite et demande explicite | Réussies |
 | Suppression depuis un autre client, disparition du transcript et rechargement | Réussie |
 | Android : compilation des APK et parcours JVM complet | Réussis (1 test, aucune erreur) |
-| Android : geste et restauration sur émulateur | Bloqués par l’échec du démarrage Android en émulation logicielle |
-| Firecracker réel | Non exécuté : KVM absent de cet environnement |
+| Android : geste et restauration sur émulateur | Réussis sur Android 16 en CI, parmi 27 tests instrumentés |
+| Firecracker réel | Export, suppression, réimport du disque et reprise réussis en CI ; exécution KVM imbriquée vérifiée comme UID 1000 |
 
 Un test a reproduit puis validé la correction du cas suivant : restaurer une archive, la supprimer immédiatement, puis la récupérer avant le nettoyage distant conserve bien son état actif.
 
@@ -27,13 +27,15 @@ La commande globale `pnpm check` a rencontré des délais d’attente trop court
 
 ## Limites de la vérification
 
-Le manque de KVM concerne la VM de travail de l’agent. Les workflows CI existants prévoient déjà KVM : le workflow Android active l’accès à l’accélération et celui de l’image exécute le smoke test Firecracker. `ConversationLifecycleDeviceTest` a été ajouté à la liste explicite des tests instrumentés Android de la CI. Ces modifications locales n’ont pas encore été exécutées en CI ; aucun résultat CI n’est revendiqué ici.
+Les [27 tests instrumentés Android 16](https://github.com/leo91000/leo-agent-manager/actions/runs/36141553925), dont `ConversationLifecycleDeviceTest`, ont réussi sur l’émulateur accéléré de la CI. Cela valide le geste de suppression et le retour depuis la corbeille sur un appareil Android. Les tentatives locales antérieures en émulation logicielle n’avaient pas terminé leur démarrage ; elles ne sont pas comptées comme validation appareil.
 
-Les APK Android et le test JVM du parcours complet sont compilés et validés. Les tentatives sur émulateurs API 36 puis API 29 en mode logiciel n’ont pas permis d’exécuter le test instrumenté. Sur API 29, le service système de permissions a échoué avec `Error granting/upgrading runtime permissions`, puis le démarrage a dépassé son délai de dix minutes. L’émulateur a été arrêté. Le test `ConversationLifecycleDeviceTest` reste à exécuter sur un appareil ou un émulateur opérationnel ; le test JVM ne le remplace pas.
+Le [contrôle qualité et les tests du runner](https://github.com/leo91000/leo-agent-manager/actions/runs/36142279729) ont validé les 155 tests Rust, les 246 tests JavaScript/TypeScript et la reprise réelle du disque Firecracker. Ce workflow complet a toutefois échoué sur deux autres étapes : un parcours WebKit a épuisé le quota HTTP partagé entre tests, et Android imbriqué a dépassé son délai de démarrage. Le parcours WebKit a depuis été isolé ; la validation finale de l’émulateur dans Firecracker reste distincte des tests Android natifs ci-dessus.
+
+Un test supplémentaire reproduit la conservation accidentelle du verrou de stockage par un processus enfant avant son `exec`. Le déverrouillage explicite à la sortie du traitement corrige le cas et le test de régression passe en CI.
 
 S3 et Glacier sont exercés avec un exécutable AWS de test utilisant le système de fichiers. Aucun transfert vers un compte AWS réel n’a été effectué. Les données locales ne sont libérées qu’après téléchargement et vérification SHA-256 de l’objet chiffré.
 
-Le scénario `node tests/runner-smoke.mjs IMAGE` a été étendu pour exporter, supprimer et réimporter le disque entre deux vraies exécutions de VM. La seconde doit retrouver les fichiers non publiés, un fichier d’état de session et les images Docker en cache. Ce scénario reste à exécuter sur un hôte Docker avec KVM ; il ne garantit pas la compatibilité des versions futures des moteurs agents.
+Le scénario `node tests/runner-smoke.mjs IMAGE` a été étendu pour exporter, supprimer et réimporter le disque entre deux vraies exécutions de VM. La seconde doit retrouver les fichiers non publiés, un fichier d’état de session et les images Docker en cache. Ce scénario a réussi dans la CI sur un hôte avec KVM. Il ne garantit pas la compatibilité des versions futures des moteurs agents.
 
 ## Aperçus
 

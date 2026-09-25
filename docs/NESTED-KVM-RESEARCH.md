@@ -35,3 +35,9 @@ Upstream explicitly says **“Firecracker is not tested with nested virtualizati
 - Exercise both a cold guest and adoption of the prepared pool guest; stop cleanly and prove execution in a subsequent fresh guest.
 - Run Android Emulator with acceleration required, check its acceleration diagnostic, wait for Android boot, and execute the existing instrumentation test. A software fallback must fail this acceptance check rather than masquerade as successful acceleration.
 - Report the CPU vendor actually tested. Passing Intel does not establish AMD runtime compatibility, or vice versa. Keep a clear unavailable result when the outer host cannot supply nesting.
+
+## Runtime evidence, 2026-09-25
+
+The [image integration job](https://github.com/leo91000/leo-agent-manager/actions/runs/36142279729) successfully executed `nested-kvm: agent uid=1000, KVM_RUN, rax=42, HLT` inside Firecracker. The runner disk export/delete/import and subsequent guest execution also passed. This establishes nested execution, rather than only the presence of `/dev/kvm`.
+
+The [instrumented Android probe](https://github.com/leo91000/leo-agent-manager/actions/runs/36144997216) identified an AMD EPYC guest CPU and confirmed `Nested Virtualization enabled` and `Nested Paging enabled` in the guest kernel. Android reached userspace initialization before the 180-second helper deadline stopped it. This run did **not** establish a completed Android boot. Intel runtime behavior remains untested by these runs.
