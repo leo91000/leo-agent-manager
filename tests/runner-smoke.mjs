@@ -14,6 +14,10 @@ async function main() {
   const docker = (...args) => execFileSync('docker', ['--context', 'default', ...args], { encoding: 'utf8', timeout: 180000, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
   const root = await mkdtemp(path.join(process.env.VM_TEST_ROOT || os.tmpdir(), 'leo-microvm-'))
   const name = `leo-vm-test-${randomUUID().slice(0, 8)}`
+  const networkName = `${name}-network`
+  const networkServer = `${name}-peer`
+  // A documentation-only subnet emulates public destinations without Internet access.
+  const publicPeer = '203.0.113.3'
   const headers = { authorization: 'Bearer fixture-runner-token' }
   let url
   let auth
@@ -48,6 +52,12 @@ async function main() {
     await writeFile(path.join(source, 'home/.claude/.credentials.json'), JSON.stringify({ fixture: 'provisioned' }))
     await writeFile(path.join(source, 'chat-input/messages.json'), '[]')
     await writeFile(path.join(source, 'workspace/nested-kvm.c'), await readFile(new URL('./fixtures/nested-kvm.c', import.meta.url)))
+    const networkProbe = await readFile(new URL('./fixtures/vm-network.mjs', import.meta.url))
+    await writeFile(path.join(source, 'workspace/network-probe.mjs'), networkProbe)
+    docker('network', 'create', '--internal', '--subnet', '203.0.113.0/29', networkName)
+    docker('run', '-d', '--name', networkServer, '--user', '0:0', '-v', `${source}/workspace/network-probe.mjs:/network-probe.mjs:ro`, '--entrypoint', '/usr/local/bin/node', image, '/network-probe.mjs', 'server')
+    const privatePeer = docker('inspect', '--format', '{{(index .NetworkSettings.Networks "bridge").IPAddress}}', networkServer)
+    docker('network', 'connect', '--ip', publicPeer, networkName, networkServer)
     const fixture = `
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -63,6 +73,7 @@ assert.match(execFileSync('uname',['-r'],{encoding:'utf8'}),/^6\\.12\\.109/);
 for(const path of ['/data/private-manager-canary','/data/runner-secret','/var/run/docker.sock'])assert.equal(fs.existsSync(path),false,path);
 assert.equal(process.env.RUNNER_TOKEN,undefined);
 if(mode==='first') {
+  console.log(execFileSync('/usr/local/bin/node',[root+'/workspace/network-probe.mjs','guest',${JSON.stringify(publicPeer)},${JSON.stringify(privatePeer)}],{encoding:'utf8',timeout:15000}));
   const env=JSON.parse(execFileSync('/usr/local/bin/leo',['toolkit-env'],{encoding:'utf8'}));
   assert.equal(env.LEO_TOOLKIT_DIR,'/opt/leo-toolkit');
   for(const tool of ['cargo','rustc','pnpm','python','uv','rg','fd','gh','codex','claude'])execFileSync(tool,['--version'],{env,timeout:30000});
@@ -119,6 +130,9 @@ console.log('probe.done');
     claudeAuth = createServer(socket => socket.end(`${JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-claude-access', expiresAt: Date.now() + 3600000 } })}\n`))
     await new Promise(resolve => claudeAuth.listen(path.join(source, 'home/.claude/leo-auth.sock'), resolve))
     docker('run', '-d', '--name', name, '--user', '0:0', '--read-only', '--cap-drop', 'ALL', ...['SYS_ADMIN', 'NET_ADMIN', 'SYS_CHROOT', 'SETUID', 'SETGID', 'MKNOD', 'CHOWN', 'FOWNER', 'KILL', 'DAC_OVERRIDE'].flatMap(cap => ['--cap-add', cap]), '--security-opt', 'apparmor=unconfined', '--security-opt', 'seccomp=unconfined', '--device', '/dev/kvm', '--device', '/dev/net/tun', '--sysctl', 'net.ipv4.ip_forward=1', '--sysctl', 'net.ipv6.conf.all.disable_ipv6=1', '--tmpfs', '/run', '--tmpfs', '/tmp', '-v', `${root}/data:/data`, '-v', `${root}/state:/runner-state`, '-p', '127.0.0.1::4311', '--memory', '6g', '--cpus', '3', '-e', 'CONCURRENCY=5', '--entrypoint', '/usr/local/bin/leo', image, 'runner-broker')
+    docker('network', 'connect', '--ip', '203.0.113.2', networkName, name)
+    // First prove every listener is reachable outside the guest firewall.
+    process.stdout.write(docker('exec', name, '/usr/local/bin/node', `${runRoot}/workspace/network-probe.mjs`, 'control', publicPeer, privatePeer))
     url = `http://${await until(() => {
       try {
         return docker('port', name, '4311/tcp')
@@ -407,6 +421,12 @@ console.log('probe.done');
     if (process.env.KEEP_VM_TEST !== '1') {
       try {
         docker('rm', '-fv', name)
+      }
+      catch {
+      }
+      try {
+        docker('rm', '-fv', networkServer)
+        docker('network', 'rm', networkName)
       }
       catch {
       }

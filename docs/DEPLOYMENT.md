@@ -142,6 +142,8 @@ The deployment script also adds the persistent `runner-state` volume to older
 service Compose definitions before restarting, then verifies it was saved. The
 manager data mount remains read-only in the runner. Unsupported custom Compose
 layouts stop deployment with an error instead of silently losing stop markers.
+For an existing Firecracker runner, deployments preserve the configured memory,
+CPU and process budgets, along with the manager's global concurrency setting.
 
 To release the current main commit, choose an unused version tag:
 

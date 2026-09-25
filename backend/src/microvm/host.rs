@@ -364,27 +364,29 @@ impl Network {
             )
             .await?;
         }
-        // Internet web traffic is enough for APIs, package registries and Git HTTPS.
-        for (protocol, ports) in [("tcp", "80,443"), ("udp", "53")] {
-            command(
-                "iptables",
-                &[
-                    "-w",
-                    "5",
-                    "-A",
-                    &self.chain,
-                    "-p",
-                    protocol,
-                    "-m",
-                    "multiport",
-                    "--dports",
-                    ports,
-                    "-j",
-                    "ACCEPT",
-                ],
-            )
-            .await?;
-        }
+        // Public TCP includes SSH on custom ports; UDP remains limited to DNS.
+        // Keep both rules after the private-destination and source-address checks.
+        command(
+            "iptables",
+            &["-w", "5", "-A", &self.chain, "-p", "tcp", "-j", "ACCEPT"],
+        )
+        .await?;
+        command(
+            "iptables",
+            &[
+                "-w",
+                "5",
+                "-A",
+                &self.chain,
+                "-p",
+                "udp",
+                "--dport",
+                "53",
+                "-j",
+                "ACCEPT",
+            ],
+        )
+        .await?;
         command("iptables", &["-w", "5", "-A", &self.chain, "-j", "DROP"]).await?;
         command(
             "iptables",

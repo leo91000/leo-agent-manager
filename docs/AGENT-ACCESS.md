@@ -87,9 +87,11 @@ Its infrastructure capabilities stay outside the guest. The agent never receives
 the runner credential, host devices or a host Docker socket.
 
 Do not publish runner port 4311. The manager authenticates requests with the
-private runner-secret file. Guest Internet access permits TCP 80/443 and DNS;
-private networks, metadata endpoints, neighboring VMs and runner services are
-blocked. Remote Git operations therefore use HTTPS.
+private runner-secret file. Guest Internet access permits TCP on all ports to
+public hosts, including SSH on custom ports, and DNS (UDP 53). Other UDP, private
+networks, metadata endpoints, neighboring VMs and runner services remain blocked.
+Remote Git operations can use HTTPS or SSH to public hosts. New inbound connections
+to guests remain blocked.
 
 See [MicroVM architecture and operations](MICROVMS.md) for storage, upgrades,
 recovery, host prerequisites and validation.
