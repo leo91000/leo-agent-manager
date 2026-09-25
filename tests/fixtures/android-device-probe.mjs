@@ -35,7 +35,11 @@ async function main() {
     fs.renameSync(emulatorBinary, `${emulatorBinary}.real`)
     fs.writeFileSync(emulatorBinary, '#!/bin/sh\nexec "$(dirname "$0")/emulator.real" -show-kernel "$@"\n', { mode: 0o755 })
   }
-  process.stdout.write(run('leo-android', ['emulator', 'start', '34', '--accept-licenses']))
+  // [DEBUG-nested-kvm] Isolate the deadline hypothesis on the existing image.
+  fs.cpSync('/opt/leo-toolkit', 'probe-toolkit', { recursive: true })
+  const helper = 'probe-toolkit/android-emulator.mjs'
+  fs.writeFileSync(helper, fs.readFileSync(helper, 'utf8').replace('state.acceleration === \'kvm\' ? 180000 : 600000', '600000'))
+  process.stdout.write(run('node', ['probe-toolkit/android.mjs', 'emulator', 'start', '34', '--accept-licenses']))
   const device = JSON.parse(run('leo-android', ['emulator', 'status']))
   assert.equal(device.state, 'ready')
   assert.equal(device.acceleration, 'kvm', 'Android must use nested KVM, not software emulation')
