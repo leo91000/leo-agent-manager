@@ -202,6 +202,7 @@ class ChatJourneyTest {
                                     )
                                 "/api/projects",
                                 "/api/tasks",
+                                "/api/tasks/activity",
                                 "/api/skills",
                                 "/api/mcps" -> "[]"
                                 "/api/overview" -> "{}"
@@ -409,10 +410,9 @@ class ChatJourneyTest {
                 "Application entière",
                 answer["answers"]!!.jsonObject["scope"]!!.jsonArray.single().jsonPrimitive.content,
             )
-            compose
-                .onNodeWithContentDescription("Modifier le message en attente")
-                .performScrollTo()
-                .performClick()
+            // Queued follow-ups stay next to the composer, outside the scrolling history.
+            compose.onNodeWithTag("conversation-queue").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Modifier le message en attente").performClick()
             compose
                 .onNode(hasText("Vérifier les tests") and hasSetTextAction())
                 .performTextReplacement("Vérifier aussi les fichiers")
@@ -420,8 +420,7 @@ class ChatJourneyTest {
             compose.waitUntil(10000) {
                 calls.any { it.first == "PUT" && it.second.endsWith("/messages/queued") }
             }
-            compose.onNodeWithContentDescription("Options de la conversation").performClick()
-            compose.onNodeWithText("Fichiers · 3").performClick()
+            compose.onNodeWithContentDescription("Fichiers · 3").performClick()
             waitText("Compte rendu")
             compose.onAllNodesWithText("Compte rendu").onLast().assertExists()
             screenshot("artifacts", true)
@@ -485,8 +484,7 @@ class ChatJourneyTest {
                     )
             }
             compose.runOnIdle { compact = false }
-            compose.onNodeWithContentDescription("Options de la conversation").performClick()
-            compose.onNodeWithText("Intervenir avec ce message").performClick()
+            compose.onNodeWithContentDescription("Intervenir maintenant").performClick()
             compose.waitUntil(10000) {
                 calls.any {
                     it.second.endsWith("/messages") &&
@@ -505,9 +503,10 @@ class ChatJourneyTest {
             }
             compose.onNode(hasSetTextAction()).performTextInput("Brouillon à conserver")
             compose.onNode(hasSetTextAction() and hasText("Brouillon à conserver")).assertExists()
-            compose.onNodeWithContentDescription("Nouvelle conversation").performClick()
+            compose.onNodeWithContentDescription("Options de la conversation").performClick()
+            compose.onNodeWithText("Nouvelle conversation").performClick()
             assertEquals("Brouillon à conserver", vm.chatDrafts[chatId]?.text)
-            compose.onNodeWithText("Conversations").performClick()
+            compose.onNode(hasContentDescription("Changer de conversation", substring = true)).performClick()
             compose.waitUntil(10000) {
                 compose.onAllNodesWithText("Revue du projet").fetchSemanticsNodes().isNotEmpty()
             }

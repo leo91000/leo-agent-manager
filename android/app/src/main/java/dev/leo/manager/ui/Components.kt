@@ -110,16 +110,8 @@ fun Heading(title: String, subtitle: String = "") {
 
 @Composable
 fun Panel(content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        Modifier.fillMaxWidth(),
-        colors =
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        Column(
-            Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            content = content,
-        )
+    SignalCard(Modifier.fillMaxWidth(), padding = PaddingValues(18.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
     }
 }
 
@@ -158,17 +150,20 @@ internal fun statusLabel(value: String): String =
 @Composable
 fun Status(value: String) {
     val label = statusLabel(value)
-    val bad = value in setOf("failed", "interrupted")
-    Surface(
-        color =
-            if (bad) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.secondaryContainer,
-        shape = MaterialTheme.shapes.small,
-    ) {
+    val (container, content) =
+        when (value) {
+            "failed", "interrupted" -> signal.attentionSoft to signal.attention
+            "running", "queued" -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+            "succeeded" -> signal.success.copy(alpha = 0.14f) to signal.success
+            else -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    Surface(color = container, shape = androidx.compose.foundation.shape.CircleShape) {
         Text(
             label,
-            Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelMedium,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            color = content,
         )
     }
 }

@@ -1,4 +1,16 @@
-# Leo Android 0.33.4 — Réponses préservées dans les longues conversations
+# Leo Android 0.34.0 — Nouvelle interface « Signal »
+
+- Trois onglets au lieu de quatre — **Fil**, **Missions**, **Atelier** — dans une barre flottante, avec un bouton « + » toujours accessible pour démarrer une conversation.
+- **Fil** remplace la liste des chats : ce qui vous attend (questions, échecs, reconnexions), le travail en cours avec sa durée, puis les conversations récentes. Répondre, relancer une mission ou ouvrir les connexions se fait depuis la ligne.
+- **Nouvelle conversation** sans menus déroulants : l’agent et le projet se choisissent directement à l’écran ; les projets respectent les accès de l’agent.
+- **Conversation** : en-tête avec l’agent, le statut en direct et les fichiers ; menu d’options allégé. Les messages en attente restent à côté du champ de saisie et peuvent encore être modifiés, envoyés maintenant ou retirés. Le composer garde le même fonctionnement (⚡ intervenir, + à la suite, arrêter).
+- **Missions** réunit les anciens onglets Tâches et Activité : planification décrite en clair (« Chaque lundi · 09:00 »), historique des dernières exécutions, lancement direct, fiche détaillée avec prochaines dates, taux de réussite, pause et édition.
+- **Atelier** remplace le menu « Plus » : état des connexions Codex, Claude Code et 1Password en premier, puis agents, projets, skills, serveurs MCP, journal des exécutions et paramètres.
+- **Recherche** unique sur les conversations, missions, agents, projets et skills, avec actions directes (lancer une mission, discuter avec un agent).
+- Nouvelle palette papier/encre avec le bleu Leo comme unique couleur d’accent, en clair comme en sombre ; identités de couleur pour les agents et les projets. Le sélecteur de modèle est inchangé.
+- Aucune modification du serveur n’est nécessaire.
+
+## Leo Android 0.33.4 — Réponses préservées dans les longues conversations
 
 - Le serveur conserve les messages de l’agent et les erreurs même lorsque les sorties d’outils atteignent leur limite de journalisation.
 - Au redémarrage, les conclusions encore disponibles dans les résumés des conversations terminées sont réintégrées à l’historique si elles manquent, sans doublon.

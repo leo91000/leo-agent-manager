@@ -1,5 +1,6 @@
 # Leo for Android
 
+Version 0.34.0 introduces the « Signal » interface: Fil, Missions and Atelier tabs with an always-available new-conversation button, on-screen agent/project choice, missions with readable schedules and run history, a connection-first Atelier, universal search and a paper/ink palette with the Leo blue accent. See [release notes](RELEASE-NOTES.md).
 Version 0.33.4 preserves assistant messages after verbose tool output and restores missing saved summaries on the server. Existing Android clients benefit without an app update.
 
 Version 0.33.3 explains when `$` has no available skills or no matching results, alongside skill autocomplete and highlighted mentions (server 0.33.0).

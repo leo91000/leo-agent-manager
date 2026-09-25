@@ -101,6 +101,10 @@ class WorkspaceJourneyTest {
                                     if (launched)
                                         "[{\"id\":\"run\",\"taskId\":\"task\",\"status\":\"running\"}]"
                                     else "[]"
+                                "/api/runs" ->
+                                    if (launched)
+                                        "[{\"id\":\"run\",\"taskId\":\"task\",\"status\":\"running\"}]"
+                                    else "[]"
                                 "/api/codex/models" -> "{\"models\":[]}"
                                 "/api/chats/stream" ->
                                     return MockResponse()
@@ -241,24 +245,25 @@ class WorkspaceJourneyTest {
             compose.onNodeWithText("Mot de passe").performTextInput("test-only-password")
             compose.onNodeWithText("Se connecter").performClick()
             compose.waitUntil(10000) {
-                compose.onAllNodesWithText("Tâches").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithContentDescription("Missions").fetchSemanticsNodes().isNotEmpty()
             }
             screenshot("overview")
-            compose.onNodeWithText("Tâches").performClick()
+            compose.onNodeWithContentDescription("Missions").performClick()
             compose.waitUntil(10000) {
                 compose
-                    .onAllNodes(hasContentDescription("Créer une tâche") and isEnabled())
+                    .onAllNodes(hasContentDescription("Créer une mission") and isEnabled())
                     .fetchSemanticsNodes()
                     .isNotEmpty()
             }
-            compose.onNodeWithContentDescription("Créer une tâche").performClick()
+            compose.onNodeWithContentDescription("Créer une mission").performClick()
             compose.onNodeWithText("Nom").performTextInput("Nouvelle mission")
             compose
                 .onNodeWithText("Mission et critères de réussite")
                 .performTextInput("Vérifier le projet")
             compose.onNodeWithText("Enregistrer").performClick()
+            // The saved mission opens in its sheet, ready to run.
             compose.waitUntil(10000) {
-                compose.onAllNodesWithText("Lancer").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithText("Lancer maintenant").fetchSemanticsNodes().isNotEmpty() &&
                     !vm.state.value.busy &&
                     vm.state.value.tasks.any { it.id == "task" }
             }
@@ -274,7 +279,7 @@ class WorkspaceJourneyTest {
             assertTrue(
                 saved["skills"] == null || saved["skills"] == kotlinx.serialization.json.JsonNull
             )
-            compose.onNodeWithText("Lancer").performScrollTo().performClick()
+            compose.onNodeWithText("Lancer maintenant").performScrollTo().performClick()
             compose.waitUntil(10000) {
                 compose.onAllNodesWithText("L’agent travaille…").fetchSemanticsNodes().isNotEmpty()
             }
@@ -285,7 +290,11 @@ class WorkspaceJourneyTest {
             compose.onNodeWithText("1 action de l’agent").performClick()
             assertTrue(mutations.any { it.first == "/api/tasks/task/run" })
             screenshot("run")
-            compose.onNodeWithText("Plus").performClick()
+            compose.onNodeWithContentDescription("Retour").performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithContentDescription("Atelier").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithContentDescription("Atelier").performClick()
             compose.onNodeWithText("Paramètres et accès").performScrollTo().performClick()
             compose.waitUntil(10000) {
                 compose.onAllNodesWithText("Système").fetchSemanticsNodes().isNotEmpty()
@@ -300,7 +309,8 @@ class WorkspaceJourneyTest {
             }
             compose.waitForIdle()
             screenshot("settings-dark")
-            compose.onNodeWithText("Chats").performClick()
+            compose.onNodeWithContentDescription("Retour").performClick()
+            compose.onNodeWithContentDescription("Fil").performClick()
             compose.waitForIdle()
             screenshot("overview-dark")
             runBlocking { preferences.setTheme("system") }

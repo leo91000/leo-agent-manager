@@ -5,6 +5,7 @@
 
 package dev.leo.manager.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -14,7 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -22,15 +23,20 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.*
 import dev.leo.manager.data.*
 
-private data class Destination(val route: String, val label: String, val icon: ImageVector)
+/** Top-level destinations reached from the dock; everything else is a pushed screen. */
+private val topLevel = setOf("fil", "missions", "atelier")
 
-private val destinations =
-    listOf(
-        Destination("chats", "Chats", LeoIcons.Chat),
-        Destination("tasks", "Tâches", LeoIcons.Tasks),
-        Destination("runs", "Activité", LeoIcons.Terminal),
-        Destination("workspace", "Plus", Icons.Default.Menu),
-    )
+/** Screens that take the whole height: no dock, no generic top bar. */
+private fun focusedRoute(route: String) =
+    route.startsWith("chat/") || route.startsWith("new-chat") || route.startsWith("run/") || route == "search"
+
+internal fun dockSelection(route: String): String =
+    when {
+        route in topLevel -> route
+        route.startsWith("chat/") || route.startsWith("new-chat") || route == "search" -> "fil"
+        route.startsWith("run/") -> "missions"
+        else -> "atelier"
+    }
 
 @Composable
 fun LeoApp(
@@ -61,7 +67,7 @@ fun LeoApp(
     }
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
-    val route = backStack?.destination?.route ?: "chats"
+    val route = backStack?.destination?.route ?: "fil"
     LaunchedEffect(sharedUrl) {
         if (sharedUrl.isNotBlank()) nav.navigate("authorize") { launchSingleTop = true }
     }
@@ -72,52 +78,64 @@ fun LeoApp(
         }
     }
     var focusedContent by remember(route) { mutableStateOf(false) }
-    val focused =
-        focusedContent ||
-            route.startsWith("chat/") ||
-            route.startsWith("new-chat") ||
-            route.startsWith("run/")
-    val selected =
-        if (route.startsWith("chat/") || route.startsWith("new-chat")) "chats"
-        else if (route.startsWith("run/")) "runs"
-        else if (destinations.any { it.route == route }) route else "workspace"
+    val focused = focusedContent || focusedRoute(route)
+    val selected = dockSelection(route)
     fun navigate(target: String) {
         nav.navigate(target) {
-            popUpTo("chats") { saveState = true }
+            popUpTo("fil") { saveState = true }
             launchSingleTop = true
             restoreState = true
         }
     }
+    fun create() = nav.navigate("new-chat") { launchSingleTop = true }
     CompositionLocalProvider(LocalFocusMode provides { focusedContent = it }) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             val wide = maxWidth >= 700.dp
             Row {
-                if (wide)
-                    NavigationRail(Modifier.fillMaxHeight()) {
-                        Spacer(Modifier.height(24.dp))
-                        destinations.forEach { d ->
+                if (wide && !focusedContent)
+                    NavigationRail(
+                        Modifier.fillMaxHeight(),
+                        containerColor = MaterialTheme.colorScheme.background,
+                        header = {
+                            Spacer(Modifier.height(16.dp))
+                            RoundAction(
+                                "Nouvelle conversation",
+                                LeoIcons.Plus,
+                                container = MaterialTheme.colorScheme.primary,
+                                content = MaterialTheme.colorScheme.onPrimary,
+                                outlined = false,
+                                size = 52.dp,
+                                onClick = ::create,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        },
+                    ) {
+                        DockItems.forEach { d ->
                             NavigationRailItem(
                                 selected == d.route,
                                 { navigate(d.route) },
                                 icon = { Icon(d.icon, d.label) },
                                 label = { Text(d.label) },
+                                colors = NavigationRailItemDefaults.colors(
+                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                ),
                             )
                         }
                     }
                 Scaffold(
                     modifier = Modifier.weight(1f).imePadding(),
+                    containerColor = MaterialTheme.colorScheme.background,
                     snackbarHost = { SnackbarHost(snackbar) },
                     topBar = {
-                        if (!focused && route !in destinations.map { it.route })
+                        if (!focused && route !in topLevel)
                             TopAppBar(
-                                title = {
-                                    Text("Leo", style = MaterialTheme.typography.titleLarge)
-                                },
+                                title = {},
                                 navigationIcon = {
-                                    if (route !in destinations.map { it.route })
-                                        IconButton(onClick = { nav.popBackStack() }) {
-                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour")
-                                        }
+                                    IconButton(onClick = { nav.popBackStack() }) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour")
+                                    }
                                 },
                                 actions = {
                                     IconButton(
@@ -127,40 +145,47 @@ fun LeoApp(
                                         Icon(Icons.Default.Refresh, "Actualiser l’espace")
                                     }
                                 },
+                                colors = TopAppBarDefaults.topAppBarColors(
+                                    containerColor = MaterialTheme.colorScheme.background,
+                                ),
                             )
                     },
                     bottomBar = {
                         if (!wide && !focused && !WindowInsets.isImeVisible)
-                            NavigationBar(
-                                containerColor = MaterialTheme.colorScheme.background,
-                                tonalElevation = 0.dp,
-                            ) {
-                                destinations.forEach { d ->
-                                    NavigationBarItem(
-                                        selected == d.route,
-                                        { navigate(d.route) },
-                                        icon = { Icon(d.icon, d.label, Modifier.size(22.dp)) },
-                                        label = { Text(d.label) },
-                                        colors = NavigationBarItemDefaults.colors(
-                                            indicatorColor = MaterialTheme.colorScheme.background,
-                                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        ),
-                                    )
-                                }
-                            }
+                            LeoDock(
+                                selected,
+                                ::navigate,
+                                ::create,
+                                Modifier.navigationBarsPadding(),
+                            )
                     },
                 ) { padding ->
                     Column(Modifier.padding(padding)) {
                         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                         state.error?.let { ErrorNotice(it, vm::clearMessage) }
-                        NavHost(nav, "chats", Modifier.weight(1f)) {
-                            composable("chats") {
-                                ChatsScreen(
+                        NavHost(nav, "fil", Modifier.weight(1f)) {
+                            composable("fil") {
+                                FilScreen(
                                     vm,
                                     state,
-                                    { nav.navigate("chat/$it") },
-                                    { nav.navigate("new-chat") },
+                                    openChat = { nav.navigate("chat/$it") },
+                                    openRun = { nav.navigate("run/$it") },
+                                    openConnections = { nav.navigate("connections") },
+                                    search = { nav.navigate("search") },
+                                )
+                            }
+                            composable("search") {
+                                SearchScreen(
+                                    vm,
+                                    state,
+                                    back = { nav.popBackStack() },
+                                    openChat = { nav.navigate("chat/$it") { popUpTo("fil") } },
+                                    openRun = { nav.navigate("run/$it") { popUpTo("fil") } },
+                                    openMission = { navigate("missions") },
+                                    newChat = { agent ->
+                                        nav.navigate("new-chat?agent=$agent&project=") { popUpTo("fil") }
+                                    },
+                                    open = { nav.navigate(it) { popUpTo("fil") } },
                                 )
                             }
                             composable("chat/{id}") { entry ->
@@ -168,7 +193,7 @@ fun LeoApp(
                                     vm,
                                     state,
                                     entry.arguments?.getString("id"),
-                                    openChat = { nav.navigate("chat/$it") { popUpTo("chats") } },
+                                    openChat = { nav.navigate("chat/$it") { popUpTo("fil") } },
                                     openRun = { nav.navigate("run/$it") },
                                     back = { nav.popBackStack() },
                                     create = { nav.navigate("new-chat") },
@@ -181,26 +206,18 @@ fun LeoApp(
                                     state,
                                     null,
                                     initialAgent =
-                                        entry.arguments?.getString("agent") ?: MAIN_AGENT_ID,
+                                        entry.arguments?.getString("agent")?.ifBlank { null } ?: MAIN_AGENT_ID,
                                     initialProject =
                                         entry.arguments?.getString("project").orEmpty(),
-                                    openChat = { nav.navigate("chat/$it") { popUpTo("chats") } },
+                                    openChat = { nav.navigate("chat/$it") { popUpTo("fil") } },
                                     openRun = { nav.navigate("run/$it") },
                                     back = { nav.popBackStack() },
                                     create = { nav.navigate("new-chat") },
                                     openConnections = { nav.navigate("connections") },
                                 )
                             }
-                            composable("overview") {
-                                OverviewScreen(
-                                    vm,
-                                    state,
-                                    { nav.navigate("run/$it") },
-                                    { nav.navigate("tasks") },
-                                )
-                            }
-                            composable("tasks") {
-                                TasksScreen(vm, state) { nav.navigate("run/$it") }
+                            composable("missions") {
+                                MissionsScreen(vm, state) { nav.navigate("run/$it") }
                             }
                             composable("runs") { RunsScreen(vm, state) { nav.navigate("run/$it") } }
                             composable("run/{id}") { entry ->
@@ -211,11 +228,11 @@ fun LeoApp(
                                     openChat = { nav.navigate("chat/$it") },
                                     back = { nav.popBackStack() },
                                 ) {
-                                    nav.navigate("run/$it") { popUpTo("runs") }
+                                    nav.navigate("run/$it") { popUpTo("run/{id}") { inclusive = true } }
                                 }
                             }
-                            composable("workspace") {
-                                WorkspaceScreen(vm, state) { nav.navigate(it) }
+                            composable("atelier") {
+                                AtelierScreen(vm, state) { nav.navigate(it) }
                             }
                             composable("agents") {
                                 ResourcesScreen(vm, state, true) { agent, project ->
@@ -257,6 +274,7 @@ private fun LoginScreen(vm: LeoViewModel, state: Workspace) {
         ) {
             Column(Modifier.widthIn(max = 520.dp)) {
                 Page {
+                    Wordmark()
                     Heading("Bienvenue dans Leo", "Votre espace de travail, dans votre poche.")
                     Panel {
                         Text(
@@ -356,150 +374,56 @@ private fun LoginScreen(vm: LeoViewModel, state: Workspace) {
 }
 
 @Composable
-private fun WorkspaceScreen(vm: LeoViewModel, state: Workspace, navigate: (String) -> Unit) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var signingOut by remember { mutableStateOf(false) }
-    Page {
-        Heading("Leo")
-        SearchField("Rechercher dans Leo", query) { query = it }
-        if (query.isNotBlank()) {
-            val results =
-                state.tasks.map { Triple(it.name, "Tâche", "tasks") } +
-                    state.agents.map { Triple(it.name, "Agent", "agents") } +
-                    state.projects.map { Triple(it.name, "Projet", "projects") } +
-                    state.skills.map { Triple(it.name, "Skill", "skills") }
-            val filtered = results.filter { it.first.contains(query.trim(), true) }
-            if (filtered.isEmpty()) Text("Aucun résultat")
-            filtered.forEach { (name, kind, route) ->
-                Surface(
-                    onClick = { navigate(route) },
-                    color = MaterialTheme.colorScheme.background,
-                ) {
-                    ListItem(
-                        headlineContent = { Text(name) },
-                        supportingContent = { Text(kind) },
-                        trailingContent = { Icon(LeoIcons.Right, null) },
-                    )
-                }
-            }
-            HorizontalDivider()
-        }
-        listOf(
-                "overview" to "Vue d’ensemble",
-                "agents" to "Agents",
-                "projects" to "Projets",
-                "skills" to "Skills",
-                "mcps" to "Serveurs MCP",
-                "connections" to "Connexions",
-                "settings" to "Paramètres et accès",
-                "authorize" to "Autoriser un assistant",
-            )
-            .forEach { (route, label) ->
-                Surface(
-                    onClick = { navigate(route) },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.background,
-                ) {
-                    ListItem(
-                        headlineContent = { Text(label) },
-                        trailingContent = { Icon(LeoIcons.Right, null, Modifier.size(18.dp)) },
-                    )
-                }
-            }
-        HorizontalDivider()
-        TextButton(onClick = { signingOut = true }, enabled = !state.busy) {
-            Text("Se déconnecter")
-        }
-    }
-    if (signingOut)
-        Confirm(
-            "Se déconnecter ?",
-            "Les tâches continueront sur le serveur.",
-            state.busy,
-            state.error,
-            { signingOut = false },
-        ) {
-            vm.perform { logout() }
-        }
-}
-
-@Composable
-private fun OverviewScreen(
-    vm: LeoViewModel,
-    state: Workspace,
-    openRun: (String) -> Unit,
-    tasks: () -> Unit,
-) {
-    Poll("overview", 15000) {
-        try {
-            vm.refresh()
-        } catch (e: Exception) {
-            vm.report(e)
-        }
-    }
-    Page {
-        Heading("Vue d’ensemble")
-        Button(onClick = tasks) {
-            Icon(Icons.Default.Add, null)
-            Spacer(Modifier.width(8.dp))
-            Text("Gérer mes tâches")
-        }
-        Panel {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Metric("En cours", state.overview.counts["running"] ?: 0)
-                Metric("Terminées", state.overview.counts["succeeded"] ?: 0)
-                Metric("Agents", state.agents.size)
-            }
-            Text(
-                "${state.overview.counts["queued"] ?: 0} en attente · ${state.tasks.count { it.cron != null && it.enabled && !it.archived }} planifiées",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Text("Activité récente", style = MaterialTheme.typography.titleLarge)
-        if (state.overview.runs.isEmpty())
-            Empty(
-                "Votre prochaine réussite commence ici",
-                "Créez une tâche et confiez-la à un agent.",
-            )
-        state.overview.runs.forEach { RunCard(it, openRun) }
-        Text("À venir", style = MaterialTheme.typography.titleLarge)
-        val upcoming =
-            state.tasks
-                .filter { it.enabled && !it.archived && it.nextRun != null }
-                .sortedBy { it.nextRun }
-                .take(3)
-        if (upcoming.isEmpty()) Text("Aucune exécution planifiée.")
-        upcoming.forEach { task ->
-            Panel {
-                Text(task.name, style = MaterialTheme.typography.titleMedium)
-                Text(date(task.nextRun))
-            }
-        }
-    }
-}
-
-@Composable
-private fun Metric(label: String, value: Int) {
-    Column {
-        Text(
-            value.toString(),
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(label, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-@Composable
 fun RunCard(run: Run, open: (String) -> Unit) {
-    Card(onClick = { open(run.id) }, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(run.title, style = MaterialTheme.typography.titleMedium)
+    SignalCard(Modifier.fillMaxWidth(), onClick = { open(run.id) }, padding = PaddingValues(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RunStatusTile(run.status)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    run.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${date(run.createdAt)} · ${duration(run)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
             Status(run.status)
-            Text(
-                "${date(run.createdAt)} · ${duration(run)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
+    }
+}
+
+/** Square status mark shared by run history rows. */
+@Composable
+internal fun RunStatusTile(status: String, size: androidx.compose.ui.unit.Dp = 34.dp) {
+    val tint =
+        when (status) {
+            "succeeded" -> signal.success
+            "failed", "interrupted" -> signal.attention
+            "running", "queued" -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    Box(
+        Modifier.size(size)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+            .background(tint.copy(alpha = 0.14f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            when (status) {
+                "succeeded" -> LeoIcons.Check
+                "failed", "interrupted" -> LeoIcons.Close
+                "running", "queued" -> LeoIcons.Play
+                else -> LeoIcons.Pause
+            },
+            null,
+            Modifier.size(size * 0.45f),
+            tint = tint,
+        )
     }
 }

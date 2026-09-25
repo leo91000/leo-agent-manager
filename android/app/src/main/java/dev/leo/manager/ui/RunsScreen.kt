@@ -3,7 +3,9 @@
 package dev.leo.manager.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -42,45 +44,44 @@ fun RunsScreen(vm: LeoViewModel, state: Workspace, open: (String) -> Unit) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Activité",
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                ActionIcon("Filtres", LeoIcons.Tune) { filters = !filters }
+            ScreenTitle("Journal", "Toutes les exécutions, des missions comme des conversations.") {
+                RoundAction("Filtrer par mission", LeoIcons.Tune) { filters = !filters }
             }
         }
-        if (filters || status.isNotBlank() || taskId.isNotBlank())
-            item {
-                Choice(
-                    "Statut",
-                    status,
-                    listOf(
-                        "" to "Tous",
-                        "running" to "En cours",
-                        "queued" to "En attente",
-                        "succeeded" to "Terminées",
-                        "failed" to "Échecs",
-                        "cancelled" to "Annulées",
-                        "interrupted" to "Interrompues",
-                    ),
-                ) {
-                    status = it
-                    offset = 0
-                    runs = emptyList()
-                    loading = true
+        item {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf(
+                    "" to "Toutes",
+                    "running" to "En cours",
+                    "queued" to "En attente",
+                    "succeeded" to "Terminées",
+                    "failed" to "Échecs",
+                    "cancelled" to "Annulées",
+                    "interrupted" to "Interrompues",
+                ).forEach { (key, label) ->
+                    SignalChip(label, status == key) {
+                        if (status != key) {
+                            status = key
+                            offset = 0
+                            runs = emptyList()
+                            loading = true
+                        }
+                    }
                 }
             }
-        if (filters || status.isNotBlank() || taskId.isNotBlank())
+        }
+        if (filters || taskId.isNotBlank())
             item {
                 Choice(
-                    "Tâche",
+                    "Mission",
                     taskId,
-                    listOf("" to "Toutes les tâches") + state.tasks.map { it.id to it.name },
+                    listOf("" to "Toutes les missions") + state.tasks.map { it.id to it.name },
                 ) {
                     taskId = it
                     offset = 0
@@ -129,9 +130,6 @@ fun RunScreen(
     id: String,
     openChat: (String) -> Unit = {},
     back: () -> Unit = {},
-    chooseTask: (() -> Unit)? = null,
-    taskDetails: (() -> Unit)? = null,
-    createTask: (() -> Unit)? = null,
     openRun: (String) -> Unit,
 ) {
     val pageAnchor = remember(id) { HistoryPageAnchor() }
@@ -206,24 +204,8 @@ fun RunScreen(
                     if (current.active)
                         ActionIcon("Arrêter", LeoIcons.Stop, !state.busy) { confirm = "cancel" }
                     Box {
-                        ActionIcon("Options de l’exécution", Icons.Default.MoreVert) { menu = true }
+                        ActionIcon("Options de l’exécution", LeoIcons.More) { menu = true }
                         DropdownMenu(menu, { menu = false }) {
-                            if (taskDetails != null)
-                                DropdownMenuItem(
-                                    text = { Text("Détails de la tâche") },
-                                    onClick = {
-                                        menu = false
-                                        taskDetails()
-                                    },
-                                )
-                            if (createTask != null)
-                                DropdownMenuItem(
-                                    text = { Text("Créer une tâche") },
-                                    onClick = {
-                                        menu = false
-                                        createTask()
-                                    },
-                                )
                             DropdownMenuItem(
                                 text = { Text("Plein écran") },
                                 onClick = {
@@ -272,17 +254,14 @@ fun RunScreen(
                         }
                     }
                 }
-                if (!fullscreen) {
-                    if (chooseTask != null)
-                        ConversationHeader("Tâches", current.title, chooseTask, headerActions)
-                    else
-                        DetailHeader(
-                            current.title,
-                            "${statusLabel(current.status)} · ${duration(current)}",
-                            back,
-                            headerActions,
-                        )
-                } else
+                if (!fullscreen)
+                    DetailHeader(
+                        current.title,
+                        "${statusLabel(current.status)} · ${duration(current)}",
+                        back,
+                        headerActions,
+                    )
+                else
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             when (tab) {

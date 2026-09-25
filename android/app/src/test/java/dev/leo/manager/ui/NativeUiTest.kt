@@ -56,11 +56,11 @@ class NativeUiTest {
     }
 
     @Test
-    fun `task filters distinguish archived tasks and prevent running them`() {
+    fun `mission filters distinguish archived missions and prevent running them`() {
         val vm = model()
         compose.setContent {
             LeoTheme {
-                TasksScreen(
+                MissionsScreen(
                     vm,
                     workspace.copy(
                         tasks =
@@ -88,14 +88,16 @@ class NativeUiTest {
         }
         compose.onAllNodesWithText("Revue quotidienne").onFirst().assertExists()
         compose.onNodeWithText("Ancienne mission").assertDoesNotExist()
+        // The daily cron is described in words on the card.
+        compose.onNodeWithText("Tous les jours · 09:00").assertExists()
         screenshot("tasks")
-        compose.onNodeWithText("Tâches").performClick()
-        compose.onNodeWithText("Toutes").performClick()
         compose.onNodeWithText("Archivées").performScrollTo().performClick()
         compose.onAllNodesWithText("Ancienne mission").onFirst().assertExists()
         compose.onNodeWithText("Revue quotidienne").assertDoesNotExist()
-        compose.onAllNodesWithText("Ancienne mission").onLast().performClick()
-        compose.onNodeWithText("Lancer").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Lancer Ancienne mission").assertIsNotEnabled()
+        compose.onAllNodesWithText("Ancienne mission").onFirst().performClick()
+        compose.onNodeWithTag("mission-sheet").assertIsDisplayed()
+        compose.onNodeWithText("Lancer maintenant").assertIsNotEnabled()
     }
 
     @Test

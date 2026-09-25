@@ -4,5 +4,6 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:colorAccent">#4545EF</item>
+        <item name="android:windowBackground">@color/leo_window</item>
     </style>
 </resources>

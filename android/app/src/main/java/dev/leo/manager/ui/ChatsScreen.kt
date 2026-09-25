@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+)
 
 package dev.leo.manager.ui
 
@@ -6,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -19,6 +23,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
@@ -81,8 +89,8 @@ internal fun ConversationList(
         )
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Conversations", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-            ActionIcon("Nouvelle conversation", Icons.Default.Add, onClick = create)
+            Text("Conversations", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+            ActionIcon("Nouvelle conversation", LeoIcons.Plus, onClick = create)
         }
         SearchField("Rechercher une conversation", query) { query = it }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -116,38 +124,53 @@ internal fun ConversationList(
                             onClick = { open(chat.id) },
                             color =
                                 if (chat.id == selected) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.background,
-                            shape = RoundedCornerShape(14.dp),
+                                else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0f),
+                            shape = RoundedCornerShape(16.dp),
                         ) {
-                            Column(
-                                Modifier.fillMaxWidth().padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(5.dp),
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    chat.title,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
+                                AgentAvatar(
+                                    chat.agentName.ifBlank { chat.title },
+                                    chat.agentId,
+                                    40.dp,
+                                    when {
+                                        chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted") -> AvatarBadge.ATTENTION
+                                        !chat.paused && chat.status in setOf("running", "queued") -> AvatarBadge.LIVE
+                                        else -> null
+                                    },
                                 )
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        chat.title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        when {
+                                            chat.pendingQuestions > 0 -> "${chat.pendingQuestions} question(s) en attente"
+                                            chat.paused -> "En pause"
+                                            chat.status in listOf("running", "queued", "failed", "interrupted") ->
+                                                statusLabel(chat.status)
+                                            else -> listOfNotNull(chat.agentName.ifBlank { null }, chat.projectName).joinToString(" · ")
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color =
+                                            if (chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted")) signal.attention
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
                                 Text(
-                                    listOfNotNull(chat.agentName, chat.projectName)
-                                        .joinToString(" · "),
-                                    style = MaterialTheme.typography.bodySmall,
+                                    shortStamp(chat.updatedAt),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                if (chat.pendingQuestions > 0)
-                                    Text(
-                                        "${chat.pendingQuestions} question(s) en attente",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                else if (chat.paused)
-                                    Text("En pause", style = MaterialTheme.typography.labelSmall)
-                                else if (
-                                    chat.status in
-                                        listOf("running", "queued", "failed", "interrupted")
-                                )
-                                    Status(chat.status)
                             }
                         }
                     }
@@ -191,7 +214,6 @@ fun ChatScreen(
     var provider by rememberSaveable(id) { mutableStateOf(savedDraft.provider) }
     var model by rememberSaveable(id) { mutableStateOf(savedDraft.model) }
     var reasoning by rememberSaveable(id) { mutableStateOf(savedDraft.reasoning) }
-    var options by rememberSaveable(id) { mutableStateOf(false) }
     var attachments by rememberForm(savedDraft.attachments)
     var editing by rememberSaveable(id) { mutableStateOf(savedDraft.editing) }
     var submissionId by rememberSaveable(id) { mutableStateOf(savedDraft.submissionId) }
@@ -200,7 +222,7 @@ fun ChatScreen(
     var gallery by rememberSaveable(id) { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var fullscreen by rememberSaveable(id) { mutableStateOf(false) }
-    var queueExpanded by rememberSaveable(id) { mutableStateOf(true) }
+    var queueExpanded by rememberSaveable(id) { mutableStateOf(false) }
     BackHandler(fullscreen) { fullscreen = false }
     var choosing by rememberSaveable(id) { mutableStateOf(false) }
     var details by rememberSaveable(id) { mutableStateOf(false) }
@@ -425,6 +447,23 @@ fun ChatScreen(
         reasoning = message.reasoning
         attachments = message.attachments.map { DraftAttachment(it) }
     }
+    fun steerQueued(message: ChatMessage) {
+        vm.perform {
+            api.request(
+                "PUT",
+                "/chats/${segment(message.chatId.ifBlank { id.orEmpty() })}/messages/${segment(message.id)}",
+                buildJsonObject {
+                    put("id", message.id)
+                    put("text", message.text)
+                    put("mode", "steer")
+                    put("provider", message.provider)
+                    put("model", message.model)
+                    put("reasoning", message.reasoning)
+                    put("attachmentIds", wireJson.encodeToJsonElement(message.attachments.map { it.id }))
+                },
+            )
+        }
+    }
     val followGesture = rememberHistoryFollowGesture(listState, follow) { follow = it }
     FollowHistoryTail(
         listState,
@@ -436,53 +475,87 @@ fun ChatScreen(
     CompositionLocalProvider(LocalSkillNames provides skillNames) {
     ArtifactLinkHost(vm, live.state?.artifacts.orEmpty()) {
         Column(Modifier.fillMaxSize()) {
-            if (!fullscreen)
+            if (!fullscreen) {
+                val agentName = chat?.agentName?.ifBlank { null } ?: selectedAgent?.name ?: "Agent"
                 ConversationHeader(
-                    "Conversations",
-                    chat?.title ?: "Nouvelle conversation",
-                    {
+                    title = chat?.title ?: "Nouvelle conversation",
+                    agent = agentName,
+                    agentKey = chat?.agentId ?: agent,
+                    status = when {
+                        chat == null -> ""
+                        chat.paused -> "En pause"
+                        chat.run?.status == "queued" -> "En attente"
+                        else -> listOfNotNull(agentName, chat.projectName).joinToString(" · ")
+                    },
+                    live =
+                        if (chat?.run?.status == "running")
+                            listOf("$agentName travaille", elapsed(chat.run.startedAt)).filter { it.isNotBlank() }.joinToString(" · ")
+                        else null,
+                    back = {
+                        persistDraft()
+                        back()
+                    },
+                    choose = {
                         persistDraft()
                         choosing = true
                     },
                 ) {
-                    ActionIcon("Nouvelle conversation", Icons.Default.Add) {
-                        persistDraft()
-                        create()
+                    val files = live.state?.artifacts?.size ?: 0
+                    if (id != null) {
+                        Box {
+                            RoundAction("Fichiers · $files", LeoIcons.Layers, size = 40.dp) { gallery = true }
+                            if (files > 0)
+                                Box(
+                                    Modifier.align(Alignment.TopEnd)
+                                        .padding(top = 2.dp, end = 2.dp)
+                                        .size(18.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        if (files > 99) "99+" else files.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
+                        }
                     }
                     Box {
-                        ActionIcon("Options de la conversation", Icons.Default.MoreVert) {
-                            menu = true
-                        }
+                        ActionIcon("Options de la conversation", LeoIcons.More) { menu = true }
                         DropdownMenu(menu, { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Nouvelle conversation") },
+                                leadingIcon = { Icon(LeoIcons.Plus, null) },
+                                onClick = {
+                                    menu = false
+                                    persistDraft()
+                                    create()
+                                },
+                            )
+                            if (chat != null)
+                                DropdownMenuItem(
+                                    text = { Text("Détails de la conversation") },
+                                    leadingIcon = { Icon(Icons.Default.Info, null) },
+                                    onClick = {
+                                        menu = false
+                                        details = true
+                                    },
+                                )
+                            DropdownMenuItem(
+                                text = { Text("Suivre les réponses") },
+                                leadingIcon = { Icon(LeoIcons.Bottom, null) },
+                                trailingIcon = { if (follow) Icon(LeoIcons.Check, "Activé") },
+                                onClick = {
+                                    menu = false
+                                    follow = !follow
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Plein écran") },
                                 onClick = {
                                     menu = false
                                     fullscreen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Détails de la conversation") },
-                                leadingIcon = { Icon(Icons.Default.Info, null) },
-                                onClick = {
-                                    menu = false
-                                    details = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Fichiers · ${live.state?.artifacts?.size ?: 0}") },
-                                leadingIcon = { Icon(LeoIcons.Layers, null) },
-                                onClick = {
-                                    menu = false
-                                    gallery = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Modèle et préférences") },
-                                leadingIcon = { Icon(LeoIcons.Tune, null) },
-                                onClick = {
-                                    menu = false
-                                    options = true
                                 },
                             )
                             chat?.let { current ->
@@ -509,19 +582,6 @@ fun ChatScreen(
                                         }
                                     },
                                 )
-                                if (
-                                    active &&
-                                        editing == null &&
-                                        (draft.isNotBlank() || attachments.isNotEmpty())
-                                )
-                                    DropdownMenuItem(
-                                        text = { Text("Intervenir avec ce message") },
-                                        enabled = !state.busy && live.error == null,
-                                        onClick = {
-                                            menu = false
-                                            send(if (switchingProvider) "queue" else "steer")
-                                        },
-                                    )
                                 current.runId?.let { runId ->
                                     DropdownMenuItem(
                                         text = { Text("Voir l’exécution") },
@@ -534,8 +594,8 @@ fun ChatScreen(
                                 }
                                 if (active)
                                     DropdownMenuItem(
-                                        text = { Text("Arrêter l’agent") },
-                                        leadingIcon = { Icon(LeoIcons.Stop, null) },
+                                        text = { Text("Arrêter l’agent", color = MaterialTheme.colorScheme.error) },
+                                        leadingIcon = { Icon(LeoIcons.Stop, null, tint = MaterialTheme.colorScheme.error) },
                                         enabled = !state.busy,
                                         onClick = {
                                             menu = false
@@ -546,6 +606,7 @@ fun ChatScreen(
                         }
                     }
                 }
+            }
             if (fullscreen)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -639,46 +700,6 @@ fun ChatScreen(
                     }
                 }
             }
-            if (options) {
-                ModalBottomSheet(onDismissRequest = { options = false }) {
-                    Column(
-                        Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Préférences",
-                                Modifier.weight(1f),
-                                style = MaterialTheme.typography.titleLarge,
-                            )
-                            ActionIcon("Fermer les préférences", Icons.Default.Close) {
-                                options = false
-                            }
-                        }
-                        ModelPicker(
-                            if (chosenProvider == "claude") state.claudeModels else state.models,
-                            model,
-                            reasoning,
-                            defaultModel,
-                            defaultReasoning,
-                            inherit = inheritAgentModel,
-                            enabled = !state.busy,
-                            refresh = { vm.refreshModels(chosenProvider) },
-                            provider = chosenProvider,
-                            changeProvider = ::chooseProvider,
-                            switching = switchingProvider,
-                            field = true,
-                        ) { m, r ->
-                            model = m
-                            reasoning = r
-                        }
-                        Toggle("Suivre les réponses", follow) { follow = it }
-                    }
-                }
-            }
             Column(
                 Modifier.weight(1f)
                     .widthIn(max = 840.dp)
@@ -700,22 +721,19 @@ fun ChatScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             if (id == null)
-                                item {
-                                    Panel {
-                                        Choice("Agent", agent, state.agents.map { it.id to it.name }) {
+                                item(key = "new-conversation") {
+                                    NewConversationIntro(
+                                        state.agents,
+                                        agent,
+                                        projects,
+                                        project,
+                                        enabled = createdId == null && !state.busy,
+                                        chooseAgent = {
                                             agent = it
                                             project = ""
-                                        }
-                                        Choice(
-                                            "Projet",
-                                            project,
-                                            listOf("" to "Tous les projets autorisés") +
-                                                projects.map { it.id to it.name },
-                                        ) {
-                                            project = it
-                                        }
-                                        Text("Envoyez un message ou un fichier pour commencer.")
-                                    }
+                                        },
+                                        chooseProject = { project = it },
+                                    )
                                 }
                             historyHeader(live, loadOlder)
                             items(timeline, key = { it.key }) {
@@ -761,136 +779,47 @@ fun ChatScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                            if (pending.isNotEmpty())
-                                item(key = "queue-header") {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        TextButton(
-                                            onClick = { queueExpanded = !queueExpanded },
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Text("${pending.size} message(s) en attente")
-                                            Icon(
-                                                if (queueExpanded) LeoIcons.Down else LeoIcons.Right,
-                                                null,
-                                                Modifier.size(16.dp),
-                                            )
-                                        }
-                                        TextButton(
-                                            onClick = {
-                                                vm.perform {
-                                                    api.request(
-                                                        "POST",
-                                                        "/chats/${segment(chat!!.id)}/pause",
-                                                        buildJsonObject { put("paused", !chat.paused) },
-                                                    )
-                                                }
-                                            },
-                                            enabled = !state.busy,
-                                        ) {
-                                            Text(if (chat?.paused == true) "Reprendre" else "Pause")
-                                        }
-                                    }
-                                }
-                            if (queueExpanded)
-                                items(pending, key = { "pending:${it.id}" }) { message ->
-                                    val private =
-                                        chat?.questions.orEmpty().any {
-                                            it.id == message.questionId &&
-                                                it.fields.any { f -> f.secret }
-                                        }
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                        shape = RoundedCornerShape(20.dp),
-                                    ) {
-                                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                            Text(
-                                                if (message.status == "sending") "Envoi en cours…"
-                                                else "En attente",
-                                                style = MaterialTheme.typography.labelLarge,
-                                            )
-                                            Text(if (private) "Réponse privée" else message.text)
-                                            if (message.attachments.isNotEmpty())
-                                                AttachmentList(vm, message.attachments)
-                                            if (message.status == "queued")
-                                                Row {
-                                                    if (message.questionId == null) {
-                                                        ActionIcon(
-                                                            "Modifier le message en attente",
-                                                            Icons.Default.Edit,
-                                                            onClick = { edit(message) },
-                                                            enabled = !state.busy,
-                                                        )
-                                                        if (active && message.mode != "steer")
-                                                            TextButton(
-                                                                onClick = {
-                                                                    vm.perform {
-                                                                        api.request(
-                                                                            "PUT",
-                                                                            "/chats/${segment(chat.id)}/messages/${segment(message.id)}",
-                                                                            buildJsonObject {
-                                                                                put("id", message.id)
-                                                                                put(
-                                                                                    "text",
-                                                                                    message.text,
-                                                                                )
-                                                                                put("mode", "steer")
-                                                                                put("provider", message.provider)
-                                                                                put(
-                                                                                    "model",
-                                                                                    message.model,
-                                                                                )
-                                                                                put(
-                                                                                    "reasoning",
-                                                                                    message.reasoning,
-                                                                                )
-                                                                                put(
-                                                                                    "attachmentIds",
-                                                                                    wireJson
-                                                                                        .encodeToJsonElement(
-                                                                                            message
-                                                                                                .attachments
-                                                                                                .map {
-                                                                                                    it
-                                                                                                        .id
-                                                                                                }
-                                                                                        ),
-                                                                                )
-                                                                            },
-                                                                        )
-                                                                    }
-                                                                },
-                                                                enabled = !state.busy,
-                                                            ) {
-                                                                Text("Intervenir")
-                                                            }
-                                                    }
-                                                    ActionIcon(
-                                                        "Retirer le message",
-                                                        Icons.Default.Delete,
-                                                        onClick = { removing = message },
-                                                        enabled = !state.busy,
-                                                    )
-                                                }
-                                        }
-                                    }
-                                }
                         }
                         HistoryBottomButton(listState, follow, "Derniers messages") { follow = true }
                     }
                 }
                 if (questions.isNotEmpty())
-                    OutlinedButton(
+                    Surface(
                         onClick = { asking = questions.first() },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        color = signal.attentionSoft,
                     ) {
-                        Text(
-                            "${questions.size} ${if (questions.size == 1) "question" else "questions"} · Répondre"
-                        )
+                        Row(
+                            Modifier.heightIn(min = 48.dp).padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(signal.attention))
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "${questions.size} ${if (questions.size == 1) "question" else "questions"} · Répondre",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
+                if (pending.isNotEmpty() && !fullscreen)
+                    QueueStrip(
+                        pending,
+                        chat?.questions.orEmpty().filter { q -> q.fields.any { it.secret } }.map { it.id }.toSet(),
+                        queueExpanded,
+                        { queueExpanded = !queueExpanded },
+                        busy = state.busy,
+                        canSteer = active,
+                        edit = ::edit,
+                        steer = ::steerQueued,
+                        remove = { removing = it },
+                        attachments = { AttachmentList(vm, it) },
+                    )
                 if (!fullscreen)
                     Surface(
                         Modifier.padding(horizontal = 12.dp, vertical = 8.dp).testTag("conversation-composer"),
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(26.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         color = MaterialTheme.colorScheme.surface,
                     ) {
@@ -986,7 +915,7 @@ fun ChatScreen(
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 ActionIcon(
                                     "Joindre",
-                                    Icons.Default.Add,
+                                    LeoIcons.Attach,
                                     !state.busy && attachments.size < 8,
                                 ) {
                                     picker.launch(arrayOf("*/*"))
@@ -1019,11 +948,25 @@ fun ChatScreen(
                                         editing == null &&
                                         (draft.isNotBlank() || attachments.isNotEmpty())
                                 )
-                                    ActionIcon("Intervenir maintenant", LeoIcons.Steer, canSend && !switchingProvider) {
+                                    RoundAction(
+                                        "Intervenir maintenant",
+                                        LeoIcons.Steer,
+                                        container = MaterialTheme.colorScheme.primaryContainer,
+                                        content = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        outlined = false,
+                                        size = 40.dp,
+                                        enabled = canSend && !switchingProvider,
+                                    ) {
                                         send(if (switchingProvider) "queue" else "steer")
                                     }
                                 if (active && draft.isBlank() && attachments.isEmpty())
-                                    ActionIcon("Arrêter", LeoIcons.Stop, !state.busy) {
+                                    RoundAction(
+                                        "Arrêter",
+                                        LeoIcons.StopSolid,
+                                        content = signal.attention,
+                                        size = 40.dp,
+                                        enabled = !state.busy,
+                                    ) {
                                         stopping = true
                                     }
                                 else
@@ -1035,11 +978,11 @@ fun ChatScreen(
                                         // Keep the native touch target generous while the visible
                                         // button stays discreet alongside the message field.
                                         Surface(
-                                            Modifier.size(32.dp).testTag("conversation-send-face"),
-                                            shape = RoundedCornerShape(10.dp),
-                                            color = if (canSend) androidx.compose.ui.graphics.Color(0xFF4545F5)
+                                            Modifier.size(40.dp).testTag("conversation-send-face"),
+                                            shape = androidx.compose.foundation.shape.CircleShape,
+                                            color = if (canSend) MaterialTheme.colorScheme.primary
                                                 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-                                            contentColor = if (canSend) androidx.compose.ui.graphics.Color.White
+                                            contentColor = if (canSend) MaterialTheme.colorScheme.onPrimary
                                                 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                                         ) {
                                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1221,6 +1164,174 @@ private fun QuestionDialog(
                             !state.busy && question.fields.all { !answers[it.id].isNullOrBlank() },
                     ) {
                         Text("Envoyer la réponse")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Who and where, chosen directly on screen instead of through drop-down menus. */
+@Composable
+private fun NewConversationIntro(
+    agents: List<Agent>,
+    agent: String,
+    projects: List<Project>,
+    project: String,
+    enabled: Boolean,
+    chooseAgent: (String) -> Unit,
+    chooseProject: (String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().testTag("new-conversation")) {
+        Text("On lance quoi ?", style = MaterialTheme.typography.headlineLarge)
+        Eyebrow("Avec", Modifier.padding(top = 20.dp, bottom = 10.dp))
+        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(agents, key = { it.id }) { item ->
+                AgentTile(item, item.id == agent, enabled) { chooseAgent(item.id) }
+            }
+        }
+        Eyebrow("Dans", Modifier.padding(top = 20.dp, bottom = 4.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SignalChip("Tous les projets autorisés", project.isEmpty()) { if (enabled) chooseProject("") }
+            projects.forEach {
+                SignalChip(it.name, project == it.id, leading = identityColor(it.id)) {
+                    if (enabled) chooseProject(it.id)
+                }
+            }
+        }
+        Text(
+            "Écrivez votre message ou joignez un fichier pour commencer.",
+            Modifier.padding(top = 12.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun AgentTile(agent: Agent, selected: Boolean, enabled: Boolean, choose: () -> Unit) {
+    val shape = RoundedCornerShape(22.dp)
+    Surface(
+        onClick = choose,
+        enabled = enabled,
+        shape = shape,
+        color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.background,
+        border =
+            androidx.compose.foundation.BorderStroke(
+                if (selected) 2.dp else 1.dp,
+                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+            ),
+        modifier =
+            Modifier.width(104.dp).semantics {
+                this.selected = selected
+                role = androidx.compose.ui.semantics.Role.RadioButton
+            },
+    ) {
+        Column(
+            Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box {
+                AgentAvatar(agent.name, agent.id, 48.dp)
+                if (selected)
+                    Box(
+                        Modifier.align(Alignment.BottomEnd)
+                            .offset(6.dp, 6.dp)
+                            .size(20.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(2.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(LeoIcons.Check, null, Modifier.size(11.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                    }
+            }
+            Text(
+                agent.name,
+                Modifier.padding(top = 10.dp),
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                providerLabel(agent.provider),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * Follow-ups waiting for the agent, kept next to the composer. The first one is always visible;
+ * each can still be edited, sent now (intervention) or removed.
+ */
+@Composable
+private fun QueueStrip(
+    pending: List<ChatMessage>,
+    privateQuestions: Set<String>,
+    expanded: Boolean,
+    toggle: () -> Unit,
+    busy: Boolean,
+    canSteer: Boolean,
+    edit: (ChatMessage) -> Unit,
+    steer: (ChatMessage) -> Unit,
+    remove: (ChatMessage) -> Unit,
+    attachments: @Composable (List<ChatAttachment>) -> Unit,
+) {
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 4.dp).testTag("conversation-queue"),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Column(Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(LeoIcons.Clock, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "À la suite · ${pending.size}",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (pending.size > 1)
+                    TextButton(onClick = toggle) {
+                        Text(if (expanded) "Réduire" else "Tout voir")
+                    }
+            }
+            (if (expanded) pending else pending.take(1)).forEach { message ->
+                val private = message.questionId in privateQuestions
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                        Text(
+                            if (private) "Réponse privée" else message.text.ifBlank { "Pièces jointes" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = if (expanded) 6 else 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (message.status == "sending")
+                            Text(
+                                "Envoi en cours…",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        if (expanded && message.attachments.isNotEmpty()) attachments(message.attachments)
+                    }
+                    if (message.status == "queued") {
+                        if (message.questionId == null) {
+                            ActionIcon("Modifier le message en attente", LeoIcons.Pencil, !busy) { edit(message) }
+                            if (canSteer && message.mode != "steer")
+                                TextButton(onClick = { steer(message) }, enabled = !busy) {
+                                    Icon(LeoIcons.Steer, null, Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Maintenant")
+                                }
+                        }
+                        ActionIcon("Retirer le message", LeoIcons.Close, !busy) { remove(message) }
                     }
                 }
             }

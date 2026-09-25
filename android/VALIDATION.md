@@ -1,4 +1,32 @@
-# Android 0.33.3 — empty skill suggestions
+# Android 0.34.0 — « Signal » interface
+
+`SignalPresentationTest` covers the pure presentation logic: Fil grouping (questions,
+Claude reconnection, failed conversations, failed or blocked missions, live work,
+paused and recent conversations, archived and chat runs excluded), summaries and
+greetings, French cron wording with verbatim fallback, mission filters and ordering,
+universal search ranking and highlighting, past and upcoming date stamps, elapsed
+times, dock selection per route and the Atelier connection summary.
+
+`SignalJourneyTest` drives the real app against a mock server: Fil sections, retrying
+a failed mission and answering a question; search results and launching a mission;
+choosing agent and project on screen, with the agent's project policy applied and
+the agent, project and provider checked in the HTTP bodies; the mission sheet with
+schedule, history and success rate, pausing (PUT body) and running; the Atelier with
+Claude disconnected, Codex capacity, 1Password and the run journal.
+
+Existing journeys were moved to the new navigation rather than weakened:
+`WorkspaceJourneyTest` (sign-in, mission creation and run, settings, theme),
+`ChatJourneyTest` (queue strip edit, files badge, intervention, drafts, chooser),
+`NativeUiTest` (mission filters and archived missions) and `NativeParityPreviewTest`
+(phone, 360 dp, 130 % text and tablet layouts; the composer send face is now 40 dp
+inside a 48 dp target). `ParityDeviceTest` was updated for the device suite.
+
+Local validation (Robolectric, not an emulator): 139 unit and UI tests pass,
+`lintDebug` reports no issue, and `assembleDebug`, `assembleDebugAndroidTest` and
+`assembleRelease` succeed. The Android workflow runs the Android 16 device journeys
+before publishing the signed release APK.
+
+## Previous validation: Android 0.33.3 — empty skill suggestions
 
 `SkillMentionCases` is shared by the Robolectric and Android 16 device suites.
 It covers `$` with no available skills, a search with no matching skill,

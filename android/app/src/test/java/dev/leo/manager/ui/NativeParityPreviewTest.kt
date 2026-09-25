@@ -184,6 +184,9 @@ class NativeParityPreviewTest {
                                         )
                                     )
                                 "/api/tasks/activity" -> wireJson.encodeToString(listOf(run))
+                                "/api/runs" -> wireJson.encodeToString(listOf(run))
+                                "/api/schedule/preview" ->
+                                    """{"occurrences":[${now + 86400000},${now + 8 * 86400000}]}"""
                                 "/api/chats/stream" ->
                                     return stream(LiveState(chats = listOf(chat)))
                                 "/api/chats/chat/stream" ->
@@ -238,8 +241,8 @@ class NativeParityPreviewTest {
                         org.junit.Assert.assertEquals(48.dp, sendBounds.right - sendBounds.left)
                         val faceBounds = compose.onNodeWithTag("conversation-send-face", useUnmergedTree = true)
                             .getUnclippedBoundsInRoot()
-                        org.junit.Assert.assertEquals(32.dp, faceBounds.bottom - faceBounds.top)
-                        org.junit.Assert.assertEquals(32.dp, faceBounds.right - faceBounds.left)
+                        org.junit.Assert.assertEquals(40.dp, faceBounds.bottom - faceBounds.top)
+                        org.junit.Assert.assertEquals(40.dp, faceBounds.right - faceBounds.left)
                         val name = if (largeText) "fil-phone-large-text" else "fil-phone-density"
                         capture(name)
                         // Compact presentation must retain access to every file and the native viewer.
@@ -254,31 +257,38 @@ class NativeParityPreviewTest {
                     compose.onNode(hasText("Rapporté par", substring = true)).performScrollTo()
                     capture("chat-evidence-phone-dark")
                     compose.runOnIdle { activity.onBackPressedDispatcher.onBackPressed() }
-                    waitText("Tâches")
+                    waitDescription("Missions")
                 }
-                compose.onNodeWithText("Tâches").performClick()
-                waitText("Conversation")
-                compose
-                    .onAllNodes(hasScrollToIndexAction())
-                    .onLast()
-                    .performScrollToNode(hasText("Tâche terminée"))
-                awaitMarkdown(activity, "La nouvelle interface")
-                if (wide) compose.onNodeWithText("Rechercher une tâche").assertIsDisplayed()
-                capture(if (wide) "tasks-tablet-dark" else "task-phone-dark")
+                // Phone dock tabs are named by their icon; the large-window rail shows its labels.
+                compose.onAllNodes((hasContentDescription("Missions") or hasText("Missions")) and hasClickAction())
+                    .onFirst()
+                    .performClick()
+                waitText(task.name)
+                // Missions state their schedule in words and show recent run history.
+                compose.onNodeWithText("Chaque lundi · 09:00", substring = true).assertExists()
+                waitDescription("réussies", substring = true)
+                capture(if (wide) "missions-tablet-dark" else "missions-phone-dark")
                 if (wide) {
-                    compose.onNode(hasText("Tâches") and hasText(task.name)).performClick()
-                    compose.onNode(isDialog()).assertIsDisplayed()
-                    capture("task-picker-tablet-dark")
-                }
-                if (!wide) {
-                    compose.onNode(hasText("Tâches") and hasText(task.name)).performClick()
-                    compose.onNodeWithText("Rechercher une tâche").assertIsDisplayed()
-                    capture("task-inbox-phone-dark")
-                    compose.onNodeWithContentDescription("Créer une tâche").performClick()
+                    // The detail pane shows the first mission next to the list.
+                    compose.onNodeWithText("09:00").assertIsDisplayed()
+                    compose.onNodeWithText("Lancer maintenant").assertIsDisplayed()
+                } else {
+                    compose.onNodeWithText(task.name).performClick()
+                    compose.onNodeWithTag("mission-sheet").assertIsDisplayed()
+                    compose.waitUntil(15000) {
+                        compose.onAllNodesWithText("100 % de réussite").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithText("Lancer maintenant").assertIsDisplayed()
+                    capture("mission-sheet-phone-dark")
+                    compose.onNodeWithContentDescription("Fermer").performClick()
+                    compose.waitUntil(15000) {
+                        compose.onAllNodesWithTag("mission-sheet").fetchSemanticsNodes().isEmpty()
+                    }
+                    compose.onNodeWithContentDescription("Créer une mission").performClick()
                     compose
                         .onNode(hasText("Agent principal") and hasClickAction())
                         .assertIsDisplayed()
-                    capture("task-editor-phone-dark")
+                    capture("mission-editor-phone-dark")
                 }
             } finally {
                 vm.api.closeStreams()
@@ -290,6 +300,12 @@ class NativeParityPreviewTest {
         val bounds = getUnclippedBoundsInRoot()
         val measured = bounds.bottom - bounds.top
         org.junit.Assert.assertTrue("Expected height <= $maximum, measured $measured", measured <= maximum)
+    }
+
+    private fun waitDescription(value: String, substring: Boolean = false) {
+        compose.waitUntil(15000) {
+            compose.onAllNodesWithContentDescription(value, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun waitText(value: String) {

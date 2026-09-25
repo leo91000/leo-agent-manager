@@ -30,9 +30,10 @@ private val LeoTypography = Typography().let { base ->
         displayLarge = base.displayLarge.copy(fontFamily = LeoHeading),
         displayMedium = base.displayMedium.copy(fontFamily = LeoHeading),
         displaySmall = base.displaySmall.copy(fontFamily = LeoHeading),
-        headlineLarge = base.headlineLarge.copy(fontFamily = LeoHeading),
-        headlineMedium = base.headlineMedium.copy(fontFamily = LeoHeading),
-        headlineSmall = base.headlineSmall.copy(fontFamily = LeoHeading),
+        // Screen titles: large, bold and slightly tightened for character.
+        headlineLarge = base.headlineLarge.copy(fontFamily = LeoHeading, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp),
+        headlineMedium = base.headlineMedium.copy(fontFamily = LeoHeading, fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp),
+        headlineSmall = base.headlineSmall.copy(fontFamily = LeoHeading, fontSize = 24.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp),
         titleLarge = base.titleLarge.copy(fontFamily = LeoHeading, fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold),
         titleMedium = base.titleMedium.copy(fontFamily = LeoHeading, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
         titleSmall = base.titleSmall.copy(fontFamily = LeoBody, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
@@ -45,84 +46,122 @@ private val LeoTypography = Typography().let { base ->
     )
 }
 
-// Semantic tokens from src/styles/theme.css. Keep the web brand while using
-// Android's native typography, touch targets, shapes and interaction patterns.
+// "Signal" palette: warm paper and ink, with the Leo blue as the single accent colour for
+// actions, selection and live work. Coral is reserved for things that need the user.
 internal val LeoLightColors =
     lightColorScheme(
         primary = Color(0xFF4545EF),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFFEEEEFE),
-        onPrimaryContainer = Color(0xFF4545EF),
-        inversePrimary = Color(0xFFB8B2FF),
-        secondary = Color(0xFF727187),
+        primaryContainer = Color(0xFFE7E6FD),
+        onPrimaryContainer = Color(0xFF2F2FC4),
+        inversePrimary = Color(0xFF8C88FF),
+        secondary = Color(0xFF6D6A78),
         onSecondary = Color.White,
-        secondaryContainer = Color(0xFFEEEEFE),
-        onSecondaryContainer = Color(0xFF28283C),
+        secondaryContainer = Color(0xFFE7E6FD),
+        onSecondaryContainer = Color(0xFF16151D),
         tertiary = Color(0xFF8986A4),
         onTertiary = Color.White,
-        tertiaryContainer = Color(0xFFF4F3F7),
-        onTertiaryContainer = Color(0xFF28283C),
-        background = Color(0xFFFDFCFE),
-        onBackground = Color(0xFF28283C),
+        tertiaryContainer = Color(0xFFECE9E1),
+        onTertiaryContainer = Color(0xFF16151D),
+        background = Color(0xFFF4F2EC),
+        onBackground = Color(0xFF16151D),
         surface = Color(0xFFFFFFFF),
-        onSurface = Color(0xFF28283C),
-        surfaceVariant = Color(0xFFF4F3F7),
-        onSurfaceVariant = Color(0xFF727187),
+        onSurface = Color(0xFF16151D),
+        surfaceVariant = Color(0xFFECE9E1),
+        onSurfaceVariant = Color(0xFF6D6A78),
         surfaceTint = Color(0xFF4545EF),
-        inverseSurface = Color(0xFF222228),
-        inverseOnSurface = Color(0xFFEEEEF2),
+        inverseSurface = Color(0xFF16151D),
+        inverseOnSurface = Color(0xFFF4F2EC),
         surfaceBright = Color.White,
-        surfaceDim = Color(0xFFE6E5EB),
+        surfaceDim = Color(0xFFE3DFD5),
         surfaceContainerLowest = Color.White,
         surfaceContainerLow = Color.White,
-        surfaceContainer = Color(0xFFF4F3F7),
-        surfaceContainerHigh = Color(0xFFEEEEFE),
-        surfaceContainerHighest = Color(0xFFE6E5EB),
-        outlineVariant = Color(0xFFE6E5EB),
-        outline = Color(0xFF727187),
-        error = Color(0xFFA64034),
+        surfaceContainer = Color(0xFFF9F8F4),
+        surfaceContainerHigh = Color(0xFFECE9E1),
+        surfaceContainerHighest = Color(0xFFE3DFD5),
+        outlineVariant = Color(0xFFE3DFD5),
+        outline = Color(0xFF6D6A78),
+        error = Color(0xFFB53D22),
         onError = Color.White,
-        errorContainer = Color(0xFFFFF1EF),
-        onErrorContainer = Color(0xFFA64034),
+        errorContainer = Color(0xFFFBE6DF),
+        onErrorContainer = Color(0xFF8F2E18),
     )
 internal val LeoDarkColors =
     darkColorScheme(
-        primary = Color(0xFFB8B2FF),
-        onPrimary = Color(0xFF28283C),
-        primaryContainer = Color(0xFF313047),
-        onPrimaryContainer = Color(0xFFB8B2FF),
+        primary = Color(0xFF8C88FF),
+        onPrimary = Color(0xFF0D0D12),
+        primaryContainer = Color(0xFF26254A),
+        onPrimaryContainer = Color(0xFFC9C7FF),
         inversePrimary = Color(0xFF4545EF),
-        secondary = Color(0xFFAAAAB6),
-        onSecondary = Color(0xFF222228),
-        secondaryContainer = Color(0xFF313047),
-        onSecondaryContainer = Color(0xFFEEEEF2),
+        secondary = Color(0xFF9D9BAB),
+        onSecondary = Color(0xFF0D0D12),
+        secondaryContainer = Color(0xFF26254A),
+        onSecondaryContainer = Color(0xFFF3F2F7),
         tertiary = Color(0xFF9898A5),
-        onTertiary = Color(0xFF222228),
-        tertiaryContainer = Color(0xFF303038),
-        onTertiaryContainer = Color(0xFFEEEEF2),
-        background = Color(0xFF1B1B20),
-        onBackground = Color(0xFFEEEEF2),
-        surface = Color(0xFF222228),
-        onSurface = Color(0xFFEEEEF2),
-        surfaceVariant = Color(0xFF303038),
-        onSurfaceVariant = Color(0xFFAAAAB6),
-        surfaceTint = Color(0xFFB8B2FF),
-        inverseSurface = Color(0xFFFFFFFF),
-        inverseOnSurface = Color(0xFF28283C),
-        surfaceBright = Color(0xFF303038),
-        surfaceDim = Color(0xFF18181D),
-        surfaceContainerLowest = Color(0xFF18181D),
-        surfaceContainerLow = Color(0xFF222228),
-        surfaceContainer = Color(0xFF1B1B20),
-        surfaceContainerHigh = Color(0xFF292930),
-        surfaceContainerHighest = Color(0xFF303038),
-        outlineVariant = Color(0xFF35353E),
-        outline = Color(0xFFAAAAB6),
-        error = Color(0xFFEFAD9D),
-        onError = Color(0xFF3B2825),
-        errorContainer = Color(0xFF3B2825),
-        onErrorContainer = Color(0xFFEFAD9D),
+        onTertiary = Color(0xFF0D0D12),
+        tertiaryContainer = Color(0xFF22222B),
+        onTertiaryContainer = Color(0xFFF3F2F7),
+        background = Color(0xFF0D0D12),
+        onBackground = Color(0xFFF3F2F7),
+        surface = Color(0xFF17171E),
+        onSurface = Color(0xFFF3F2F7),
+        surfaceVariant = Color(0xFF22222B),
+        onSurfaceVariant = Color(0xFF9D9BAB),
+        surfaceTint = Color(0xFF8C88FF),
+        inverseSurface = Color(0xFFF3F2F7),
+        inverseOnSurface = Color(0xFF16151D),
+        surfaceBright = Color(0xFF22222B),
+        surfaceDim = Color(0xFF0D0D12),
+        surfaceContainerLowest = Color(0xFF0D0D12),
+        surfaceContainerLow = Color(0xFF17171E),
+        surfaceContainer = Color(0xFF131319),
+        surfaceContainerHigh = Color(0xFF22222B),
+        surfaceContainerHighest = Color(0xFF2A2A34),
+        outlineVariant = Color(0xFF2A2A34),
+        outline = Color(0xFF9D9BAB),
+        error = Color(0xFFFF8A70),
+        onError = Color(0xFF2B130D),
+        errorContainer = Color(0xFF38211C),
+        onErrorContainer = Color(0xFFFFB4A3),
     )
+
+/** Colours outside Material's roles: attention (coral), success and the ink surfaces. */
+@androidx.compose.runtime.Immutable
+internal data class LeoSignal(
+    val attention: Color,
+    val attentionSoft: Color,
+    val success: Color,
+    val ink: Color,
+    val onInk: Color,
+    val dock: Color,
+    val onDock: Color,
+)
+
+internal val LightSignal =
+    LeoSignal(
+        attention = Color(0xFFE2512F),
+        attentionSoft = Color(0xFFFBE6DF),
+        success = Color(0xFF1E8A57),
+        ink = Color(0xFF16151D),
+        onInk = Color(0xFFF4F2EC),
+        dock = Color(0xFF16151D),
+        onDock = Color(0xFFBDBAC7),
+    )
+internal val DarkSignal =
+    LeoSignal(
+        attention = Color(0xFFFF7B5E),
+        attentionSoft = Color(0xFF38211C),
+        success = Color(0xFF4FDB98),
+        ink = Color(0xFFF3F2F7),
+        onInk = Color(0xFF0D0D12),
+        dock = Color(0xFF1E1E26),
+        onDock = Color(0xFF9D9BAB),
+    )
+
+internal val LocalLeoSignal = androidx.compose.runtime.staticCompositionLocalOf { LightSignal }
+
+internal val signal: LeoSignal
+    @Composable get() = LocalLeoSignal.current
 
 @Composable
 fun leoDarkTheme(preference: String): Boolean =
@@ -134,9 +173,14 @@ fun leoDarkTheme(preference: String): Boolean =
 
 @Composable
 fun LeoTheme(preference: String = "system", content: @Composable () -> Unit) {
+    val dark = leoDarkTheme(preference)
     MaterialTheme(
-        colorScheme = if (leoDarkTheme(preference)) LeoDarkColors else LeoLightColors,
+        colorScheme = if (dark) LeoDarkColors else LeoLightColors,
         typography = LeoTypography,
-        content = content,
-    )
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalLeoSignal provides if (dark) DarkSignal else LightSignal,
+            content = content,
+        )
+    }
 }

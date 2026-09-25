@@ -159,6 +159,9 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
                                 )
                             "/api/tasks" -> wireJson.encodeToString(listOf(task))
                             "/api/tasks/activity" -> wireJson.encodeToString(listOf(run))
+                            "/api/runs" -> wireJson.encodeToString(listOf(run))
+                            "/api/schedule/preview" ->
+                                "{\"occurrences\":[${timestamp + 86400000},${timestamp + 8 * 86400000}]}"
                             "/api/projects" ->
                                 wireJson.encodeToString(
                                     listOf(Project("project", "Leo Agent Manager"))
@@ -252,7 +255,7 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
                 compose.onNodeWithText("Tâche terminée").performScrollTo()
                 compose.onNodeWithText("Détails").performClick()
                 capture("chat-evidence-dark")
-                compose.onNodeWithText("Conversations").performClick()
+                compose.onNode(hasContentDescription("Changer de conversation", substring = true)).performClick()
                 compose.waitUntil(15000) {
                     compose
                         .onAllNodesWithText("Préparer la prochaine version")
@@ -323,11 +326,11 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
             val vm = fixture(server)
             compose.setContent { LeoTheme("dark") { LeoApp(vm = vm) } }
             compose.waitUntil(30000) {
-                compose.onAllNodesWithText("Tâches").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithContentDescription("Missions").fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithText("Tâches").performClick()
+            compose.onNodeWithContentDescription("Missions").performClick()
             compose.waitUntil(30000) {
-                compose.onAllNodesWithText("Conversation").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithText(task.name).fetchSemanticsNodes().isNotEmpty()
             }
             val width =
                 InstrumentationRegistry.getInstrumentation()
@@ -335,8 +338,9 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
                     .resources
                     .configuration
                     .screenWidthDp
-            if (width >= 940) compose.onNodeWithText("Rechercher une tâche").assertIsDisplayed()
-            capture("task-adaptive-dark")
+            // Wide screens show the selected mission next to the list.
+            if (width >= 840) compose.onNodeWithText("Lancer maintenant").assertIsDisplayed()
+            capture("missions-adaptive-dark")
             vm.api.closeStreams()
         }
     }
@@ -346,25 +350,27 @@ internal class ParityDeviceCases(private val compose: ComposeContentTestRule) {
             val vm = fixture(server)
             compose.setContent { LeoTheme("dark") { LeoApp(vm = vm) } }
             compose.waitUntil(30000) {
-                compose.onAllNodesWithText("Tâches").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithContentDescription("Missions").fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithText("Tâches").performClick()
+            compose.onNodeWithContentDescription("Missions").performClick()
             compose.waitUntil(30000) {
-                compose.onAllNodesWithText("Conversation").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithText(task.name).fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Tâche terminée"))
-            capture("task-conversation-dark")
-            compose.onNode(hasText("Tâches") and hasText(task.name)).performClick()
-            capture("task-inbox-dark")
-            compose
-                .onNode(hasText(task.name) and hasText("Prochaine :", substring = true))
-                .performClick()
-            compose.onNodeWithContentDescription("Options de l’exécution").performClick()
-            compose.onNodeWithText("Détails de la tâche").performClick()
-            capture("task-details-dark")
-            compose.onNodeWithText("Modifier").performClick()
+            compose.onNodeWithText("Chaque lundi · 09:00", substring = true).assertExists()
+            capture("missions-dark")
+            val width =
+                InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.screenWidthDp
+            if (width < 840) {
+                compose.onNodeWithText(task.name).performClick()
+                compose.onNodeWithTag("mission-sheet").assertIsDisplayed()
+            }
+            compose.waitUntil(30000) {
+                compose.onAllNodesWithText("100 % de réussite").fetchSemanticsNodes().isNotEmpty()
+            }
+            capture("mission-details-dark")
+            compose.onNodeWithContentDescription("Modifier la mission").performScrollTo().performClick()
             compose.onNodeWithText("Enregistrer").assertIsEnabled()
-            capture("task-editor-dark")
+            capture("mission-editor-dark")
             vm.api.closeStreams()
         }
     }

@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -173,59 +174,59 @@ internal fun CompletionEvidence(outcome: TaskOutcome, agent: String) {
     }
 }
 
-/** One compact bar; secondary information belongs in the details sheet. */
+/**
+ * One compact bar: back, who is working and on what, live status, then the few actions that
+ * matter. Secondary information belongs in the details sheet.
+ */
 @Composable
 internal fun ConversationHeader(
-    label: String,
     title: String,
+    agent: String,
+    agentKey: String,
+    status: String,
+    live: String?,
+    back: () -> Unit,
     choose: () -> Unit,
     actions: @Composable RowScope.() -> Unit,
 ) {
     Surface(Modifier.testTag("conversation-header"), color = MaterialTheme.colorScheme.background) {
         Column {
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 4.dp),
+                Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 2.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                ActionIcon("Retour", LeoIcons.Back, onClick = back)
                 Surface(
                     onClick = choose,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).semantics { contentDescription = "Changer de conversation : $title" },
                     color = MaterialTheme.colorScheme.background,
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                if (label == "Conversations") LeoIcons.Chat else LeoIcons.Tasks,
-                                null,
-                                Modifier.padding(end = 8.dp).size(18.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Icon(
-                                LeoIcons.Down,
-                                null,
-                                Modifier.padding(start = 6.dp).size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        if (title.isNotBlank())
+                    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AgentAvatar(agent, agentKey, 36.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
                             Text(
                                 title,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            if (live != null) LiveChip(live, Modifier.padding(top = 2.dp))
+                            else if (status.isNotBlank())
+                                Text(
+                                    status,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                        }
                     }
                 }
                 actions()
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
