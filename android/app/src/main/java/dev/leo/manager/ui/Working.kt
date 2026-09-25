@@ -21,11 +21,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -154,36 +155,53 @@ internal fun WorkingIndicator(step: WorkingStep, modifier: Modifier = Modifier) 
 }
 
 /**
- * List avatar of an agent at work: a comet arc orbits the avatar while its live badge breathes.
+ * List avatar of an agent at work: a comet travels along the edge of the avatar while its live
+ * badge breathes. The ring itself stays still, so the rounded square never appears to spin.
  * Follows the system animation scale like the conversation indicator.
  */
 @Composable
 internal fun WorkingAvatar(name: String, key: String, size: Dp) {
     val primary = MaterialTheme.colorScheme.primary
     val transition = rememberInfiniteTransition(label = "avatar-working")
-    val turn by transition.animateFloat(0f, 360f, infiniteRepeatable(tween(1800, easing = LinearEasing)), label = "orbit")
+    val travel by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing)), label = "orbit")
     val glow by transition.animateFloat(
         0.25f, 0.6f,
         infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "glow",
     )
+    val ring = remember { Path() }
+    val measure = remember { PathMeasure() }
+    val piece = remember { Path() }
     // The ring overflows the avatar so working rows stay aligned with the others.
     Box(Modifier.size(size).testTag("chat-working-avatar"), contentAlignment = Alignment.Center) {
         Canvas(Modifier.requiredSize(size + 8.dp)) {
             val stroke = 2.dp.toPx()
             val inset = stroke / 2
             val corner = CornerRadius((size * 0.3f + 4.dp).toPx())
-            val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
-            drawRoundRect(primary.copy(alpha = glow * 0.35f), Offset(inset, inset), arcSize, corner, style = Stroke(stroke))
-            rotate(turn) {
-                drawRoundRect(
-                    Brush.sweepGradient(
-                        0f to primary.copy(alpha = 0f),
-                        0.5f to primary.copy(alpha = 0f),
-                        1f to primary,
-                    ),
-                    Offset(inset, inset), arcSize, corner, style = Stroke(stroke, cap = StrokeCap.Round),
-                )
+            ring.reset()
+            ring.addRoundRect(RoundRect(inset, inset, this.size.width - inset, this.size.height - inset, corner))
+            drawPath(ring, primary.copy(alpha = glow * 0.35f), style = Stroke(stroke))
+            measure.setPath(ring, false)
+            val length = measure.length
+            val head = travel * length
+            val tail = length * 0.4f
+            // The comet's tail fades and thins behind its head, following the corners exactly.
+            val steps = 24
+            for (index in 0 until steps) {
+                val start = head - tail * (index + 1) / steps
+                val end = head - tail * index / steps
+                val fade = 1f - index.toFloat() / steps
+                piece.reset()
+                when {
+                    end <= 0f -> measure.getSegment(start + length, end + length, piece, true)
+                    start < 0f -> {
+                        measure.getSegment(start + length, length, piece, true)
+                        measure.getSegment(0f, end, piece, true)
+                    }
+                    else -> measure.getSegment(start, end, piece, true)
+                }
+                // Flat ends keep the overlapping pieces from beading; only the head is rounded.
+                drawPath(piece, primary.copy(alpha = fade * fade), style = Stroke(stroke * (0.55f + 0.45f * fade), cap = if (index == 0) StrokeCap.Round else StrokeCap.Butt))
             }
         }
         AgentAvatar(name, key, size, AvatarBadge.LIVE)
