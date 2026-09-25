@@ -40,4 +40,17 @@ Upstream explicitly says **“Firecracker is not tested with nested virtualizati
 
 The [image integration job](https://github.com/leo91000/leo-agent-manager/actions/runs/36142279729) successfully executed `nested-kvm: agent uid=1000, KVM_RUN, rax=42, HLT` inside Firecracker. The runner disk export/delete/import and subsequent guest execution also passed. This establishes nested execution, rather than only the presence of `/dev/kvm`.
 
-The [instrumented Android probe](https://github.com/leo91000/leo-agent-manager/actions/runs/36144997216) identified an AMD EPYC guest CPU and confirmed `Nested Virtualization enabled` and `Nested Paging enabled` in the guest kernel. Android reached userspace initialization before the 180-second helper deadline stopped it. This run did **not** establish a completed Android boot. Intel runtime behavior remains untested by these runs.
+The [instrumented Android probe](https://github.com/leo91000/leo-agent-manager/actions/runs/36144997216) identified an AMD EPYC guest CPU and confirmed `Nested Virtualization enabled` and `Nested Paging enabled` in the guest kernel. Android reached userspace initialization before the 180-second helper deadline stopped it. This run did **not** establish a completed Android boot. These hosted runs do not establish Intel runtime behavior.
+
+
+### Intel host comparison and release status
+
+An isolated probe on an Intel Xeon E5-1410 v2 host (Linux 6.8.0-111-generic, `kvm_intel.nested=Y`) also passed the UID 1000 `KVM_RUN` check inside Firecracker. With the candidate 600-second launcher deadline, Android API 34 reported `state=ready`, `acceleration=kvm`; one emulator log measured boot at 283,243 ms. This proves a completed accelerated Android boot on that host, **not** a successful application test.
+
+The application interaction subsequently failed: the expected button did not appear, and a later probe exposed Android's `Process system isn't responding` dialog. No nested Android interaction or device-state persistence success is claimed. The host hypervisor configuration was not changed, and the production containers were not restarted for these isolated probes.
+
+The helper deadline was increased to ten minutes based on the measured boot, while the integration test still requires an actual button tap and persisted state in a fresh Firecracker guest. System and crash logs from the disposable Android test device are now collected on failure. The required nested Android release check remains enabled; KVM instruction execution alone cannot satisfy it.
+
+A control test on the **same Intel host**, using the same API 34 fixture with KVM directly in a disposable Docker container (4 GiB RAM, two CPUs), passed: boot, APK installation, button discovery, tap and `Device test passed`. This rules out a consistently broken synthetic APK. It does not substitute for the required nested test. Setup plus boot took 249,210 ms, including the SDK and system-image installation; this duration is not an isolated boot benchmark.
+
+The [candidate image CI](https://github.com/leo91000/leo-agent-manager/actions/runs/36153618751) for commit `dee77c4` passed code quality, all three browser suites and the container/Firecracker smoke tests. Its exact published image (`sha256:e3140e18bc8d1ebb36650a37b2fc50573589af6405d7e281908770c3744aa3fb`) still failed API 34 boot at the real ten-minute deadline. No copied helper or diagnostic launch override was used in this CI run. The release must not be described as validated based on the other passing jobs.

@@ -16,7 +16,7 @@ Implémentation réalisée à partir de la conception validée le 25 septembre 2
 | Archive froide : ouverture sans restauration implicite et demande explicite | Réussies |
 | Suppression depuis un autre client, disparition du transcript et rechargement | Réussie |
 | Android : compilation des APK et parcours JVM complet | Réussis (1 test, aucune erreur) |
-| Android : geste et restauration sur émulateur | Réussis sur Android 16 en CI, parmi 27 tests instrumentés |
+| Android : geste et restauration sur émulateur | Réussis sur Android 16 en CI, parmi 28 tests instrumentés |
 | Firecracker réel | Export, suppression, réimport du disque et reprise réussis en CI ; exécution KVM imbriquée vérifiée comme UID 1000 |
 
 Un test a reproduit puis validé la correction du cas suivant : restaurer une archive, la supprimer immédiatement, puis la récupérer avant le nettoyage distant conserve bien son état actif.
@@ -27,9 +27,9 @@ La commande globale `pnpm check` a rencontré des délais d’attente trop court
 
 ## Limites de la vérification
 
-Les [27 tests instrumentés Android 16](https://github.com/leo91000/leo-agent-manager/actions/runs/36141553925), dont `ConversationLifecycleDeviceTest`, ont réussi sur l’émulateur accéléré de la CI. Cela valide le geste de suppression et le retour depuis la corbeille sur un appareil Android. Les tentatives locales antérieures en émulation logicielle n’avaient pas terminé leur démarrage ; elles ne sont pas comptées comme validation appareil.
+Les [28 tests instrumentés Android 16](https://github.com/leo91000/leo-agent-manager/actions/runs/36147367426), dont `ConversationLifecycleDeviceTest`, ont réussi sur l’émulateur accéléré de la CI. Cela valide le geste de suppression et le retour depuis la corbeille sur un appareil Android. Les tentatives locales antérieures en émulation logicielle n’avaient pas terminé leur démarrage ; elles ne sont pas comptées comme validation appareil.
 
-Le [contrôle qualité et les tests du runner](https://github.com/leo91000/leo-agent-manager/actions/runs/36142279729) ont validé les 155 tests Rust, les 246 tests JavaScript/TypeScript et la reprise réelle du disque Firecracker. Ce workflow complet a toutefois échoué sur deux autres étapes : un parcours WebKit a épuisé le quota HTTP partagé entre tests, et Android imbriqué a dépassé son délai de démarrage. Le parcours WebKit a depuis été isolé ; la validation finale de l’émulateur dans Firecracker reste distincte des tests Android natifs ci-dessus.
+Le [contrôle qualité et les tests du runner](https://github.com/leo91000/leo-agent-manager/actions/runs/36142279729) ont validé les 155 tests Rust, les 246 tests JavaScript/TypeScript et la reprise réelle du disque Firecracker. Ce workflow complet a toutefois échoué sur deux autres étapes : un parcours WebKit a épuisé le quota HTTP partagé entre tests, et Android imbriqué a dépassé son délai de démarrage. Le parcours WebKit a depuis été isolé. Les contrôles qualité et les trois suites web (Chromium, WebKit, parcours utilisateur) ont réussi dans la [nouvelle CI](https://github.com/leo91000/leo-agent-manager/actions/runs/36153618751). La validation finale de l’émulateur dans Firecracker reste distincte des tests Android natifs ci-dessus.
 
 Un test supplémentaire reproduit la conservation accidentelle du verrou de stockage par un processus enfant avant son `exec`. Le déverrouillage explicite à la sortie du traitement corrige le cas et le test de régression passe en CI.
 
