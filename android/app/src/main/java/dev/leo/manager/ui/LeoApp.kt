@@ -5,6 +5,9 @@
 
 package dev.leo.manager.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -163,7 +166,16 @@ fun LeoApp(
                     Column(Modifier.padding(padding)) {
                         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                         state.error?.let { ErrorNotice(it, vm::clearMessage) }
-                        NavHost(nav, "fil", Modifier.weight(1f)) {
+                        NavHost(
+                            nav,
+                            "fil",
+                            Modifier.weight(1f),
+                            // The default predictive back only scales the leaving screen, so its
+                            // content stayed opaque while the screen below faded in.
+                            predictivePopExitTransition = {
+                                scaleOut(targetScale = 0.7f) + fadeOut(tween(700))
+                            },
+                        ) {
                             composable("fil") {
                                 FilScreen(
                                     vm,
