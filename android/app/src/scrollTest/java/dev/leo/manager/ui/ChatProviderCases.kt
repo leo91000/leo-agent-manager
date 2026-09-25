@@ -57,7 +57,7 @@ abstract class ChatProviderCases {
             compose.onNodeWithText("Reconnectez Claude Code", substring = false).assertIsDisplayed()
             compose.onNodeWithText("En attente de connexion à Claude Code").assertIsDisplayed()
             compose.onNodeWithText("Améliore cette interface").assertIsDisplayed()
-            compose.onNodeWithText("L’agent travaille…").assertDoesNotExist()
+            compose.onNodeWithTag("agent-working").assertDoesNotExist()
             compose.onNodeWithText("Démarrage de l’agent…").assertDoesNotExist()
             compose.onNodeWithText("Ouvrir les connexions").performClick()
             compose.runOnIdle { assertTrue(openedConnections) }

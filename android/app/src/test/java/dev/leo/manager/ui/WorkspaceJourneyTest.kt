@@ -281,9 +281,11 @@ class WorkspaceJourneyTest {
             )
             compose.onNodeWithText("Lancer maintenant").performScrollTo().performClick()
             compose.waitUntil(10000) {
-                compose.onAllNodesWithText("L’agent travaille…").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithTag("agent-working").fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithText("L’agent travaille…").assertExists()
+            // The indicator names the command still running in the fixture.
+            compose.onNodeWithTag("agent-working")
+                .assert(hasContentDescription("Exécuter les tests : ./gradlew testDebugUnitTest"))
             compose.onNodeWithText("1 action de l’agent").performClick()
             compose.onNodeWithText("Travail commencé").performClick()
             compose.onNodeWithText("Le worker démarre la mission").assertExists()

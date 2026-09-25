@@ -773,10 +773,11 @@ fun ChatScreen(
                                 }
                             }
                             if (chat?.run?.status == "running" && !live.catchingUp)
-                                item {
-                                    Text(
-                                        "L’agent travaille…",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                item(key = "agent-working") {
+                                    WorkingIndicator(
+                                        remember(live.events, chat.agentName, chat.run.startedAt) {
+                                            workingStep(live.events, chat.agentName, chat.run.startedAt)
+                                        }
                                     )
                                 }
                         }

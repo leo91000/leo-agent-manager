@@ -388,11 +388,12 @@ fun RunScreen(
                                             }
                                         }
                                 if (current.active)
-                                    item {
-                                        Text(
-                                            "L’agent travaille…",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.bodySmall,
+                                    item(key = "agent-working") {
+                                        WorkingIndicator(
+                                            remember(events, current.status, current.startedAt) {
+                                                if (current.status == "queued") WorkingStep("En attente de l’agent", "", null)
+                                                else workingStep(events, current.snapshot.agent.name, current.startedAt)
+                                            }
                                         )
                                     }
                                 if (events.isEmpty()) item { Text("L’activité apparaîtra ici.") }
