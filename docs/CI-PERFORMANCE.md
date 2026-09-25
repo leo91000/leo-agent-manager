@@ -36,7 +36,9 @@ took **8m53s** (528 aggregate runner seconds), without deployment.
   match the repository, commit, run ID, schema, and SHA-256 digest. PRs and manual
   runs cannot supply release proof. Missing or invalid proof runs full CI.
 - Wait for concurrent main validation instead of starting a duplicate build.
-  Completed evidence is retained for 90 days. The wait is bounded at 15 minutes.
+  Completed evidence is retained for 90 days. The image wait is bounded at 40
+  minutes, covering the main image job's 35-minute limit. If main is still pending
+  at that deadline, fail and ask for a retry instead of starting a duplicate build.
 - Build once, preserving SBOM and provenance, then smoke-test the published digest.
   PR images stay local and use no registry credentials. Promotion uses the runner's
   Buildx client without starting another BuildKit daemon.
@@ -57,6 +59,29 @@ took **8m53s** (528 aggregate runner seconds), without deployment.
   them. Keep screenshot/trace artifacts and a manual browser-worker comparison input.
 
 ## Controlled experiments
+
+### Android tag baseline, 2026-09-24
+
+The [v0.30.0 Android tag run](https://github.com/leo91000/leo-agent-manager/actions/runs/35983749505)
+took **20m26s** despite the same commit already having passed Android CI on main:
+the check job repeated **16m20s**, then publication took **4m00s**, including
+**3m24s** rebuilding the signed release. The parallel
+[server tag workflow](https://github.com/leo91000/leo-agent-manager/actions/runs/35983749704)
+reused its validated image and finished in **2m27s**.
+
+Android now archives the optimized unsigned APK after successful validation and
+can reuse it for the exact commit and version. A tag verifies the artifact, signs
+it with the existing key and publishes it without invoking Gradle. Missing or
+incompatible evidence still requires the full pipeline. See
+[Android updates](../android/docs/UPDATES.md#fast-tag-publication) for the guards.
+The Gradle task-output cache is enabled separately from the dependency cache.
+
+These changes remove duplicated work; a new hosted tag duration has **not yet
+been measured**. A tag after main passes should only pay resolver, SDK setup,
+signing and publication costs. An atomic main+tag push still waits for actual
+validation once. The older server measurements below remain historical results.
+
+### Earlier server experiments
 
 Local Docker builds changed only the commit argument between warm builds. The old
 Dockerfile took **21.93s** because commit metadata invalidated tool installation;

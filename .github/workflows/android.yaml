@@ -1,11 +1,11 @@
 name: Android
 on:
   pull_request:
-    paths: ['android/**', .github/workflows/android.yaml, scripts/android-release.mjs, tests/android-release.test.mjs]
+    paths: ['android/**', .github/workflows/android.yaml, 'scripts/android-*.mjs', scripts/resolve-android-release.mjs, 'tests/android-*.test.mjs']
   push:
     branches: [main]
     tags: ['v*']
-    paths: ['android/**', .github/workflows/android.yaml, scripts/android-release.mjs, tests/android-release.test.mjs]
+    paths: ['android/**', .github/workflows/android.yaml, 'scripts/android-*.mjs', scripts/resolve-android-release.mjs, 'tests/android-*.test.mjs']
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,11 +13,38 @@ concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 47
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reuse: ${{ steps.resolve.outputs.reuse }}
+      run-id: ${{ steps.resolve.outputs.run-id }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/setup@v2.1.0
+        with:
+          runtime: node@24
+          require-lockfile: true
+          install: false
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/resolve-android-release.mjs
   check:
+    needs: resolve
+    if: needs.resolve.outputs.reuse != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: pnpm/setup@v2.1.0
+        with:
+          runtime: node@24
+          require-lockfile: true
+          install: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -27,6 +54,9 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v5
       - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: Use the tag version for a fresh release build
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: printf 'LEO_ANDROID_VERSION=%s\n' "${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Test, lint and build debug
         working-directory: android
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --no-daemon
@@ -55,6 +85,22 @@ jobs:
             adb exec-out run-as dev.leo.manager cat files/scroll-validation/pinned-stream.png > android/app/build/reports/pinned-stream.png
             adb exec-out run-as dev.leo.manager cat files/model-picker/reasoning.png > android/app/build/reports/reasoning-picker.png
             python3 -c 'from pathlib import Path; p = Path("android/app/build/reports"); assert "OK (2 tests)" in (p / "capture-instrumentation.txt").read_text(); assert all((p / name).read_bytes()[:8] == bytes([137, 80, 78, 71, 13, 10, 26, 10]) for name in ("pinned-stream.png", "reasoning-picker.png"))'
+      # Keep the optimized APK only after all checks pass. No signing key is
+      # needed on main or PRs; a tag signs these exact bytes without recompiling.
+      - name: Record the validated unsigned release
+        if: github.event_name != 'pull_request'
+        run: node scripts/android-build.mjs record android/app/build/outputs/apk/release
+      - uses: actions/upload-artifact@v7.0.1
+        if: github.event_name != 'pull_request'
+        with:
+          name: validated-android-release
+          path: |
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+            android/app/build/outputs/apk/release/output-metadata.json
+            android/app/build/outputs/apk/release/validation.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -71,17 +117,23 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: check
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [resolve, check]
+    if: always() && !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.resolve.result == 'success' && (needs.resolve.outputs.reuse == 'true' || needs.check.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     concurrency:
       group: android-stable-publication
       cancel-in-progress: false
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: pnpm/setup@v2.1.0
+        with:
+          runtime: node@24
+          require-lockfile: true
+          install: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -89,13 +141,18 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v5
-      - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
-      - name: Validate stable release tag
+      - run: sdkmanager 'build-tools;36.0.0'
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: validated-android-release
+          path: validated-apk
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.resolve.outputs.run-id || github.run_id }}
+      - name: Verify the exact commit, version and APK before signing
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          node --input-type=module -e 'import { androidVersion } from "./scripts/android-release.mjs"; androidVersion(process.env.RELEASE_TAG)'
+          VALIDATED_RUN_ID: ${{ needs.resolve.outputs.run-id || github.run_id }}
+        run: node scripts/android-build.mjs verify validated-apk
       - name: Prevent rollback of the stable update channel
         env:
           GH_TOKEN: ${{ github.token }}
@@ -111,11 +168,10 @@ jobs:
               throw new Error('An equal or newer Android release has already been published');
           }
           JS
-      - name: Build with persistent release signing identity
+      - name: Sign the validated APK without rebuilding
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           LEO_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           test -n "$ANDROID_KEYSTORE_BASE64"
@@ -124,17 +180,18 @@ jobs:
           trap 'rm -f "$LEO_ANDROID_KEYSTORE"' EXIT
           umask 077
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$LEO_ANDROID_KEYSTORE"
-          export LEO_ANDROID_VERSION="${RELEASE_TAG#v}"
-          cd android
-          ./gradlew assembleRelease --no-daemon --no-configuration-cache
+          mkdir -p distribution
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 validated-apk/app-release-unsigned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks "$LEO_ANDROID_KEYSTORE" --ks-key-alias leo-android \
+            --ks-pass env:LEO_ANDROID_STORE_PASSWORD --key-pass env:LEO_ANDROID_STORE_PASSWORD \
+            --out distribution/leo-android.apk validated-apk/app-release-unsigned.apk
       - name: Verify APK and prepare update manifest
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          mkdir -p distribution
-          cp android/app/build/outputs/apk/release/app-release.apk distribution/leo-android.apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs distribution/leo-android.apk
-          node scripts/android-release.mjs "$RELEASE_TAG" distribution/leo-android.apk android/app/build/outputs/apk/release/output-metadata.json distribution/android-update.json
+          node scripts/android-release.mjs "$RELEASE_TAG" distribution/leo-android.apk validated-apk/output-metadata.json distribution/android-update.json
       - name: Publish complete release atomically
         env:
           GH_TOKEN: ${{ github.token }}

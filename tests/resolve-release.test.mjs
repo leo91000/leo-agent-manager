@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { resolveRelease, trustedRun, verifiedImage } from '../scripts/resolve-release.mjs'
+import { ImageValidationPendingError, resolveRelease, trustedRun, verifiedImage } from '../scripts/resolve-release.mjs'
 
 const config = { repository: 'leo91000/leo-agent-manager', commit: 'a'.repeat(40) }
 const digest = `sha256:${'b'.repeat(64)}`
@@ -46,5 +46,14 @@ describe('release validation reuse', () => {
         return ''
       },
     })).rejects.toThrow('does not match')
+  })
+  it('does not start a duplicate image build when main is still pending at the deadline', async () => {
+    let time = 0
+    await expect(resolveRelease(config, {
+      gh: async () => JSON.stringify({ workflow_runs: [{ ...run, status: 'in_progress', conclusion: null }] }),
+      now: () => time,
+      sleep: async () => { time += 10000 },
+      timeoutMs: 10000,
+    })).rejects.toBeInstanceOf(ImageValidationPendingError)
   })
 })

@@ -19,7 +19,7 @@ concurrency:
 jobs:
   resolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 17
+    timeout-minutes: 42
     permissions:
       contents: read
       actions: read

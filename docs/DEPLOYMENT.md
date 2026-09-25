@@ -113,6 +113,9 @@ images without deploying. A tag at a successful main commit promotes that exact
 image digest without rebuilding or repeating the tests. If main CI is still
 running, the tag waits for it; missing, failed, expired, or mismatched validation
 falls back to the full pipeline. Deployment jobs are serialized.
+The wait covers the main image job's time limit. If validation is still pending
+after 40 minutes, rerun the tag workflow after main finishes; it does not start a
+second full build at that deadline.
 
 For the shortest tag-to-live time, tag a commit whose main CI has already passed.
 Pushing main and its tag together also works and shares the validation work.

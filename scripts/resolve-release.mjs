@@ -9,6 +9,8 @@ import { promisify } from 'node:util'
 const exec = promisify(execFile)
 const artifactName = 'validated-image'
 
+export class ImageValidationPendingError extends Error {}
+
 export function trustedRun(run, { repository, commit }) {
   return run.event === 'push'
     && run.head_branch === 'main'
@@ -26,7 +28,7 @@ export function verifiedImage(value, { repository, commit }, runId) {
   return value.digest
 }
 
-export async function resolveRelease(config, { gh, sleep = setTimeout, now = Date.now, timeoutMs = 900000 } = {}) {
+export async function resolveRelease(config, { gh, sleep = setTimeout, now = Date.now, timeoutMs = 40 * 60 * 1000 } = {}) {
   const deadline = now() + timeoutMs
   const query = new URLSearchParams({ head_sha: config.commit, branch: 'main', event: 'push', per_page: '30' })
   let discoveryAttempts = 0
@@ -53,7 +55,9 @@ export async function resolveRelease(config, { gh, sleep = setTimeout, now = Dat
     }
     await sleep(runs.length ? 10000 : 5000)
   }
-  return null
+  // Main's image job can take up to 35 minutes. Do not spend 15 minutes
+  // waiting and then launch another full build of the same pending commit.
+  throw new ImageValidationPendingError('Timed out waiting for image validation on main; retry after it finishes')
 }
 
 if (import.meta.main) {
@@ -65,7 +69,9 @@ if (import.meta.main) {
         gh: async args => (await exec('gh', args, { timeout: 30000, maxBuffer: 2 * 1024 * 1024 })).stdout,
       })
     }
-    catch {
+    catch (error) {
+      if (error instanceof ImageValidationPendingError)
+        throw error
       console.log('Previous validation is unavailable; running all checks and a fresh image build.')
     }
   }
