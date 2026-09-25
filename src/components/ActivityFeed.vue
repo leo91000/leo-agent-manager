@@ -10,6 +10,7 @@ import { latestArtifacts } from '../../shared/artifacts'
 import { activityEntries } from '../activity'
 import { deliveryEntries } from '../deliverables'
 import { ArrowDown, ChevronDown, Layers, LoaderCircle, Maximize2, Minimize2, Zap } from '../icons'
+import { mentionSegments } from '../skill-mentions'
 import { iconButton } from '../ui'
 import ActivityArtifactCard from './ActivityArtifactCard.vue'
 import ActivityContent from './ActivityContent.vue'
@@ -21,8 +22,9 @@ import ChatOutcome from './ChatOutcome.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, compactToolbar?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], sending?: SendingMessage[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, compactToolbar?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], sending?: SendingMessage[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string, skills?: string[] }>()
 const emit = defineEmits<{ load: [], position: [value: ReadingPosition, key?: string] }>()
+const skillNames = computed(() => new Set(props.skills ?? []))
 const entries = computed(() => {
   const entries = activityEntries(props.events, props.chat)
   const acknowledged = new Set(props.events.filter(event => event.type === 'chat.user').map(event => event.payload?.messageId))
@@ -222,7 +224,9 @@ defineExpose({
               <article v-else-if="entry.kind === 'message'" class="activity-message mt-6.5 mb-7.5 mx-0" :class="[entry.role === 'user' ? 'ml-auto! max-w-[85%] rounded-2xl rounded-br-md bg-hover px-5 py-3' : '', visibleOutcome && entry.id === outcomeEntryId ? 'mb-1!' : '']">
                 <header><span class="message-dot w-[5px] h-[5px] bg-[light-dark(#4f4c73,_var(--dark-accent-surface))] rounded-full" /><strong>{{ entry.role === 'user' ? 'You' : agent }}</strong><time :datetime="new Date(entry.time).toISOString()" :title="new Date(entry.time).toLocaleString()">{{ new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time></header>
                 <p v-if="entry.role === 'user'" class="whitespace-pre-wrap text-sm leading-relaxed">
-                  {{ entry.text }}
+                  <template v-for="(segment, index) in mentionSegments(entry.text, skillNames)" :key="index">
+                    <span v-if="segment.skill" class="rounded bg-accent/12 px-0.5 font-medium text-accent" :title="`Skill ${segment.skill}`" v-text="segment.text" /><span v-else v-text="segment.text" />
+                  </template>
                 </p>
                 <ActivityContent v-else :content="entry.text" />
                 <p v-if="entry.delivery" role="status" class="mt-2! mb-0! text-[11px] text-muted">

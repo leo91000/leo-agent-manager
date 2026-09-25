@@ -99,6 +99,46 @@ async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replayi
     assert_eq!(s.chat_detail(chat_id).await.unwrap()["runId"], run_id);
     fixture.stop(false).await;
 }
+#[tokio::test]
+async fn chat_messages_invoke_dollar_skills_without_changing_the_visible_text() {
+    let mut fixture = Fixture::new().await;
+    let s = &fixture.service;
+    s.skills
+        .save(
+            "review",
+            "---\nname: review\ndescription: Review the current changes\n---\nReview carefully.\n",
+            None,
+        )
+        .await
+        .unwrap();
+    let chat = s.chat_create(json!({})).await.unwrap();
+    let chat_id = text(&chat, "id");
+    let request = "$review the workspace and keep $HOME untouched.";
+    s.chat_send(chat_id, json!({"id":id(),"text":request}))
+        .await
+        .unwrap();
+    let run_id = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(id) = s.chat_detail(chat_id).await.unwrap()["runId"].as_str() {
+                break id.to_owned();
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let run = fixture.until(&run_id, |r| r["status"] == "succeeded").await;
+    let execution = text(&run["chatExecution"], "text");
+    assert!(execution.starts_with(request), "{execution}");
+    assert!(execution.contains("<invoked_skills>"), "{execution}");
+    assert!(execution.contains("\n- review\n"), "{execution}");
+    assert!(!execution.contains("- HOME"), "{execution}");
+    assert_eq!(
+        s.chat_detail(chat_id).await.unwrap()["messages"][0]["text"],
+        request
+    );
+    fixture.stop(false).await;
+}
 impl Fixture {
     async fn new() -> Self {
         let root = TempDir::new().unwrap();

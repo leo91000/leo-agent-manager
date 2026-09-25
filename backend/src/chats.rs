@@ -119,6 +119,29 @@ pub fn execution_text(plan: &Value) -> String {
     )
 }
 
+// `$name` in a message invokes a skill the run already lists in its
+// instructions; spell that out so both providers apply it to this request.
+pub fn with_invoked_skills(message: &str, skills: &Value) -> String {
+    let names = skills
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|s| text(s, "name"))
+        .collect::<Vec<_>>();
+    let invoked = crate::skills::mentions(message, &names);
+    if invoked.is_empty() {
+        return message.to_owned();
+    }
+    format!(
+        "{message}\n\n<invoked_skills>\nThe user invoked these skills with $name in this message. Apply each one to this request by following its SKILL.md under \"Selected skills\" in your instructions:\n{}\n</invoked_skills>",
+        invoked
+            .iter()
+            .map(|name| format!("- {name}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
 fn chat(db: &Db<'_>, id: &str) -> Result<Value> {
     required(db.get("chats", id)?, "Chat not found")
 }
@@ -553,6 +576,7 @@ impl Service {
                 && ["queued", "running"].contains(&text(run, "status"))
             {
                 let run_id = text(run, "id").to_owned();
+                let skills = run["snapshot"]["skills"].clone();
                 let run = run.clone();
                 let directory = self
                     .config
@@ -561,7 +585,7 @@ impl Service {
                     .join(text(&chat, "runId"))
                     .join("chat-input");
                 let chat = chat.clone();
-                let steering = self
+                let mut steering = self
                     .store
                     .transaction(move |db| {
                         let mut steering = Vec::new();
@@ -579,9 +603,10 @@ impl Service {
                         Ok(steering)
                     })
                     .await?;
-                for message in &steering {
+                for message in &mut steering {
                     self.prepare_chat_files(&run_id, &message["attachments"])
                         .await?;
+                    message["text"] = with_invoked_skills(text(message, "text"), &skills).into();
                 }
                 crate::skills::private_dir(&directory).await?;
                 crate::skills::atomic_write(
@@ -688,7 +713,7 @@ impl Service {
                     return Ok(());
                 }
                 let mut execution = json!({
-                "messageId":message["id"],"text":message["text"],"attachments":message["attachments"],"recovery":false}
+                "messageId":message["id"],"text":with_invoked_skills(text(&message, "text"), &snapshot["snapshot"]["skills"]),"attachments":message["attachments"],"recovery":false}
                 );
                 if let Some(run) = run {
                     let switched = crate::claude::provider(&snapshot["snapshot"]["agent"]) != crate::claude::provider(&run["snapshot"]["agent"]);
@@ -803,6 +828,23 @@ mod handoff_tests {
         let plan = json!({"sessionId":"created-before-interruption","execution":{"text":"Continue", "context":history}});
         assert!(execution_text(&plan).contains("Changes committed"));
         assert!(execution_text(&plan).ends_with("Current user message:\nContinue"));
+    }
+
+    #[test]
+    fn dollar_mentions_invoke_only_listed_skills_outside_code() {
+        let skills = json!([{"name":"review"},{"name":"ship-it"},{"name":"docs"}]);
+        let text = with_invoked_skills(
+            "Use $review then ($ship-it), again $review, not $HOME, a$docs, \\$docs, $reviewer, `$docs` or\n```\n$docs\n```",
+            &skills,
+        );
+        assert!(text.ends_with("\n- review\n- ship-it\n</invoked_skills>"));
+        assert!(text.starts_with("Use $review then"));
+        assert!(!text.contains("- docs"));
+        assert_eq!(
+            with_invoked_skills("Price is $5 for $unknown", &skills),
+            "Price is $5 for $unknown"
+        );
+        assert_eq!(with_invoked_skills("$docs", &Value::Null), "$docs");
     }
 
     #[test]

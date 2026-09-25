@@ -46,6 +46,12 @@ internal object LeoIcons {
             lineTo(3f, 6f)
             quadTo(3f, 4f, 5f, 4f)
         }
+    val Book =
+        line("Book") {
+            moveTo(12f, 7f); quadTo(12f, 3f, 8f, 3f); lineTo(3f, 3f); lineTo(3f, 18f); lineTo(9f, 18f)
+            quadTo(12f, 18f, 12f, 21f); quadTo(12f, 18f, 15f, 18f); lineTo(21f, 18f); lineTo(21f, 3f)
+            lineTo(16f, 3f); quadTo(12f, 3f, 12f, 7f); lineTo(12f, 21f)
+        }
     val Tasks =
         line("Tasks") {
             moveTo(9f, 5f); lineTo(21f, 5f)

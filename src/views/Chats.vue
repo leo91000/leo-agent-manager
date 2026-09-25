@@ -14,11 +14,13 @@ import ChatSwitcher from '../components/ChatSwitcher.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import NotificationSettings from '../components/NotificationSettings.vue'
+import SkillTextarea from '../components/SkillTextarea.vue'
 import ThemeControl from '../components/ThemeControl.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
 import { ArrowDown, Bell, Bot, ChevronDown, Clock, FileText, FolderGit2, Maximize2, Menu, MessageCircle, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Search, Send, Square, Trash2, X, Zap } from '../icons'
+import { chatSkills } from '../skill-mentions'
 import { iconButton } from '../ui'
 import { useLiveRun } from '../use-live-run'
 import { workspaceActionsKey } from '../workspace-actions'
@@ -61,7 +63,7 @@ const submitting = ref(false)
 const editing = ref<string | null>(null)
 const agentId = ref(typeof route.query.agent === 'string' ? route.query.agent : MAIN_AGENT_ID)
 const projectId = ref(typeof route.query.project === 'string' ? route.query.project : '')
-const textarea = ref<HTMLTextAreaElement>()
+const textarea = ref<InstanceType<typeof SkillTextarea>>()
 const fileInput = ref<HTMLInputElement>()
 const attachments = ref<ChatAttachment[]>([])
 const previews = ref<Record<string, string>>({})
@@ -143,6 +145,8 @@ const chosenProvider = computed({ get: () => provider.value || currentProvider.v
 } })
 const switchingProvider = computed(() => !!detail.value?.run && chosenProvider.value !== currentProvider.value)
 const inheritAgentModel = computed(() => chosenProvider.value === (selectedAgent.value?.provider || 'codex'))
+const skills = computed(() => chatSkills(state.skills, selectedAgent.value, detail.value ? detail.value.projectId : projectId.value))
+const skillNames = computed(() => skills.value.map(skill => skill.name))
 const projects = computed(() => [{ value: '', label: 'No project', description: 'Use the agent’s available workspaces', icon: FolderGit2 }, ...state.projects.filter(project => selectedAgent.value?.access.projects === null || selectedAgent.value?.access.projects.includes(project.id)).map(project => ({ value: project.id, label: project.name, icon: FolderGit2 }))])
 const draftKey = `leo-chat-draft:${route.params.id || `new:${agentId.value}:${projectId.value}`}`
 draft.value = sessionStorage.getItem(draftKey) ?? ''
@@ -386,7 +390,7 @@ function key(event: KeyboardEvent) {
             </button>
           </div>
         </div>
-        <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail?.run?.status === 'succeeded' ? detail.run.outcome : null" :sending="delivery.sending" :events="events" :active="detail?.run?.status === 'running'" :agent="detail?.agentName || selectedAgent?.name || 'Main agent'" :task="detail?.title || 'New conversation'" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" chat @load="live.loadOlder" @position="live.savePosition" />
+        <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail?.run?.status === 'succeeded' ? detail.run.outcome : null" :sending="delivery.sending" :events="events" :active="detail?.run?.status === 'running'" :agent="detail?.agentName || selectedAgent?.name || 'Main agent'" :task="detail?.title || 'New conversation'" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" :skills="skillNames" chat @load="live.loadOlder" @position="live.savePosition" />
         <div class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
           <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" />
           <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
@@ -450,7 +454,7 @@ function key(event: KeyboardEvent) {
             <div v-if="uploadProgress" class="mb-2 text-xs text-accent" role="status">
               {{ uploadProgress }}
             </div>
-            <textarea ref="textarea" v-model="draft" aria-label="Message" :placeholder="responding ? 'Add a follow-up…' : 'Message your agent…'" rows="2" maxlength="50000" class="block max-h-40 min-h-14 w-full resize-none border-0! bg-transparent! p-0! text-sm! phone:text-[16px]! shadow-none! outline-none! focus:ring-0!" @keydown="key" />
+            <SkillTextarea ref="textarea" v-model="draft" :skills="skills" aria-label="Message" :placeholder="responding ? 'Add a follow-up…' : skills.length ? 'Message your agent… Type $ for skills' : 'Message your agent…'" rows="2" maxlength="50000" @keydown="key" />
             <div class="flex items-center justify-between gap-2 pt-2">
               <div class="flex min-w-0 flex-1 items-center gap-1">
                 <input ref="fileInput" type="file" multiple class="hidden" aria-label="Attach files" :disabled="busy" @change="pickFiles">

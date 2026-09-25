@@ -39,6 +39,12 @@ The composer options contain searchable model and reasoning selectors for the ne
 
 Model discovery is authenticated and cached for five minutes per enabled Codex account. Usage polling refreshes it using the existing account session. The picker combines available models, hides catalog-hidden entries except a saved selection, and offers the reasoning levels shared by accounts exposing that model. Account selection uses fresh catalogs to avoid routing a known model to an account that does not expose it. Discovery failures keep the last catalog with a visible retry status. Custom provider aliases remain supported by the API. [Codex model discovery protocol](https://learn.chatgpt.com/docs/app-server#models).
 
+## Invoking skills with `$`
+
+Type `$` in the composer to list the skills this chat can use: global skills and those of the chat's project that the agent is allowed to access (all accessible projects when the chat has no project). The list filters as you type, matching the name first, then word starts, substrings, letters in order and the description. Each suggestion shows the name, description and Global/project scope. On the web, ↑/↓ move, Enter or Tab inserts and Escape dismisses; clicking works too. On Android, tap a suggestion; Back dismisses the list. The chosen skill is inserted as `$name ` and highlighted in the draft and in sent messages.
+
+The message is stored and displayed exactly as typed. When a reply starts, or a message steers the current turn, the server finds `$name` tokens that match a skill in the run (outside inline and fenced code, not after a letter, `$` or backslash) and appends an `<invoked_skills>` block. That block tells Codex or Claude Code to follow those skills' `SKILL.md` for the request. Tokens like `$HOME`, `$5` or unknown names are left unchanged. The same rules are implemented in `backend/src/skills.rs`, `src/skill-mentions.ts` and `SkillMentions.kt`.
+
 ## Execution and recovery
 
 Tasks continue to use `codex exec`. Chats use Codex app-server `thread/start`, `thread/resume`, `turn/start` and `turn/steer`, tested against Codex 0.154.0. Steering includes the active `expectedTurnId`. If that turn has already finished, the message remains pending for the next turn.

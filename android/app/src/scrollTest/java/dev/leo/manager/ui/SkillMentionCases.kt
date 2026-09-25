@@ -1,0 +1,93 @@
+package dev.leo.manager.ui
+
+import android.app.Application
+import androidx.compose.runtime.*
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.test.core.app.ApplicationProvider
+import dev.leo.manager.data.*
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.*
+import okhttp3.mockwebserver.*
+import org.junit.*
+import org.junit.Assert.*
+
+abstract class SkillMentionCases {
+    @get:Rule val compose = createComposeRule()
+
+    @Test fun dollarSuggestsSkillsAndInsertsTheChosenOneBeforeSending() {
+        MockWebServer().use { server ->
+            val sent = CopyOnWriteArrayList<JsonObject>()
+            val agent = Agent(MAIN_AGENT_ID, "Agent principal")
+            val run = Run("run", status = "succeeded", snapshot = Snapshot(agent = agent))
+            val chat = Chat("chat", title = "Skills", runId = "run", agentName = agent.name, run = run)
+            val skills = listOf(
+                Skill("review", "Relire les changements en cours"),
+                Skill("deploy", "Publier une version"),
+                Skill("broken", "Invalide", valid = false),
+            )
+            val history = listOf(RunEvent(1, 1789315200000, "chat.user", "Merci d’utiliser \$review ici"))
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val path = request.path!!.substringBefore('?')
+                    if (path == "/api/chats/chat/stream") {
+                        val frame = "event: batch\nid: 1\ndata: ${wireJson.encodeToString(LiveBatch(history, LiveState(chat = chat, run = run), true, false))}\n\n"
+                        return MockResponse().setHeader("Content-Type", "text/event-stream")
+                            .setBody(frame + ": keepalive\n\n".repeat(10000))
+                            .throttleBody(frame.toByteArray().size.toLong(), 1, java.util.concurrent.TimeUnit.SECONDS)
+                    }
+                    val body = when (path) {
+                        "/api/session" -> """{"authenticated":true,"csrf":"fixture"}"""
+                        "/api/agents" -> wireJson.encodeToString(listOf(agent))
+                        "/api/skills" -> wireJson.encodeToString(skills)
+                        "/api/chats/chat/messages" -> { sent += wireJson.parseToJsonElement(request.body.readUtf8()).jsonObject; "{}" }
+                        "/api/codex/models" -> """{"models":[]}"""
+                        "/api/overview" -> "{}"
+                        else -> "[]"
+                    }
+                    return MockResponse().setBody(body)
+                }
+            }
+            server.start()
+            val vm = LeoViewModel(ApplicationProvider.getApplicationContext<Application>(), SkillVault())
+            compose.setContent {
+                val state by vm.state.collectAsStateWithLifecycle()
+                LaunchedEffect(Unit) { vm.state.first { it.ready }; if (!vm.state.value.session.authenticated) vm.connect(server.url("/").toString()) }
+                LeoTheme { if (state.session.authenticated) ChatScreen(vm, state, "chat", openChat = {}, openRun = {}) }
+            }
+            compose.waitUntil(20000) { compose.onAllNodesWithText("Votre message… $ pour les skills").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Merci d’utiliser \$review ici").assertIsDisplayed()
+            val field = compose.onNode(hasSetTextAction())
+            field.performTextInput("Lance $")
+            compose.onNodeWithTag("skill-suggestions").assertIsDisplayed()
+            compose.onNodeWithTag("skill-suggestion-review").assertIsDisplayed()
+            compose.onNodeWithTag("skill-suggestion-deploy").assertIsDisplayed()
+            compose.onNodeWithTag("skill-suggestion-broken").assertDoesNotExist()
+            field.performTextInput("re")
+            compose.onNodeWithTag("skill-suggestion-deploy").assertDoesNotExist()
+            compose.onNodeWithText("Relire les changements en cours").assertIsDisplayed()
+            compose.onNodeWithTag("skill-suggestion-review").performClick()
+            compose.onNodeWithTag("skill-suggestions").assertDoesNotExist()
+            assertEquals("Lance \$review ", field.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+            field.performTextInput("maintenant")
+            // `$5` is not a skill and must not reopen the list.
+            field.performTextInput(" pour \$5")
+            compose.onNodeWithTag("skill-suggestions").assertDoesNotExist()
+            compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("conversation-send") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("conversation-send").performClick()
+            compose.waitUntil(10000) { sent.size == 1 }
+            assertEquals("Lance \$review maintenant pour \$5", sent[0]["text"]?.jsonPrimitive?.content)
+        }
+    }
+}
+
+private class SkillVault : SessionVault {
+    private val values = mutableMapOf<String, String>()
+    override fun read(origin: String) = values[origin]
+    override fun write(origin: String, cookie: String?) {
+        if (cookie == null) values.remove(origin) else values[origin] = cookie
+    }
+}

@@ -653,7 +653,10 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
                         }
                     if (user)
                         androidx.compose.foundation.text.selection.SelectionContainer {
-                            Text(content, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                highlightSkills(content, LocalSkillNames.current, skillMentionStyle()),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
                         }
                     else Markdown(content)
                     if (user)

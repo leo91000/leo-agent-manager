@@ -22,6 +22,30 @@ pub fn name(value: &str) -> Result<()> {
     }
     Ok(())
 }
+static CODE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?s)```.*?```|`[^`\n]*`").unwrap());
+static MENTION: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?:^|[^A-Za-z0-9_$\\])\$([a-z0-9][a-z0-9-]{0,63})").unwrap()
+});
+/// Skill names invoked as `$name` outside code, in first-mention order.
+/// The web and Android composers highlight the same tokens.
+pub fn mentions(text: &str, names: &[&str]) -> Vec<String> {
+    let text = CODE.replace_all(text, " ");
+    let mut found = Vec::new();
+    for capture in MENTION.captures_iter(&text) {
+        let token = capture.get(1).unwrap();
+        let name = token.as_str();
+        let next = text[token.end()..].chars().next();
+        if next.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            || !names.contains(&name)
+            || found.iter().any(|f| f == name)
+        {
+            continue;
+        }
+        found.push(name.to_owned());
+    }
+    found
+}
 pub fn parse(content: &str) -> Result<Value> {
     if content.len() > 100000 {
         return Err(Error::bad("Skill is too large (maximum 100 KB)."));

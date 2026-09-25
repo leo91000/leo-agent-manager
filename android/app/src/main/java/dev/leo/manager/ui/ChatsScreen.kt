@@ -19,7 +19,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -182,6 +184,10 @@ fun ChatScreen(
     val draftKey = id ?: "new:$initialAgent:$initialProject"
     val savedDraft = remember(draftKey) { vm.chatDrafts[draftKey] ?: ChatDraft() }
     var draft by rememberSaveable(id) { mutableStateOf(savedDraft.text) }
+    // Keeps the caret and IME composition; `draft` stays the saved source of truth.
+    var draftField by remember(id) { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    val field = if (draftField.text == draft) draftField else TextFieldValue(draft, TextRange(draft.length))
+    var dismissedMention by remember(id) { mutableStateOf<Int?>(null) }
     var provider by rememberSaveable(id) { mutableStateOf(savedDraft.provider) }
     var model by rememberSaveable(id) { mutableStateOf(savedDraft.model) }
     var reasoning by rememberSaveable(id) { mutableStateOf(savedDraft.reasoning) }
@@ -277,6 +283,18 @@ fun ChatScreen(
         model = ""
         reasoning = ""
     }
+    val skillOptions =
+        remember(state.skills, selectedAgent, chat?.projectId, project, chat == null) {
+            chatSkills(state.skills, selectedAgent, if (chat != null) chat.projectId else project)
+        }
+    val skillNames = remember(skillOptions) { skillOptions.map { it.name }.toSet() }
+    val mention =
+        if (skillOptions.isEmpty() || !field.selection.collapsed) null
+        else mentionAt(field.text, field.selection.start)
+    val suggestions =
+        if (mention == null || mention.start == dismissedMention) emptyList()
+        else matchSkills(skillOptions, mention.query)
+    BackHandler(suggestions.isNotEmpty()) { dismissedMention = mention?.start }
     val projects =
         state.projects.filter {
             selectedAgent?.access?.projects == null ||
@@ -413,6 +431,7 @@ fun ChatScreen(
         rendering,
         followGesture,
     )
+    CompositionLocalProvider(LocalSkillNames provides skillNames) {
     ArtifactLinkHost(vm, live.state?.artifacts.orEmpty()) {
         Column(Modifier.fillMaxSize()) {
             if (!fullscreen)
@@ -908,9 +927,28 @@ fun ChatScreen(
                                     Text("Modifier le message en attente", Modifier.weight(1f))
                                     TextButton(onClick = ::clearDraft) { Text("Annuler") }
                                 }
+                            if (suggestions.isNotEmpty())
+                                SkillSuggestions(
+                                    suggestions,
+                                    mention!!.query,
+                                    { scope ->
+                                        if (scope == "global") "Global"
+                                        else state.projects.find { it.id == scope }?.name ?: "Projet"
+                                    },
+                                ) { skill ->
+                                    draftField = insertSkill(field, mention, skill.name)
+                                    draft = draftField.text
+                                }
                             BasicTextField(
-                                draft,
-                                { if (it.length <= 50000) draft = it },
+                                field,
+                                {
+                                    if (it.text.length <= 50000) {
+                                        if (mentionAt(it.text, it.selection.start)?.start != mention?.start)
+                                            dismissedMention = null
+                                        draftField = it
+                                        draft = it.text
+                                    }
+                                },
                                 Modifier.fillMaxWidth()
                                     .heightIn(min = 48.dp)
                                     .padding(top = 12.dp, bottom = 4.dp, start = 12.dp, end = 12.dp),
@@ -923,6 +961,7 @@ fun ChatScreen(
                                         MaterialTheme.colorScheme.primary
                                     ),
                                 keyboardOptions = InputKeyboards.Sentences,
+                                visualTransformation = SkillMentionTransformation(skillNames, skillMentionStyle()),
                                 maxLines = 4,
                                 enabled = !state.busy,
                                 decorationBox = { inner ->
@@ -931,6 +970,7 @@ fun ChatScreen(
                                             Text(
                                                 if (chat?.paused == true) "Ajouter à la file…"
                                                 else if (active) "Ajouter un message…"
+                                                else if (skillOptions.isNotEmpty()) "Votre message… $ pour les skills"
                                                 else "Votre message…",
                                                 color =
                                                     MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1054,6 +1094,7 @@ fun ChatScreen(
                 }
             }
         }
+    }
     }
 }
 

@@ -1,4 +1,10 @@
-# Leo Android 0.32.0 — Titres de conversation automatiques
+# Leo Android 0.33.0 — Skills avec `$`
+
+- Tapez `$` dans une conversation pour afficher les skills disponibles pour l’agent et le projet, filtrés au fil de la saisie avec leur description et leur portée.
+- Touchez une suggestion pour insérer `$nom` ; Retour ferme la liste. Les skills reconnus sont surlignés dans le brouillon et dans les messages envoyés.
+- Le serveur 0.33.0 demande explicitement à Codex et à Claude Code d’appliquer les skills invoqués, y compris dans un message envoyé pendant une réponse.
+
+## Leo Android 0.32.0 — Titres de conversation automatiques
 
 - Le serveur adapte les titres au sujet des échanges récents avec GPT-6 Luna en xhigh.
 - Le renommage apparaît automatiquement dans les conversations, sans interrompre les réponses.

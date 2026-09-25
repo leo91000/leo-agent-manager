@@ -41,6 +41,8 @@ export default defineConfig({
     { name: 'journeys-task-focus', testMatch: 'task-focus.spec.ts' },
     { name: 'layout-webkit-task-focus', testMatch: 'task-focus.spec.ts', use: { browserName: 'webkit' } },
     { name: 'journeys-agent-access', testMatch: 'agent-access.spec.ts' },
+    { name: 'journeys-skill-mentions', testMatch: 'skill-mentions.spec.ts' },
+    { name: 'layout-webkit-skill-mentions', testMatch: 'skill-mentions.spec.ts', use: { browserName: 'webkit', hasTouch: true } },
     ...(['chromium', 'webkit'] as const).flatMap(browserName =>
       (['light', 'dark'] as const).map(colorScheme => ({
         name: `layout-${browserName}-${colorScheme}`,
