@@ -1,4 +1,11 @@
-# Leo Android 0.34.0 — Nouvelle interface « Signal »
+# Leo Android 0.35.0
+
+- Une image copiée peut être collée directement dans le champ de message (appui long → **Coller**) : elle rejoint les pièces jointes du brouillon au lieu d’être ignorée.
+- Les images proposées par le clavier (presse-papiers de Gboard, GIF, autocollants) sont aussi ajoutées en pièce jointe.
+- Les limites restent celles des pièces jointes : 8 fichiers, 10 Mo par fichier et 40 Mo par message. Le texte collé s’insère comme avant et la surbrillance des `$skills` est conservée.
+- Aucune modification du serveur n’est nécessaire.
+
+## Leo Android 0.34.0 — Nouvelle interface « Signal »
 
 - Trois onglets au lieu de quatre — **Fil**, **Missions**, **Atelier** — dans une barre flottante, avec un bouton « + » toujours accessible pour démarrer une conversation.
 - **Fil** remplace la liste des chats : ce qui vous attend (questions, échecs, reconnexions), le travail en cours avec sa durée, puis les conversations récentes. Répondre, relancer une mission ou ouvrir les connexions se fait depuis la ligne.

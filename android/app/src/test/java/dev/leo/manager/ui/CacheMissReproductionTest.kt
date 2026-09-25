@@ -157,7 +157,7 @@ class CacheMissReproductionTest {
                         // Explicit accessibility scrolling also enables automatic paging.
                         // Hold the response so the real reading anchor can be measured;
                         // the transient load button may already have become a spinner.
-                        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Message 021"))
+                        compose.onNode(hasScrollAction() and hasTestTag("conversation-history")).performScrollToNode(hasText("Message 021"))
                         compose.waitUntil(10000) { olderRequested.count == 0L }
                         compose.waitForIdle()
                         val before = compose.onNodeWithText("Message 021").fetchSemanticsNode().boundsInRoot.top
@@ -175,7 +175,7 @@ class CacheMissReproductionTest {
                         }
                         compose.onNodeWithText("Message 021").assertIsDisplayed()
                         assertEquals(before, compose.onNodeWithText("Message 021").fetchSemanticsNode().boundsInRoot.top, 1f)
-                        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Message 001"))
+                        compose.onNode(hasScrollAction() and hasTestTag("conversation-history")).performScrollToNode(hasText("Message 001"))
                         compose.onNodeWithText("Message 001").assertIsDisplayed()
                     }
 

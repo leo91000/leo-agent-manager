@@ -1,5 +1,6 @@
 # Leo for Android
 
+Version 0.35.0 lets you paste images, or insert them from the keyboard, into the chat composer as attachments.
 Version 0.34.0 introduces the « Signal » interface: Fil, Missions and Atelier tabs with an always-available new-conversation button, on-screen agent/project choice, missions with readable schedules and run history, a connection-first Atelier, universal search and a paper/ink palette with the Leo blue accent. See [release notes](RELEASE-NOTES.md).
 Version 0.33.4 preserves assistant messages after verbose tool output and restores missing saved summaries on the server. Existing Android clients benefit without an app update.
 
@@ -136,7 +137,7 @@ See [validation](VALIDATION.md).
 | Settings | Saved light/dark/system appearance, server/MCP details, grant list, scoped personal token creation, one-time token copying, revocation, 100 most recent audit entries |
 | OAuth authorization | Share/paste an authorization link, verify its origin, preview client/scopes, explicit allow/deny, return to client |
 | Chats | Native list/search, creation from agent/project, model/effort selection, streamed messages, queue editing/removal, steering, pause/resume/stop, blocking and optional questions, choices/custom/private answers |
-| Attachments | Android file/photo picker, up to 8 files, 10 MiB per file / 40 MiB per message, stable upload/message identifiers for explicit retries |
+| Attachments | Android file/photo picker, pasted images and keyboard image insertion, up to 8 files, 10 MiB per file / 40 MiB per message, stable upload/message identifiers for explicit retries |
 | Artifacts | Authenticated file previews, downloads through Android’s save picker, sharing/open-with, native opening of Markdown artifact links, latest/all versions, groups and search |
 | MCP servers | HTTP/stdio configuration, test/discovery, enabled tool selection, bearer/client secrets, environment variables, OAuth, removal/disconnect |
 | Notifications | Opt-in Android permission, periodic pending-question checks, deduplication, cancellation of resolved alerts and opening the related chat; no Firebase |

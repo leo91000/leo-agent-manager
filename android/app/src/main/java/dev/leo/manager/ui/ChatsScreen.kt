@@ -1,6 +1,7 @@
 @file:OptIn(
     androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
 )
 
 package dev.leo.manager.ui
@@ -21,7 +22,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.maxLength
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -282,10 +290,12 @@ fun ChatScreen(
     var project by rememberSaveable(id) { mutableStateOf(initialProject) }
     val draftKey = id ?: "new:$initialAgent:$initialProject"
     val savedDraft = remember(draftKey) { vm.chatDrafts[draftKey] ?: ChatDraft() }
-    var draft by rememberSaveable(id) { mutableStateOf(savedDraft.text) }
-    // Keeps the caret and IME composition; `draft` stays the saved source of truth.
-    var draftField by remember(id) { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
-    val field = if (draftField.text == draft) draftField else TextFieldValue(draft, TextRange(draft.length))
+    // Keeps the caret and IME composition; `draft` reads its text live.
+    val composer =
+        rememberSaveable(id, saver = TextFieldState.Saver) {
+            TextFieldState(savedDraft.text, TextRange(savedDraft.text.length))
+        }
+    val draft by remember(composer) { derivedStateOf { composer.text.toString() } }
     var dismissedMention by remember(id) { mutableStateOf<Int?>(null) }
     var provider by rememberSaveable(id) { mutableStateOf(savedDraft.provider) }
     var model by rememberSaveable(id) { mutableStateOf(savedDraft.model) }
@@ -389,8 +399,10 @@ fun ChatScreen(
         }
     val skillNames = remember(skillOptions) { skillOptions.map { it.name }.toSet() }
     val mention =
-        if (!field.selection.collapsed) null
-        else mentionAt(field.text, field.selection.start)
+        if (!composer.selection.collapsed) null
+        else mentionAt(draft, composer.selection.start)
+    // Moving to another `$` token forgets an earlier dismissal.
+    LaunchedEffect(mentionAt(draft, composer.selection.start)?.start) { dismissedMention = null }
     val suggestions =
         if (mention == null || mention.start == dismissedMention) emptyList()
         else matchSkills(skillOptions, mention.query)
@@ -405,32 +417,35 @@ fun ChatScreen(
     val delivery = chatDelivery(chat, live.events, outgoing)
     val pending = delivery.queued
     val questions = chat?.questions.orEmpty().filter { it.status == "pending" }
-    val picker =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            if (uris.isNotEmpty())
-                vm.perform {
-                    require(attachments.size + uris.size <= 8) {
-                        "Vous pouvez joindre jusqu’à 8 fichiers."
-                    }
-                    val staged = mutableListOf<DraftAttachment>()
-                    try {
-                        uris.forEach { staged.add(files.stage(it)) }
-                        require(
-                            (attachments + staged).sumOf { it.attachment.size } <= 40L * 1024 * 1024
-                        ) {
-                            "Les pièces jointes doivent totaliser au maximum 40 Mo."
-                        }
-                        attachments = attachments + staged
-                    } catch (e: Exception) {
-                        files.discard(staged)
-                        throw e
-                    }
+    fun attach(uris: List<android.net.Uri>, mediaType: String? = null) {
+        if (uris.isNotEmpty())
+            vm.perform {
+                require(attachments.size + uris.size <= 8) {
+                    "Vous pouvez joindre jusqu’à 8 fichiers."
                 }
+                val staged = mutableListOf<DraftAttachment>()
+                try {
+                    uris.forEach { staged.add(files.stage(it, mediaType)) }
+                    require(
+                        (attachments + staged).sumOf { it.attachment.size } <= 40L * 1024 * 1024
+                    ) {
+                        "Les pièces jointes doivent totaliser au maximum 40 Mo."
+                    }
+                    attachments = attachments + staged
+                } catch (e: Exception) {
+                    files.discard(staged)
+                    throw e
+                }
+            }
+    }
+    val picker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
+            attach(it)
         }
     fun clearDraft() {
         vm.files.discard(attachments)
         attachments = emptyList()
-        draft = ""
+        composer.clearText()
         editing = null
         submissionKey = ""
         submissionId = ""
@@ -519,7 +534,7 @@ fun ChatScreen(
             return
         }
         editing = message.id
-        draft = message.text
+        composer.setTextAndPlaceCursorAtEnd(message.text)
         provider = message.provider.ifBlank { currentProvider }
         model = message.model
         reasoning = message.reasoning
@@ -810,7 +825,7 @@ fun ChatScreen(
                     if (cancelledExpanded) Column(Modifier.heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
                         cancelled.forEach { message ->
                             Text(message.text)
-                            TextButton({ draft = message.text; attachments = message.attachments.map { DraftAttachment(it) }; cancelledExpanded = false }) { Text("Copier dans le message") }
+                            TextButton({ composer.setTextAndPlaceCursorAtEnd(message.text); attachments = message.attachments.map { DraftAttachment(it) }; cancelledExpanded = false }) { Text("Copier dans le message") }
                         }
                     }
                 }
@@ -977,20 +992,26 @@ fun ChatScreen(
                                         else state.projects.find { it.id == scope }?.name ?: "Projet"
                                     },
                                 ) { skill ->
-                                    draftField = insertSkill(field, mention, skill.name)
-                                    draft = draftField.text
+                                    val inserted =
+                                        insertSkill(
+                                            TextFieldValue(draft, composer.selection),
+                                            mention,
+                                            skill.name,
+                                        )
+                                    composer.edit {
+                                        replace(0, length, inserted.text)
+                                        selection = inserted.selection
+                                    }
                                 }
                             BasicTextField(
-                                field,
-                                {
-                                    if (it.text.length <= 50000) {
-                                        if (mentionAt(it.text, it.selection.start)?.start != mention?.start)
-                                            dismissedMention = null
-                                        draftField = it
-                                        draft = it.text
-                                    }
-                                },
+                                composer,
                                 Modifier.fillMaxWidth()
+                                    // Images pasted or inserted from the keyboard join the attachments.
+                                    .contentReceiver { content ->
+                                        val images = pastedImages(content)
+                                        attach(images.uris, images.mediaType)
+                                        images.rest
+                                    }
                                     .heightIn(min = 48.dp)
                                     .padding(top = 12.dp, bottom = 4.dp, start = 12.dp, end = 12.dp),
                                 textStyle =
@@ -1001,11 +1022,12 @@ fun ChatScreen(
                                     androidx.compose.ui.graphics.SolidColor(
                                         MaterialTheme.colorScheme.primary
                                     ),
+                                inputTransformation = InputTransformation.maxLength(50000),
                                 keyboardOptions = InputKeyboards.Sentences,
-                                visualTransformation = SkillMentionTransformation(skillNames, skillMentionStyle()),
-                                maxLines = 4,
+                                outputTransformation = SkillMentionHighlight(skillNames, skillMentionStyle()),
+                                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 4),
                                 enabled = !state.busy,
-                                decorationBox = { inner ->
+                                decorator = { inner ->
                                     Box {
                                         if (draft.isEmpty())
                                             Text(
