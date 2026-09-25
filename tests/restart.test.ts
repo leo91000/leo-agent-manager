@@ -48,12 +48,13 @@ describe('durable conversation recovery', () => {
   }
 
   it('pauses on shutdown and resumes the same run, session, workspace and budget', async () => {
+    ctx.service.agent({ ...ctx.agent, timeoutMinutes: 120 }, ctx.agent.id)
     const run = await ctx.service.enqueue(ctx.task.id)
     await ctx.worker.tick()
     await waitForWork(run.id)
     await ctx.worker.close()
     const paused = ctx.service.store.run(run.id)!
-    const budget = ctx.worker.recovery.get(run.id)!.remainingMs
+    const budget = ctx.worker.recovery.get(run.id)!.remainingMs!
     expect(paused).toMatchObject({ status: 'queued', recoveryPending: true, sessionId: 'fixture-session', finishedAt: null })
     expect(budget).toBeLessThan(run.snapshot.agent.timeoutMinutes * 60000)
     const worker = await restart()
@@ -249,6 +250,7 @@ describe('durable conversation recovery', () => {
   })
 
   it('does not grant a fresh timeout or broaden changed agent permissions on automatic resume', async () => {
+    ctx.service.agent({ ...ctx.agent, timeoutMinutes: 120 }, ctx.agent.id)
     const run = await ctx.service.enqueue(ctx.task.id)
     await ctx.worker.tick()
     await waitForWork(run.id)

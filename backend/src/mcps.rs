@@ -363,13 +363,7 @@ impl Mcps {
                     json!({
                     "runId":run["id"],"messageId":run["chatExecution"]["messageId"],"servers":servers,"workspace":workspace}
                     ),
-                    Some(
-                        now()
-                            + run["snapshot"]["agent"]["timeoutMinutes"]
-                                .as_i64()
-                                .unwrap_or(60)
-                                * 60000,
-                    ),
+                    crate::run_limits::budget_ms(&run["snapshot"]["agent"]).map(|budget| now() + budget),
                 )
                 .await?;
         }

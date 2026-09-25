@@ -156,7 +156,8 @@ impl Session {
                 let mut bytes = Vec::new();
                 loop {
                     bytes.clear();
-                    // fill_buf bounds memory even when a broken child never emits a newline.
+                    // Bound MCP frames even if a server never emits a newline.
+                    // Codex frames can contain large tool results or conversation history.
                     loop {
                         let buffer = reader.fill_buf().await?;
                         if buffer.is_empty() {
@@ -164,14 +165,10 @@ impl Session {
                         }
                         let end = buffer.iter().position(|b| *b == b'\n').map(|i| i + 1);
                         let length = end.unwrap_or(buffer.len());
-                        let limit = if jsonrpc { 2_000_000 } else { 32_000_000 };
-                        if bytes.len() + length > limit {
+                        if jsonrpc && bytes.len() + length > 2_000_000 {
                             return Err(Error::new(
                                 502,
-                                format!(
-                                    "{} response exceeded the {limit}-byte limit.",
-                                    if jsonrpc { "MCP" } else { "Codex" }
-                                ),
+                                "MCP response exceeded the 2000000-byte limit.",
                             ));
                         }
                         bytes.extend_from_slice(&buffer[..length]);

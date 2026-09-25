@@ -20,7 +20,8 @@ export const agentInput = z.object({
   model: z.string().max(100).default(''),
   reasoning: reasoningEffort.default('high'),
   instructions: z.string().max(20000).default(''),
-  timeoutMinutes: z.number().int().min(1).max(720).default(120),
+  // Zero means no time limit; positive values are an optional execution budget.
+  timeoutMinutes: z.number().int().min(0).max(720).default(0),
   access: accessPolicy.default(() => accessPolicy.parse({})),
 })
 export const agentUpdate = z.object({

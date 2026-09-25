@@ -461,7 +461,7 @@ fun RunScreen(
                                 "Créée : ${date(current.createdAt)}\nDébut : ${date(current.startedAt)}\nFin : ${date(current.finishedAt)}"
                             )
                             Text(
-                                "Accès : ${current.snapshot.agent.access.sandbox} · ${current.snapshot.agent.timeoutMinutes} minutes maximum"
+                                "Accès : ${current.snapshot.agent.access.sandbox} · ${if (current.snapshot.agent.timeoutMinutes == 0) "Sans limite de temps" else "${current.snapshot.agent.timeoutMinutes} minutes maximum"}"
                             )
                             Text(
                                 "Skills : ${current.snapshot.skills.joinToString { it.name }.ifEmpty { "Aucun" }}"

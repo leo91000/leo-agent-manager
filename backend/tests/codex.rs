@@ -44,8 +44,7 @@ async fn long_chat_history_preserves_steered_messages_without_repeating_complete
             {"id":"a","type":"agentMessage","text":"Completed once"}
         ]}
     ]});
-    // The whole turn exceeds even the larger per-frame transport limit; only
-    // item pagination can recover it without loading all tool output at once.
+    // Item pagination recovers a large turn without loading all tool output at once.
     for index in 0..16 {
         history["turns"][0]["items"].as_array_mut().unwrap().insert(1, json!({"id":format!("command-{index}"),"type":"commandExecution","aggregatedOutput":"x".repeat(2_100_000)}));
     }
@@ -93,20 +92,50 @@ async fn device_fixture(mode: &str) -> (TempDir, DeviceLogin) {
 }
 
 #[tokio::test]
-async fn oversized_rpc_frames_report_the_transport_limit_not_an_auth_failure() {
-    for (jsonrpc, limit) in [(true, 2_000_000), (false, 32_000_000)] {
-        let mut command = tokio::process::Command::new("node");
-        command.args(["-e", &format!("process.stdin.once('data', () => process.stdout.write(JSON.stringify({{id:1,result:'x'.repeat({limit})}})+'\\n')); setInterval(()=>{{}},1000)")]);
-        let session = Session::spawn_with_protocol(command, jsonrpc)
+async fn oversized_mcp_frames_report_the_transport_limit_not_an_auth_failure() {
+    let limit = 2_000_000;
+    let mut command = tokio::process::Command::new("node");
+    command.args(["-e", &format!("process.stdin.once('data', () => process.stdout.write(JSON.stringify({{id:1,result:'x'.repeat({limit})}})+'\\n')); setInterval(()=>{{}},1000)")]);
+    let session = Session::spawn_with_protocol(command, true).await.unwrap();
+    let error = session.rpc.request("large", json!({})).await.unwrap_err();
+    assert!(
+        error.message.contains(&format!("{limit}-byte limit")),
+        "{error:?}"
+    );
+    session.close().await;
+}
+
+#[tokio::test]
+async fn codex_accepts_large_responses_and_notifications_and_continues_reading() {
+    let mut command = tokio::process::Command::new("node");
+    command.args([
+        "-e",
+        r#"
+        require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+            const {id, method} = JSON.parse(line);
+            const text = method === 'large' ? 'x'.repeat(33_000_000) : 'still connected';
+            process.stdout.write(JSON.stringify({id, result:text})+'\n');
+            if (method === 'large') {
+                process.stdout.write(JSON.stringify({method:'item/completed', params:{text}})+'\n');
+            }
+        });
+    "#,
+    ]);
+    let mut session = Session::spawn(command).await.unwrap();
+    let response = session.rpc.request("large", json!({})).await.unwrap();
+    assert_eq!(response.as_str().unwrap(), "x".repeat(33_000_000));
+    let notification =
+        tokio::time::timeout(std::time::Duration::from_secs(10), session.incoming.recv())
             .await
+            .unwrap()
             .unwrap();
-        let error = session.rpc.request("large", json!({})).await.unwrap_err();
-        assert!(
-            error.message.contains(&format!("{limit}-byte limit")),
-            "{error:?}"
-        );
-        session.close().await;
-    }
+    assert_eq!(notification.method, "item/completed");
+    assert_eq!(notification.params["text"], response);
+    assert_eq!(
+        session.rpc.request("small", json!({})).await.unwrap(),
+        "still connected"
+    );
+    session.close().await;
 }
 
 async fn wait_login(login: &DeviceLogin) {

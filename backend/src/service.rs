@@ -90,6 +90,24 @@ impl Service {
             agent["createdAt"] = now().into();
             service.store.put("agents", agent).await?;
         }
+        // Migrate the built-in agent's old default once; preserve custom limits and
+        // any later choice to explicitly restore a two-hour budget.
+        service
+            .store
+            .transaction(|db| {
+                let key = "migration:main-agent-unlimited";
+                if db.kv(key)?.is_none() {
+                    if let Some(mut agent) = db.get("agents", MAIN_AGENT_ID)?
+                        && agent["timeoutMinutes"] == 120
+                    {
+                        agent["timeoutMinutes"] = 0.into();
+                        db.put("agents", &agent)?;
+                    }
+                    db.set(key, &json!(true), None)?;
+                }
+                Ok(())
+            })
+            .await?;
         tokio::spawn(crate::artifacts::preview::recover(service.clone()));
         Ok(service)
     }

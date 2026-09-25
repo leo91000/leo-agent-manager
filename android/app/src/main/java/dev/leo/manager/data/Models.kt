@@ -30,7 +30,7 @@ data class Agent(
     val model: String = "",
     val reasoning: String = "high",
     val instructions: String = "",
-    val timeoutMinutes: Int = 120,
+    val timeoutMinutes: Int = 0,
     val access: AccessPolicy = AccessPolicy(),
     val provider: String = "codex",
 )

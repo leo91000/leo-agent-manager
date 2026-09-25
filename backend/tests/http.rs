@@ -678,3 +678,59 @@ async fn github_projects_require_owner_session_and_csrf() {
         .unwrap();
     assert_eq!(response.status(), 403);
 }
+
+#[tokio::test]
+async fn agents_default_to_unlimited_and_migrate_only_the_main_agents_old_default() {
+    use leo_agent_manager::config::MAIN_AGENT_ID;
+    let (_root, _app, s) = app().await;
+    let main = s.get("agents", MAIN_AGENT_ID).await.unwrap();
+    assert_eq!(main["timeoutMinutes"], 0);
+    assert_eq!(
+        s.agent(json!({"name":"New agent"}), None).await.unwrap()["timeoutMinutes"],
+        0
+    );
+    for minutes in [0, 1, 720] {
+        assert_eq!(
+            s.agent(json!({"name":"Configured", "timeoutMinutes":minutes}), None)
+                .await
+                .unwrap()["timeoutMinutes"],
+            minutes
+        );
+    }
+    for minutes in [-1, 721] {
+        assert!(
+            s.agent(json!({"name":"Invalid", "timeoutMinutes":minutes}), None)
+                .await
+                .is_err()
+        );
+    }
+    for (previous, expected) in [(90, 90), (120, 0)] {
+        s.agent(
+            json!({"name":"Main agent", "timeoutMinutes":previous}),
+            Some(MAIN_AGENT_ID),
+        )
+        .await
+        .unwrap();
+        s.store
+            .write(|db| db.delete("migration:main-agent-unlimited"))
+            .await
+            .unwrap();
+        let restarted = Service::new(s.config.clone()).await.unwrap();
+        assert_eq!(
+            restarted.get("agents", MAIN_AGENT_ID).await.unwrap()["timeoutMinutes"],
+            expected
+        );
+    }
+    s.agent(
+        json!({"name":"Main agent", "timeoutMinutes":120}),
+        Some(MAIN_AGENT_ID),
+    )
+    .await
+    .unwrap();
+    let restarted = Service::new(s.config.clone()).await.unwrap();
+    assert_eq!(
+        restarted.get("agents", MAIN_AGENT_ID).await.unwrap()["timeoutMinutes"],
+        120,
+        "An explicit choice after migration must survive restart"
+    );
+}

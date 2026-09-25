@@ -39,7 +39,7 @@ struct Checkpoint {
     store: Store,
     id: String,
     value: Mutex<Value>,
-    deadline: i64,
+    deadline: Option<i64>,
 }
 impl Checkpoint {
     async fn value(&self) -> Value {
@@ -48,7 +48,10 @@ impl Checkpoint {
     async fn save(&self, patch: Value) -> Result<()> {
         let mut value = self.value.lock().await;
         merge(&mut value, &patch);
-        value["remainingMs"] = (self.deadline - now()).max(0).into();
+        value["remainingMs"] = self
+            .deadline
+            .map(|deadline| (deadline - now()).max(0))
+            .into();
         self.store
             .set(&format!("run-checkpoint:{}", self.id), value.clone(), None)
             .await
@@ -421,11 +424,15 @@ impl Worker {
         let existing = saved.is_some();
         let value = saved.unwrap_or_else(|| {
             json!({
-            "launched":false,"remainingMs":run["snapshot"]["agent"]["timeoutMinutes"].as_i64().unwrap_or(60)*60000}
+            "launched":false,"remainingMs":crate::run_limits::budget_ms(&run["snapshot"]["agent"])}
             )
         });
         let checkpoint = Arc::new(Checkpoint {
-            deadline: now() + value["remainingMs"].as_i64().unwrap_or(0),
+            deadline: if value.get("remainingMs") == Some(&Value::Null) {
+                None
+            } else {
+                Some(now() + value["remainingMs"].as_i64().unwrap_or(0))
+            },
             value: Mutex::new(value),
             store: s.store.clone(),
             id: run_id.clone(),
@@ -465,7 +472,7 @@ impl Worker {
                 && saved["prepared"]["backend"] == "firecracker"
                 && saved["controllerRecoveries"].as_u64().unwrap_or(0) < 3
                 && s.store.run(&run_id).await?["sessionId"].is_string()
-                && now() < checkpoint.deadline
+                && checkpoint.deadline.is_none_or(|deadline| now() < deadline)
                 && !cancel.is_cancelled()
                 && !s.shutdown.is_cancelled();
             if recover_controller {
@@ -805,7 +812,10 @@ impl Worker {
             if cancel.is_cancelled() || s.shutdown.is_cancelled() {
                 return Err(Error::new(409, "Execution stopped."));
             }
-            if now() >= checkpoint.deadline {
+            if checkpoint
+                .deadline
+                .is_some_and(|deadline| now() >= deadline)
+            {
                 return Err(Error::new(409, "Run exceeded its time limit."));
             }
             let output = text(&prepared, "output");
@@ -976,9 +986,7 @@ impl Worker {
             let mut timed_out = false;
             let mut status = None;
             let mut open = true;
-            let timeout = tokio::time::sleep(Duration::from_millis(
-                (checkpoint.deadline - now()).max(1) as u64,
-            ));
+            let timeout = crate::run_limits::wait_until(checkpoint.deadline);
             tokio::pin!(timeout);
             while status.is_none() || open {
                 tokio::select! {
@@ -1065,7 +1073,7 @@ impl Worker {
                 while account.is_none()
                     && !cancel.is_cancelled()
                     && !s.shutdown.is_cancelled()
-                    && now() < checkpoint.deadline
+                    && checkpoint.deadline.is_none_or(|deadline| now() < deadline)
                 {
                     match s.accounts.acquire(s, &id, model).await {
                         Ok(value) => *account = value,
@@ -1234,7 +1242,7 @@ impl Worker {
                     return Err(Error::new(409, "This task already has an active run."));
                 }
                 if let Some(mut checkpoint) = checkpoint {
-                    checkpoint["remainingMs"] = (run["snapshot"]["agent"]["timeoutMinutes"].as_i64().unwrap_or(60) * 60000).into();
+                    checkpoint["remainingMs"] = crate::run_limits::budget_ms(&run["snapshot"]["agent"]).into();
                     if !before_launch {
                         checkpoint["completed"] = false.into();
                     }

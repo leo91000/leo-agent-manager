@@ -43,7 +43,7 @@ const emit = defineEmits<{ cleanup: [] }>()
     <p>
       {{ run.snapshot.agent.access?.sandbox === 'workspace-write' ? 'Workspace write' : run.snapshot.agent.access?.sandbox === 'read-only' ? 'Read only' : 'YOLO mode' }} ·
       {{ run.isolated ? 'Isolated container' : 'Shared workspace' }} ·
-      {{ run.snapshot.agent.timeoutMinutes }} minute limit
+      {{ run.snapshot.agent.timeoutMinutes === 0 ? 'No time limit' : `${run.snapshot.agent.timeoutMinutes} minute limit` }}
     </p>
   </div>
 </template>

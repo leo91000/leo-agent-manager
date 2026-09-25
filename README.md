@@ -177,3 +177,20 @@ failed imports remove their temporary checkout. The server-directory option is
 still available. Web and Android 0.31.0 use the same API (server 0.31.0).
 
 Repository browsing uses GitHub's [authenticated repository listing](https://docs.github.com/en/rest/repos/repos#list-repositories-for-the-authenticated-user).
+
+### Execution time limits
+
+Agents run without a time limit by default. In the agent editor on web or Android,
+turn off **No time limit** / **Sans limite de temps** to set a budget of 1–720 minutes.
+The API represents unlimited execution as `timeoutMinutes: 0`. Waiting for tools or
+account capacity counts toward an optional finite budget; a worker restart preserves
+the remaining budget and an explicit resume starts a fresh budget.
+
+On upgrade, the main agent's former default of 120 minutes becomes unlimited once.
+Other configured limits are preserved, as are settings captured by existing runs.
+Manual cancellation and tool-access revocation still apply to unlimited runs.
+
+Codex transport messages have no fixed byte-size limit. Large tool results and
+conversation history no longer fail at 32 MB per message; reading and decoding
+each message still require memory proportional to its size. MCP server responses
+retain their separate 2 MB limit.

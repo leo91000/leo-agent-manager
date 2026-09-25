@@ -163,7 +163,7 @@ export class Chats {
           const checkpoint = requireValue(worker.recovery.get(run.id))
           checkpoint.completed = false
           checkpoint.lastMessage = undefined
-          checkpoint.remainingMs = snapshot.snapshot.agent.timeoutMinutes * 60000
+          checkpoint.remainingMs = snapshot.snapshot.agent.timeoutMinutes > 0 ? snapshot.snapshot.agent.timeoutMinutes * 60000 : null
           delete checkpoint.settled
           this.store.transaction(() => {
             worker.recovery.save(run!.id, checkpoint)
