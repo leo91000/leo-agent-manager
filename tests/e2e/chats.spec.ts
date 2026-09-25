@@ -121,7 +121,8 @@ test('compact mobile toolbar keeps details and workspace controls accessible', a
       await expect(page.getByRole('button', { name: 'Conversations', exact: true })).toBeInViewport()
       await expect(message).toBeInViewport()
       const header = await page.locator('.chat-header').boundingBox()
-      expect(header!.height).toBeLessThanOrEqual(60)
+      // Layout can report sub-pixel heights such as 60.0000007.
+      expect(Math.round(header!.height)).toBeLessThanOrEqual(60)
       expect(header!.y).toBeLessThanOrEqual(1)
       await expectSingleScroll(page)
       await page.screenshot({ path: test.info().outputPath(`compact-chat-${colorScheme}-${viewport.width}.png`), animations: 'disabled' })
