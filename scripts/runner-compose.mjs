@@ -117,6 +117,7 @@ export function firecrackerRunnerCompose(compose) {
     : managerEnvironment?.CONCURRENCY
   // eslint-disable-next-line no-template-curly-in-string -- Preserve the Compose environment expression.
   const concurrency = configuredConcurrency ?? '${CONCURRENCY:-4}'
+  const alreadyUsesVms = runner.get('devices')?.toJSON()?.some(device => typeof device === 'string' && device.split(':')[0] === '/dev/kvm')
   const values = {
     user: '0:0',
     entrypoint: ['/usr/local/bin/leo', 'runner-broker'],
@@ -130,9 +131,10 @@ export function firecrackerRunnerCompose(compose) {
     tmpfs: ['/run', '/tmp'],
     environment: { DATA_DIR: '/data', CONCURRENCY: concurrency },
     volumes: [data.replace(/:(ro|rw)$/, ''), state.replace(/:(ro|rw)$/, '')],
-    mem_limit: '20g',
-    cpus: 8,
-    pids_limit: 256,
+    // Set defaults when migrating to VMs; preserve subsequent operator sizing.
+    mem_limit: alreadyUsesVms ? runner.get('mem_limit') ?? '20g' : '20g',
+    cpus: alreadyUsesVms ? runner.get('cpus') ?? 8 : 8,
+    pids_limit: alreadyUsesVms ? runner.get('pids_limit') ?? 256 : 256,
     healthcheck: {
       test: ['CMD', 'node', '-e', 'fetch(\'http://127.0.0.1:4311/health\').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'],
       start_period: '120s',

@@ -99,6 +99,26 @@ describe('coolify deployment over HTTP', () => {
     expect(requests.some(request => request.method === 'POST')).toBe(false)
   })
 
+  it('preserves configured VM capacity and resource budgets when releasing', async () => {
+    const document = parse(compose)
+    document.services.manager.environment.CONCURRENCY = 8
+    Object.assign(document.services.runner, { mem_limit: '36g', cpus: 6, pids_limit: 512 })
+    document.services.runner.environment.CONCURRENCY = 8
+    compose = stringify(document)
+    const original = compose
+    await deploy(config, { intervalMs: 0, timeoutMs: 1000 })
+    expect(compose).toBe(original)
+    expect(requests.some(request => request.path.endsWith('/restart'))).toBe(true)
+  })
+
+  it('assigns VM resource defaults when migrating a legacy container runner', () => {
+    const document = parse(compose)
+    delete document.services.runner.devices
+    Object.assign(document.services.runner, { mem_limit: '4g', cpus: 2, pids_limit: 128 })
+    const result = parse(firecrackerRunnerCompose(stringify(document)))
+    expect(result.services.runner).toMatchObject({ mem_limit: '20g', cpus: 8, pids_limit: 256 })
+  })
+
   it('fails if a healthy service keeps serving the previous commit', async () => {
     healthResponses = [{ status: 'ok', commit: 'old-commit' }]
     await expect(deploy(config, { intervalMs: 0, timeoutMs: 25 })).rejects.toThrow('did not serve commit')

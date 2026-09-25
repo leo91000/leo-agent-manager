@@ -131,12 +131,14 @@ than reusing another slot’s network. Disk ownership is protected by an exclusi
 one writable disk cannot be opened by two attempts. Console and execution output
 are bounded independently of the guest disk.
 
-Per-guest firewall rules permit outgoing web traffic (TCP 80/443) and DNS (UDP 53).
+Per-guest firewall rules permit outgoing TCP on all ports to public destinations
+and DNS (UDP 53). SSH works on standard and custom ports; other UDP is blocked.
 They reject private/reserved destinations and access to the controller itself;
 new inbound connections are not forwarded into guests. This allows the public
-manager MCP gateway and Git HTTPS. Additional outbound protocols require an
-explicit network-policy change. Firecracker does not remove the need to patch host
-kernel, firmware, guest kernel and the VMM; follow upstream production guidance.
+manager MCP gateway, public SSH servers and Git over HTTPS or SSH. Additional
+outbound protocols require an explicit network-policy change. Firecracker does not
+remove the need to patch host kernel, firmware, guest kernel and the VMM; follow
+upstream production guidance.
 
 ## Builds, upgrades and recovery
 
