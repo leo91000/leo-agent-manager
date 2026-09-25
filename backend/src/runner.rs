@@ -61,9 +61,13 @@ fn normalized(path: &Path) -> bool {
 fn validate(plan: &Value, id: &str, data: &Path) -> Result<()> {
     uuid(text(plan, "runId"))?;
     if plan["id"] != id
-        || plan["expires"]
-            .as_i64()
-            .is_none_or(|n| n <= now() || n > now() + 13 * 3600000)
+        || !match plan.get("expires") {
+            Some(Value::Null) => true,
+            Some(value) => value
+                .as_i64()
+                .is_some_and(|n| n > now() && n <= now() + 13 * 3600000),
+            None => false,
+        }
     {
         return Err(Error::bad("Invalid or expired execution plan."));
     }
@@ -184,11 +188,10 @@ impl Broker {
         let broker = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            let deadline =
-                Duration::from_millis((plan["expires"].as_i64().unwrap() - now()).max(1) as u64);
+            let deadline = plan["expires"].as_i64();
             let expiry = stop.clone();
             let timer = tokio::spawn(async move {
-                tokio::time::sleep(deadline).await;
+                crate::run_limits::wait_until(deadline).await;
                 expiry.cancel();
             });
             let result = reservation.execute(plan, socket, stop).await;
@@ -858,6 +861,23 @@ mod tests {
         let mut text = String::new();
         file.read_to_string(&mut text).unwrap();
         assert_eq!(text, "native session and unpublished work");
+    }
+    #[test]
+    fn execution_plans_accept_unlimited_but_reject_invalid_or_expired_deadlines() {
+        let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let mut plan = json!({"id":id,"runId":id,"expires":null,"cwd":format!("/data/runs/{id}/workspace"),"imports":[]});
+        assert!(validate(&plan, id, Path::new("/data")).is_ok());
+        for expiry in [
+            json!(0),
+            json!(now() - 1),
+            json!(now() + 14 * 3600000),
+            json!("unlimited"),
+        ] {
+            plan["expires"] = expiry;
+            assert!(validate(&plan, id, Path::new("/data")).is_err());
+        }
+        plan.as_object_mut().unwrap().remove("expires");
+        assert!(validate(&plan, id, Path::new("/data")).is_err());
     }
     #[test]
     fn claude_credentials_have_one_private_destination() {

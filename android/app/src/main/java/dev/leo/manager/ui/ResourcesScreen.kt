@@ -44,7 +44,7 @@ fun ResourcesScreen(
                         Text(agent.name, style = MaterialTheme.typography.titleMedium)
                         if (agent.description.isNotBlank()) Text(agent.description)
                         Text(
-                            "${agent.model.ifBlank { "Modèle par défaut" }} · ${agent.reasoning} · ${agent.timeoutMinutes} min"
+                            "${agent.model.ifBlank { "Modèle par défaut" }} · ${agent.reasoning} · ${if (agent.timeoutMinutes == 0) "Sans limite" else "${agent.timeoutMinutes} min"}"
                         )
                         Row {
                             ActionIcon(
@@ -170,7 +170,7 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
             form.name.isNotBlank() &&
                 form.name.length <= 100 &&
                 minutes != null &&
-                minutes in 1..720 &&
+                minutes in 0..720 &&
                 form.instructions.length <= 20000 &&
                 form.description.length <= 500 &&
                 form.model.length <= 100 &&
@@ -192,12 +192,17 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
             form = form.copy(model = model, reasoning = reasoning)
         }
         Field("Instructions", form.instructions, { form = form.copy(instructions = it) }, 6)
-        Field(
-            "Limite en minutes (1–720)",
-            timeout,
-            { timeout = it },
-            keyboardOptions = InputKeyboards.Number,
-        )
+        Toggle("Sans limite de temps", minutes == 0) {
+            timeout = if (it) "0" else "120"
+        }
+        if (minutes != 0) {
+            Field(
+                "Limite en minutes (1–720)",
+                timeout,
+                { timeout = it },
+                keyboardOptions = InputKeyboards.Number,
+            )
+        }
         Text("Accès de l’agent", style = MaterialTheme.typography.titleMedium)
         Choice(
             "Environnement",

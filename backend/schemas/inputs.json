@@ -38,9 +38,9 @@
         "maxLength": 20000
       },
       "timeoutMinutes": {
-        "default": 120,
+        "default": 0,
         "type": "integer",
-        "minimum": 1,
+        "minimum": 0,
         "maximum": 720
       },
       "access": {

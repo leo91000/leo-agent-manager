@@ -548,6 +548,8 @@ internal fun TimelineRow(
     entry: TimelineEntry,
     agent: String,
     rendering: MarkdownRendering? = null,
+    /** While the agent works, its step in progress is shown by the working indicator instead. */
+    hideRunning: Boolean = false,
 ) {
     if (entry.files.isNotEmpty()) ArtifactStrip(vm, entry.files)
     else if (entry.message)
@@ -556,57 +558,8 @@ internal fun TimelineRow(
         }
     else if (entry.notice) ChatNotice(presentActivity(entry.events.single()))
     else {
-        var expanded by rememberSaveable(entry.key) { mutableStateOf(false) }
         val presentations = remember(entry.events) { entry.events.map(::presentActivity) }
-        val errors = presentations.count { it.failed }
-        val tools = presentations.count { it.kind != ActivityKind.NOTICE }
-        Column(Modifier.fillMaxWidth()) {
-            Surface(
-                onClick = { expanded = !expanded },
-                color = MaterialTheme.colorScheme.background,
-                shape = MaterialTheme.shapes.medium,
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        LeoIcons.Terminal,
-                        null,
-                        Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        if (tools > 0) "$tools action${if (tools > 1) "s" else ""} de l’agent"
-                        else "Suivi de l’exécution",
-                        Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (errors > 0)
-                        Text(
-                            "$errors erreur${if (errors > 1) "s" else ""}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    Icon(
-                        if (expanded) LeoIcons.Down else LeoIcons.Right,
-                        if (expanded) "Réduire les actions" else "Afficher les actions",
-                        Modifier.size(18.dp),
-                    )
-                }
-            }
-            if (expanded)
-                Column(
-                    Modifier.padding(start = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    entry.events.forEachIndexed { index, event ->
-                        key(event.id) { ActivityCard(event, presentations[index]) }
-                    }
-                }
-        }
+        AgentActions(entry.key, presentations, hideRunning)
     }
 }
 

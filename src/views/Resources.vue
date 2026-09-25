@@ -100,7 +100,7 @@ async function edit(item?: any) {
           model: '',
           reasoning: '',
           instructions: '',
-          timeoutMinutes: 120,
+          timeoutMinutes: 0,
           access: { projects: null, skills: null, mcps: null, mcpTools: {}, github: true, sandbox: 'yolo' },
         }
       : { name: '', description: '', path: '', baseBranch: 'main', sourceMode: 'remote' }
@@ -289,7 +289,13 @@ async function remove() {
             <p class="muted text-muted">
               YOLO is the default. Every agent runs in a private VM. Sandboxed runs never bypass denied operations or wait for unattended approvals.
             </p>
-          </div><label>Time limit (minutes)<input
+          </div><label class="checkbox flex-row items-center gap-2">
+            <input
+              type="checkbox"
+              :checked="form.timeoutMinutes === 0"
+              @change="form.timeoutMinutes = ($event.target as HTMLInputElement).checked ? 0 : 120"
+            >No time limit
+          </label><label v-if="form.timeoutMinutes !== 0">Time limit (minutes)<input
             v-model.number="form.timeoutMinutes"
             type="number"
             min="1"

@@ -14,6 +14,7 @@ struct Fixture {
     root: TempDir,
     service: Arc<Service>,
     process: Option<Child>,
+    url: String,
 }
 
 #[tokio::test]
@@ -241,6 +242,7 @@ impl Fixture {
             root,
             service,
             process: None,
+            url: String::new(),
         };
         fixture.start().await;
         fixture
@@ -285,6 +287,7 @@ impl Fixture {
             .unwrap()
             .unwrap();
         assert!(line.starts_with("Listening on"), "{line}");
+        self.url = line.trim_start_matches("Listening on ").to_owned();
         self.process = Some(child);
     }
     async fn stop(&mut self, abrupt: bool) {
@@ -485,6 +488,18 @@ async fn abrupt_restart_fences_previous_process_and_resumes_workspace() {
     assert_eq!(completed["sessionId"], running["sessionId"]);
     assert_eq!(completed["resumeCount"], 1);
     assert!(text(&completed, "summary").contains("saved conversation"));
+    assert_eq!(completed["snapshot"]["agent"]["timeoutMinutes"], 0);
+    assert_eq!(
+        fixture
+            .service
+            .store
+            .kv(&format!("run-checkpoint:{id}"))
+            .await
+            .unwrap()
+            .unwrap()
+            .get("remainingMs"),
+        Some(&Value::Null)
+    );
     fixture.stop(false).await;
 }
 #[tokio::test]
@@ -838,5 +853,90 @@ async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_th
         .until(&runs[2], |r| r["status"] == "succeeded")
         .await;
     assert!(!home.join("sync-required").exists());
+    fixture.stop(false).await;
+}
+
+#[tokio::test]
+async fn unlimited_runs_can_be_cancelled_and_finite_checkpoints_still_expire() {
+    let mut fixture = Fixture::new().await;
+    let s = fixture.service.clone();
+    let run = fixture.enqueue("fixture:restart").await;
+    let id = text(&run, "id");
+    assert_eq!(run["snapshot"]["agent"]["timeoutMinutes"], 0);
+    fixture
+        .until(id, |r| r["sessionId"] == "fixture-session")
+        .await;
+    assert_eq!(s.store.run(id).await.unwrap()["status"], "running");
+    assert_eq!(
+        s.store
+            .kv(&format!("run-checkpoint:{id}"))
+            .await
+            .unwrap()
+            .unwrap()
+            .get("remainingMs"),
+        Some(&Value::Null)
+    );
+    let session = s.auth.session().await.unwrap();
+    let client = reqwest::Client::new();
+    let command = |action: &str| {
+        client
+            .post(format!("{}/api/runs/{id}/{action}", fixture.url))
+            .header("cookie", format!("leo_session={}", text(&session, "value")))
+            .header("x-csrf-token", text(&session, "csrf"))
+            .json(&json!({}))
+    };
+    command("cancel")
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    fixture.until(id, |r| r["status"] == "cancelled").await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let response = command("resume").send().await.unwrap();
+            if response.status().as_u16() != 409 {
+                response.error_for_status().unwrap();
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .unwrap();
+    fixture.until(id, |r| r["status"] == "succeeded").await;
+    assert_eq!(
+        s.store
+            .kv(&format!("run-checkpoint:{id}"))
+            .await
+            .unwrap()
+            .unwrap()
+            .get("remainingMs"),
+        Some(&Value::Null)
+    );
+    fixture.stop(false).await;
+    let run = fixture.enqueue("fixture:hang").await;
+    let id = text(&run, "id");
+    let mut snapshot = run["snapshot"].clone();
+    snapshot["agent"]["timeoutMinutes"] = 1.into();
+    s.store
+        .patch_run(id, json!({"snapshot":snapshot}))
+        .await
+        .unwrap();
+    // Resume the final five seconds of an existing one-minute budget.
+    s.store
+        .set(
+            &format!("run-checkpoint:{id}"),
+            json!({"launched":false,"remainingMs":5000}),
+            None,
+        )
+        .await
+        .unwrap();
+    fixture.start().await;
+    fixture
+        .until(id, |r| r["sessionId"] == "fixture-session")
+        .await;
+    let failed = fixture.until(id, |r| r["status"] == "failed").await;
+    assert!(text(&failed, "summary").contains("time limit"), "{failed}");
     fixture.stop(false).await;
 }

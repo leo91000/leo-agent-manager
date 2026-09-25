@@ -347,7 +347,7 @@ export class McpConnections {
       }
     }
     if (Object.keys(servers).length)
-      this.store.set(`mcp-grant:${digest(token)}`, { runId: run.id, servers }, Date.now() + run.snapshot.agent.timeoutMinutes * 60000)
+      this.store.set(`mcp-grant:${digest(token)}`, { runId: run.id, servers }, run.snapshot.agent.timeoutMinutes > 0 ? Date.now() + run.snapshot.agent.timeoutMinutes * 60000 : undefined)
     return { redactions: [token, ...items.flatMap(item => Object.values(this.secrets(item.id).env || {}))].filter(value => value.length > 3), args: Object.entries(configs).flatMap(([key, value]) => ['-c', `mcp_servers.${key}=${toml(value)}`]), env: Object.keys(servers).length ? { LEO_MCP_RUN_TOKEN: token } : {} }
   }
 

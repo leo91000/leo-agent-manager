@@ -775,7 +775,7 @@ impl Service {
                         db.event(text(&run,"id"), "status", &format!("Continuing with {} · conversation context and workspace preserved", if crate::claude::is_claude(&snapshot) { "Claude Code" } else { "Codex" }), None)?;
                     }
                     checkpoint["completed"] = false.into();
-                    checkpoint["remainingMs"] = (snapshot["snapshot"]["agent"]["timeoutMinutes"].as_i64().unwrap_or(60) * 60000).into();
+                    checkpoint["remainingMs"] = crate::run_limits::budget_ms(&snapshot["snapshot"]["agent"]).into();
                     checkpoint.as_object_mut().unwrap().remove("lastMessage");
                     checkpoint.as_object_mut().unwrap().remove("settled");
                     db.set(&key, &checkpoint, None)?;

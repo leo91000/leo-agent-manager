@@ -19,7 +19,7 @@ export interface RunnerPlan {
   cwd: string
   prompt: string
   mounts: { source: string, target: string, readOnly: boolean }[]
-  expires: number
+  expires: number | null
   sandbox: string
   mcpEnv?: { LEO_MCP_RUN_TOKEN?: string }
 }

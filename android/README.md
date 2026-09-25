@@ -1,5 +1,6 @@
 # Leo for Android
 
+Version 0.36.0 shows the agent’s live step with the « Souffle » indicator and presents agent actions as a one-sentence summary that expands into a timeline, with full step details in a sheet.
 Version 0.35.0 lets you paste images, or insert them from the keyboard, into the chat composer as attachments.
 Version 0.34.0 introduces the « Signal » interface: Fil, Missions and Atelier tabs with an always-available new-conversation button, on-screen agent/project choice, missions with readable schedules and run history, a connection-first Atelier, universal search and a paper/ink palette with the Leo blue accent. See [release notes](RELEASE-NOTES.md).
 Version 0.33.4 preserves assistant messages after verbose tool output and restores missing saved summaries on the server. Existing Android clients benefit without an app update.
@@ -11,6 +12,10 @@ Version 0.30.1 shows waiting reasons in conversations and links to Connections w
 Version 0.30.0 adds in-app APK updates from stable Git tags. See [update distribution](docs/UPDATES.md).
 
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
+Swipe left or right across a conversation's history to open the next or previous
+active chat in the selector's most-recent-first order. Navigation stops at either
+end, preserves each chat's draft, and leaves vertical scrolling and composer
+gestures available. New conversations and archives do not participate.
 Version 0.15.0 adds a configurable limit for simultaneous Claude conversations in Connections (server 0.29.0). The default is four; lowering the limit lets active conversations finish.
 Version 0.14.0 displays Claude Code usage limits and reset dates in Connections (server 0.28.0).
 Version 0.13.0 adds the GitHub repository picker and automatic project imports (server 0.27.0).

@@ -14,7 +14,7 @@ export interface RunCheckpoint {
   runnerId?: string
   generation?: string
   launched: boolean
-  remainingMs: number
+  remainingMs: number | null
   process?: ProcessIdentity
   completed?: boolean
   lastMessage?: string

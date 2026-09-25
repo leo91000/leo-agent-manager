@@ -22,7 +22,7 @@ export function translateMount(source: string, mounts: { Source: string, Destina
 }
 async function planFor(id: string): Promise<RunnerPlan> {
   const plan = JSON.parse(await readFile(path.join(dataDirectory, 'runner-plans', `${id}.json`), 'utf8')) as RunnerPlan
-  if (plan.id !== id || plan.expires <= Date.now() || plan.expires > Date.now() + 13 * 3600000)
+  if (plan.id !== id || (plan.expires !== null && (!Number.isSafeInteger(plan.expires) || plan.expires <= Date.now() || plan.expires > Date.now() + 13 * 3600000)))
     throw new Error('Run plan is invalid or expired.')
   return plan
 }
@@ -138,7 +138,7 @@ async function main() {
     try {
       const containers = await dockerJson('GET', `/containers/json?all=1&filters=${encodeURIComponent(JSON.stringify({ label: [`${label}=true`] }))}`)
       for (const container of containers) {
-        if (Number(container.Labels['leo.expires']) + 30000 < Date.now())
+        if (container.Labels['leo.expires'] !== 'null' && Number(container.Labels['leo.expires']) + 30000 < Date.now())
           await dockerJson('DELETE', `/containers/${container.Id}?force=true&v=true`)
       }
     }

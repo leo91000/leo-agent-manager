@@ -239,10 +239,11 @@ export class Worker {
     let heartbeat: NodeJS.Timeout | undefined
     let sensitive: string[] = []
     const saved = this.recovery.get(run.id)
-    const checkpoint = saved ?? { launched: false, remainingMs: run.snapshot.agent.timeoutMinutes * 60000 }
-    const deadline = Date.now() + checkpoint.remainingMs
+    const checkpoint = saved ?? { launched: false, remainingMs: (run.snapshot.agent.timeoutMinutes > 0 ? run.snapshot.agent.timeoutMinutes * 60000 : null) }
+    const deadline = checkpoint.remainingMs === null ? null : Date.now() + checkpoint.remainingMs
+    const timeExpired = () => deadline !== null && Date.now() >= deadline
     const checkpointBudget = () => {
-      checkpoint.remainingMs = Math.max(0, deadline - Date.now())
+      checkpoint.remainingMs = deadline === null ? null : Math.max(0, deadline - Date.now())
       this.recovery.save(run.id, checkpoint)
     }
     const sanitize = (text: string) => sensitive.reduce((value, secret) => value.replaceAll(secret, '[redacted]'), redact(text))
@@ -295,7 +296,7 @@ export class Worker {
         store.event(run.id, 'status', 'Resuming saved conversation and workspace')
       }
       while (true) {
-        if (control.cancelled || control.stopping || Date.now() >= deadline) {
+        if (control.cancelled || control.stopping || timeExpired()) {
           control.timedOut = !control.cancelled && !control.stopping
           throw new Error(control.cancelled ? 'Run cancelled.' : 'Run exceeded its time limit.')
         }
@@ -361,10 +362,12 @@ export class Worker {
         if (!control.stopping && !control.cancelled)
           child.send('start', () => {})
         else this.kill(child)
-        timeout = setTimeout(() => {
-          control.timedOut = true
-          this.kill(child)
-        }, Math.max(1, deadline - Date.now()))
+        if (deadline !== null) {
+          timeout = setTimeout(() => {
+            control.timedOut = true
+            this.kill(child)
+          }, Math.max(1, deadline - Date.now()))
+        }
         let exhausted = false
         let buffer = ''
         const line = (raw: string) => {
@@ -463,7 +466,7 @@ export class Worker {
           store.updateRun(run.id, { accountWaitReason: 'Usage exhausted. Waiting for an available Codex account to resume.', codexAccountId: null, codexAccountName: null })
           store.event(run.id, 'status', 'Usage exhausted. Saving this session and restoring capacity or switching accounts.')
           await this.service.accounts.refresh(previous.accountId)
-          while (!account && !control.cancelled && !control.stopping && Date.now() < deadline) {
+          while (!account && !control.cancelled && !control.stopping && !timeExpired()) {
             try {
               account = await this.service.accounts.acquire(run.id, run.snapshot.agent.model)
             }
@@ -617,7 +620,7 @@ export class Worker {
       throw new AppError(409, 'Wait for this run to finish stopping before resuming.')
     if (run.chatExecution && ['failed', 'cancelled'].includes(run.status) && !checkpoint?.launched) {
       if (checkpoint) {
-        checkpoint.remainingMs = run.snapshot.agent.timeoutMinutes * 60000
+        checkpoint.remainingMs = (run.snapshot.agent.timeoutMinutes > 0 ? run.snapshot.agent.timeoutMinutes * 60000 : null)
         delete checkpoint.settled
         this.recovery.save(id, checkpoint)
       }
@@ -627,7 +630,7 @@ export class Worker {
       throw new AppError(409, 'This run has no saved conversation available to resume.')
     if (this.service.store.active().some(active => active.taskId === run.taskId))
       throw new AppError(409, 'This task already has an active run.')
-    checkpoint.remainingMs = run.snapshot.agent.timeoutMinutes * 60000
+    checkpoint.remainingMs = (run.snapshot.agent.timeoutMinutes > 0 ? run.snapshot.agent.timeoutMinutes * 60000 : null)
     checkpoint.completed = false
     delete checkpoint.settled
     this.recovery.save(id, checkpoint)

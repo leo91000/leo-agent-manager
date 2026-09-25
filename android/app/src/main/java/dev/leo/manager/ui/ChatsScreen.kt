@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.ui.unit.IntOffset
@@ -38,6 +39,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
@@ -285,6 +287,16 @@ fun ChatScreen(
             pageAnchor::beforeApply,
         )
     val chat = live.state?.chat?.takeIf { it.id == id }
+    val conversations = if (id == null) live else rememberLive(vm, state, "/chats/stream")
+    val conversationIds = remember(conversations.state?.chats) {
+        conversations.state?.chats.orEmpty()
+            .filter { it.lifecycle == "active" }
+            .sortedByDescending { it.updatedAt }
+            .map { it.id }
+    }
+    val conversationIndex = conversationIds.indexOf(id)
+    val previousChat = if (conversationIndex > 0) conversationIds[conversationIndex - 1] else null
+    val nextChat = if (conversationIndex >= 0) conversationIds.getOrNull(conversationIndex + 1) else null
     var createdId by rememberSaveable(id) { mutableStateOf<String?>(null) }
     var agent by rememberSaveable(id) { mutableStateOf(initialAgent) }
     var project by rememberSaveable(id) { mutableStateOf(initialProject) }
@@ -331,6 +343,29 @@ fun ChatScreen(
     }
     SideEffect { persistDraft() }
     DisposableEffect(draftKey) { onDispose { persistDraft() } }
+    val switchChat by rememberUpdatedState<(String) -> Unit> {
+        persistDraft()
+        openChat(it)
+    }
+    val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
+    val chatSwipe = if (previousChat == null && nextChat == null) Modifier else
+        Modifier.pointerInput(id, previousChat, nextChat, swipeThreshold) {
+            var distance = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { distance = 0f },
+                onHorizontalDrag = { _, amount -> distance += amount },
+                onDragCancel = { distance = 0f },
+                onDragEnd = {
+                    val target = when {
+                        distance <= -swipeThreshold -> nextChat
+                        distance >= swipeThreshold -> previousChat
+                        else -> null
+                    }
+                    distance = 0f
+                    target?.let { switchChat(it) }
+                },
+            )
+        }
     LaunchedEffect(chat?.messages, live.events) {
         outgoing?.let { pending ->
             if (
@@ -710,7 +745,6 @@ fun ChatScreen(
                     ActionIcon("Quitter le plein écran", Icons.Default.Close) { fullscreen = false }
                 }
             if (choosing) {
-                val conversations = rememberLive(vm, state, "/chats/stream")
                 ModalBottomSheet(
                     onDismissRequest = { choosing = false },
                     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -838,6 +872,7 @@ fun ChatScreen(
                         LazyColumn(
                             Modifier.fillMaxSize()
                                 .testTag("conversation-history")
+                                .then(chatSwipe)
                                 .historyFollowGesture(followGesture),
                             state = listState,
                             contentPadding = PaddingValues(16.dp),
@@ -860,7 +895,7 @@ fun ChatScreen(
                                 }
                             historyHeader(live, loadOlder)
                             items(timeline, key = { it.key }) {
-                                TimelineRow(vm, it, chat?.agentName ?: "Leo", rendering)
+                                TimelineRow(vm, it, chat?.agentName ?: "Leo", rendering, hideRunning = chat?.run?.status == "running")
                             }
                             if (!active && delivery.sending.isEmpty() && !live.catchingUp)
                                 chat?.run?.outcome?.let { outcome ->
