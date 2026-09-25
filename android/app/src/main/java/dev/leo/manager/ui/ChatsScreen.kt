@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -103,7 +104,8 @@ internal fun ConversationList(
         }
     }
     confirming?.let { chat ->
-        Confirm("Arrêter et supprimer ?", "Le travail sera arrêté et les envois annulés. La conversation restera récupérable pendant 30 jours.", vm.state.value.busy, vm.state.value.error, { confirming = null }) { trash(chat, true) }
+        val actionState by vm.state.collectAsStateWithLifecycle()
+        Confirm("Arrêter et supprimer ?", "Le travail sera arrêté et les envois annulés. La conversation restera récupérable pendant 30 jours.", actionState.busy, actionState.error, { confirming = null }) { trash(chat, true) }
     }
     val chats = if (view == "active") activeChats.filter { it.id !in removed } else other
     var query by rememberSaveable { mutableStateOf("") }
