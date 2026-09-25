@@ -122,7 +122,10 @@ abstract class ChatProviderCases {
             assertEquals("", sent[0]["model"]?.jsonPrimitive?.content)
             assertEquals("", sent[0]["reasoning"]?.jsonPrimitive?.content)
             assertEquals("queue", sent[0]["mode"]?.jsonPrimitive?.content)
-            compose.waitUntil(10000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().single().config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text.isEmpty() }
+            compose.waitUntil(10000) {
+                val field = compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().singleOrNull()
+                field != null && field.config[androidx.compose.ui.semantics.SemanticsProperties.EditableText].text.isEmpty()
+            }
             compose.onNodeWithTag("model-picker").performClick()
             compose.onNodeWithText("Codex", substring = false).performClick()
             compose.onNodeWithText("Terminé").performClick()
