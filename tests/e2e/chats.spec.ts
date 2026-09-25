@@ -440,6 +440,9 @@ test('starts project chats, steers, edits the queue and preserves a compact mobi
 })
 
 test('answers in-flight questions with choices or free text on desktop and mobile', async ({ page, workspace }) => {
+  // Earlier chat journeys share this worker's request budget. Start this
+  // independent flow with a fresh limiter while preserving the seeded data.
+  await workspace.restart()
   initializeRepository(workspace.projectPath)
   await page.goto('/')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
