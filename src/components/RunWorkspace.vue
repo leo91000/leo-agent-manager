@@ -158,7 +158,7 @@ async function copy() {
       </UiButton>
       <section class="panel run-panel flex flex-1 min-h-0 flex-col overflow-hidden">
         <header class="run-panel-head flex shrink-0 items-center justify-between border-b border-line p-[7px] phone:p-[5px]">
-          <UiSegments v-model="tab" label="Run view" :options="embedded ? [{ value: 'events', label: 'Conversation' }, { value: 'result', label: 'Result' }, { value: 'files', label: 'Files', count: latestArtifacts(deliverables).length }] : [{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Task brief' }]" @update:model-value="autoTab = false" />
+          <UiSegments v-model="tab" label="Run view" :options="embedded ? [{ value: 'events', label: 'Conversation' }, { value: 'result', label: 'Result' }, { value: 'files', label: 'Files', count: latestArtifacts(deliverables).length }] : [{ value: 'result', label: 'Result', icon: FileText }, { value: 'events', label: 'Activity', icon: Terminal, count: events.length }, { value: 'brief', label: 'Mission brief' }]" @update:model-value="autoTab = false" />
           <div v-if="embedded && tab === 'events'" class="task-conversation-controls">
             <button :class="iconButton" aria-label="Follow output" :aria-pressed="activity?.following" title="Toggle follow output" @click="activity?.toggleFollow()">
               <Icon :name="ArrowDown" :size="16" />

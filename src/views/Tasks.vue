@@ -61,7 +61,7 @@ async function run(task: Task) {
   error.value = ''
   try {
     await api(`/tasks/${task.id}/run`, { method: 'POST' })
-    notify('Task added to the queue')
+    notify('Mission added to the queue')
     select(task)
     await loadActivity()
   }
@@ -90,7 +90,7 @@ async function remove() {
     await api(`/tasks/${deleting.value!.id}`, { method: 'DELETE' })
     deleting.value = null
     await refresh()
-    notify('Task removed')
+    notify('Mission removed')
   }
   catch (e) {
     error.value = (e as Error).message
@@ -109,8 +109,8 @@ async function archive(task: Task) {
     await refresh()
     notify(
       task.archived
-        ? 'Task restored with its schedule paused'
-        : 'Task archived',
+        ? 'Mission restored with its schedule paused'
+        : 'Mission archived',
     )
   }
   catch (e) {
@@ -129,7 +129,7 @@ async function duplicate(task: Task) {
       }),
     })
     await refresh()
-    notify('Task duplicated with its schedule paused')
+    notify('Mission duplicated with its schedule paused')
   }
   catch (e) {
     error.value = (e as Error).message
@@ -207,24 +207,24 @@ watch(() => route.query.new, (value) => {
     {{ error }}
   </UiAlert>
   <div class="task-focus-layout">
-    <section class="task-inbox" :class="{ choosing }" aria-label="Task list">
+    <section class="task-inbox" :class="{ choosing }" aria-label="Mission list">
       <header>
-        <h1 class="task-inbox-heading" aria-label="Tasks">
-          Tasks <small>{{ tasks.length }}</small>
+        <h1 class="task-inbox-heading" aria-label="Missions">
+          Missions <small>{{ tasks.length }}</small>
         </h1>
-        <button ref="chooser" class="task-chooser" aria-label="Choose task" :aria-expanded="choosing" aria-controls="task-inbox-items" @click="choosing = !choosing">
-          <Icon :name="ListTodo" :size="18" /><span>Tasks</span><Icon :name="ChevronDown" :size="14" />
+        <button ref="chooser" class="task-chooser" aria-label="Choose mission" :aria-expanded="choosing" aria-controls="task-inbox-items" @click="choosing = !choosing">
+          <Icon :name="ListTodo" :size="18" /><span>Missions</span><Icon :name="ChevronDown" :size="14" />
         </button>
-        <button :class="iconButton" aria-label="Search tasks" @click="toggleSearch">
+        <button :class="iconButton" aria-label="Search missions" @click="toggleSearch">
           <Icon :name="Search" :size="17" />
         </button>
-        <button :class="iconButton" aria-label="New task" @click="editor = true">
+        <button :class="iconButton" aria-label="New mission" @click="editor = true">
           <Icon :name="Plus" :size="19" />
         </button>
       </header>
       <div class="task-inbox-controls">
-        <label class="search-field"><Icon :name="Search" :size="16" /><input ref="searchInput" v-model="query" placeholder="Search tasks" aria-label="Search tasks"></label>
-        <UiSegments v-model="filter" label="Filter tasks" compact :options="[{ value: 'all', label: 'All tasks' }, { value: 'scheduled', label: 'Scheduled' }, { value: 'once', label: 'One-off' }, { value: 'paused', label: 'Paused' }, { value: 'archived', label: 'Archived' }]" />
+        <label class="search-field"><Icon :name="Search" :size="16" /><input ref="searchInput" v-model="query" placeholder="Search missions" aria-label="Search missions"></label>
+        <UiSegments v-model="filter" label="Filter missions" compact :options="[{ value: 'all', label: 'All missions' }, { value: 'scheduled', label: 'Scheduled' }, { value: 'once', label: 'One-off' }, { value: 'paused', label: 'Paused' }, { value: 'archived', label: 'Archived' }]" />
       </div>
       <div id="task-inbox-items" class="task-inbox-items flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
         <section v-for="group in groups" :key="group.label" class="task-inbox-group">
@@ -234,7 +234,7 @@ watch(() => route.query.new, (value) => {
         </section>
       </div>
     </section>
-    <section v-if="selected" class="task-focus-detail task-card" :class="{ 'has-run': selectedRun }" aria-label="Selected task">
+    <section v-if="selected" class="task-focus-detail task-card" :class="{ 'has-run': selectedRun }" aria-label="Selected mission">
       <header class="task-detail-header">
         <div class="task-title-row">
           <div class="task-title">
@@ -248,7 +248,7 @@ watch(() => route.query.new, (value) => {
             </UiButton><RouterLink v-if="selectedRun" :to="`/runs/${selectedRun.id}`" :class="twMerge(iconButton, 'icon-button')" aria-label="Open run">
               <Icon :name="ArrowUpRight" :size="17" />
             </RouterLink><details class="task-action-menu relative" @click="closeMenu">
-              <summary :class="twMerge(iconButton, 'icon-button')" aria-label="Task actions">
+              <summary :class="twMerge(iconButton, 'icon-button')" aria-label="Mission actions">
                 <Icon :name="MoreHorizontal" :size="19" />
               </summary><div>
                 <button v-if="!['running', 'queued'].includes(selectedRun?.status || '')" class="task-menu-run" :disabled="busy === selected.id || selected.archived" @click="run(selected)">
@@ -290,24 +290,24 @@ watch(() => route.query.new, (value) => {
         </p><div v-else class="task-ready grid justify-items-center gap-4.5 px-[15px] py-10">
           <span class="ready-mark grid place-items-center w-13.5 h-13.5 border border-[light-dark(#34334e,_#817c9e)] bg-[light-dark(#ffdf70,_#e8c95e)] text-[#282537] [box-shadow:3px_3px_0_light-dark(#34334e,_#080912)] rounded-card [transform:rotate(-7deg)]"><Icon :name="Zap" :size="25" /></span><h3>Ready to run</h3>
         </div><details class="task-instructions text-xs border-t border-line pt-[15px]" open>
-          <summary>Task brief</summary><pre class="brief-text whitespace-pre-wrap text-xs leading-[1.9] text-muted">{{ selected.prompt }}</pre>
+          <summary>Mission brief</summary><pre class="brief-text whitespace-pre-wrap text-xs leading-[1.9] text-muted">{{ selected.prompt }}</pre>
         </details>
       </template>
     </section>
-    <Empty v-if="!selected" class="task-empty" :title="query || filter !== 'all' ? 'No matching tasks' : 'No tasks yet'">
+    <Empty v-if="!selected" class="task-empty" :title="query || filter !== 'all' ? 'No matching missions' : 'No missions yet'">
       <UiButton @click="editor = true">
         <Icon :name="Plus" :size="16" />Create a task
       </UiButton>
     </Empty>
   </div>
-  <Modal v-if="details && selected" title="Task details" sheet @close="details = false">
+  <Modal v-if="details && selected" title="Mission details" sheet @close="details = false">
     <div class="task-details-body">
       <h3>{{ selected.name }}</h3>
       <Outcome v-if="selectedRun" :outcome="selectedRun.outcome" :status="selectedRun.status" />
       <dl>
         <dt>Project</dt><dd>{{ state.projects.find(project => project.id === selected.projectId)?.name || 'Agent workspace' }}</dd>
         <dt>Agent</dt><dd>{{ state.agents.find(agent => agent.id === selected.agentId)?.name || 'Deleted agent' }}</dd>
-        <dt>Schedule</dt><dd>{{ selected.cron || 'One-off task' }}</dd>
+        <dt>Schedule</dt><dd>{{ selected.cron || 'One-off mission' }}</dd>
         <template v-if="selected.cron">
           <dt>Next execution</dt><dd>{{ selected.enabled ? date(selected.nextRun) : 'Paused' }}</dd>
         </template>
@@ -315,7 +315,7 @@ watch(() => route.query.new, (value) => {
           <dt>Account</dt><dd>{{ selectedRun.codexAccountName }}</dd>
         </template>
       </dl>
-      <h3>Task brief</h3><pre class="brief-text">{{ selected.prompt }}</pre>
+      <h3>Mission brief</h3><pre class="brief-text">{{ selected.prompt }}</pre>
       <div class="task-details-buttons">
         <UiButton @click="details = false; editor = selected">
           <Icon :name="Pencil" :size="15" />Edit task

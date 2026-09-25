@@ -15,17 +15,23 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
   const runs = await page.request.get('/api/runs').then(response => response.json())
   const run = runs.find((item: { status: string }) => item.status === 'succeeded')
 
+  // The rail (desktop) or the dock (phone) leads to the Fil, Missions and the Atelier.
   async function navigate(url: string) {
-    const destination = url === '/' ? '/tasks' : url.startsWith('/runs/') ? '/runs' : url
-    const menu = page.getByRole('button', { name: 'Open navigation' })
-    if (await menu.isVisible())
-      await menu.click()
-    else if (await page.getByRole('button', { name: 'More navigation' }).isVisible())
-      await page.getByRole('button', { name: 'More navigation' }).click()
-    await page.locator(`.sidebar a[href="${destination}"]`).last().click()
-    const headings: Record<string, string> = { '/tasks': 'Tasks', '/runs': 'Run history', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills library', '/connections': 'Connections', '/settings': 'Settings', '/mcps': 'MCPs' }
+    const destination = url.startsWith('/runs/') ? '/runs' : url
+    const place = destination === '/' ? 'Fil' : destination === '/tasks' ? 'Missions' : 'Atelier'
+    const navigation = page.getByRole('navigation', { name: /^(Workspace|Quick) navigation$/ }).filter({ visible: true })
+    if (await navigation.count())
+      await navigation.getByRole('link', { name: place, exact: true }).click()
+    else
+      await page.goto(place === 'Atelier' ? '/atelier' : destination)
+    const sections: Record<string, string> = { '/runs': 'Runs', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills', '/connections': 'Connections', '/settings': 'Settings', '/mcps': 'MCPs' }
+    if (sections[destination]) {
+      await expect(page.getByRole('heading', { name: 'Atelier', exact: true }).or(page.getByRole('navigation', { name: 'Atelier sections' }))).toBeVisible()
+      await page.getByRole('link', { name: sections[destination], exact: true }).first().click()
+    }
+    const headings: Record<string, string> = { '/': 'Fil', '/tasks': 'Missions', '/runs': 'Run history', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills library', '/connections': 'Connections', '/settings': 'Settings', '/mcps': 'MCPs' }
     if (headings[destination])
-      await expect(page.getByRole('heading', { name: headings[destination], exact: true })).toBeVisible()
+      await expect(page.getByRole('heading', { name: headings[destination], exact: true }).first()).toBeVisible()
     if (url.startsWith('/runs/')) {
       await page.locator(`.run-table a[href="${url}"]`).first().click()
       await expect(page.locator('.run-title-meta')).toBeVisible()
@@ -59,7 +65,7 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
     await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: !overlay, animations: 'disabled' })
   }
   const screens = [
-    ['overview', '/', '.task-card'],
+    ['overview', '/', '.fil'],
     ['tasks', '/tasks', '.task-card'],
     ['runs', '/runs', 'tbody tr'],
     ['agents', '/agents', '.resource-card'],
@@ -77,7 +83,7 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
       await expect(page.locator(ready).first()).toBeVisible()
       await screenshot(`${viewport.width}-${name}`)
       if (name === 'tasks')
-        await page.getByRole('button', { name: 'Search tasks', exact: true }).click()
+        await page.getByRole('button', { name: 'Search missions', exact: true }).click()
       if (name === 'tasks' || name === 'skills') {
         const geometry = await page.locator('.search-field').evaluate((field) => {
           const icon = field.querySelector('.ui-icon')!.getBoundingClientRect()
@@ -151,11 +157,11 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
     await expect(viewer).not.toBeVisible()
     await expect(page.getByRole('button', { name: 'Open activity fullscreen' })).toBeFocused()
     await expect(work.getByText('TypeScript: no errors found.', { exact: false })).toBeVisible()
-    await page.getByRole('button', { name: 'Task brief', exact: true }).click()
+    await page.getByRole('button', { name: 'Mission brief', exact: true }).click()
     await screenshot(`${viewport.width}-brief`)
 
     for (const [name, url, button] of [
-      ['task-editor', '/tasks', 'New task'],
+      ['task-editor', '/tasks', 'New mission'],
       ['agent-editor', '/agents', 'New agent'],
       ['project-editor', '/projects', 'Add project'],
       ['skill-editor', '/skills', 'New skill'],
@@ -193,37 +199,31 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
       await page.keyboard.press('Escape')
       await expect(dialog).toHaveCount(0)
     }
-    await page.getByRole('button', { name: 'Search workspace' }).click()
+    await page.keyboard.press('Control+k')
     await page.getByRole('dialog').getByLabel('Search', { exact: true }).fill('review')
     await screenshot(`${viewport.width}-workspace-search`)
+    // The first Escape clears the query, the second closes the palette.
     await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
   }
 
   await page.setViewportSize({ width: 390, height: 664 })
-  await page.getByRole('button', { name: 'Open navigation' }).click()
-  await expect(page.getByRole('button', { name: 'Close navigation' })).toBeFocused()
-  await expect(page.locator('.main-area')).toHaveAttribute('inert', '')
+  // The floating dock stays reachable at every phone height and hides while reading.
+  const dock = page.getByRole('navigation', { name: 'Quick navigation' })
+  await navigate('/')
   for (const height of [360, 568, 844]) {
     await page.setViewportSize({ width: 390, height })
-    await expect.poll(() => page.locator('.sidebar').evaluate(el => el.clientHeight)).toBe(height)
-    await page.locator('.sidebar').evaluate(el => el.scrollTo({ top: el.scrollHeight }))
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeInViewport()
-    await screenshot(`drawer-${height}-bottom`)
-    await page.locator('.sidebar').evaluate(el => el.scrollTo({ top: 0 }))
-    await screenshot(`drawer-${height}-top`)
+    await expect(dock).toBeInViewport()
+    await expect(dock.getByRole('link', { name: 'New conversation' })).toBeInViewport()
+    await screenshot(`dock-${height}`)
   }
-  await page.locator('.sidebar a').first().focus()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(page.locator('.sidebar a').first()).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused()
-  await expect(page.locator('.sidebar')).toHaveAttribute('inert', '')
-  await expect(page.locator('.main-area')).not.toHaveAttribute('inert', '')
-  await page.getByRole('button', { name: 'Open navigation' }).click()
-  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
-  await expect(page.locator('.sidebar')).not.toHaveClass(/open/)
+  await dock.getByRole('link', { name: 'Atelier', exact: true }).click()
+  await page.getByRole('button', { name: 'Sign out' }).scrollIntoViewIfNeeded()
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeInViewport()
+  await dock.getByRole('link', { name: 'Missions', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(dock.getByRole('link', { name: 'Missions', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.locator('.task-card').first()).toBeVisible()
   const manyAgents = Array.from({ length: 10000 }, (_, index) => ({
     id: `virtual-${index}`,
@@ -235,7 +235,7 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
   }))
   await page.route('**/api/agents', route => route.fulfill({ json: manyAgents }))
   await page.goto('/tasks')
-  await page.getByRole('button', { name: 'New task', exact: true }).click()
+  await page.getByRole('button', { name: 'New mission', exact: true }).click()
   const agentSelect = page.getByRole('combobox', { name: 'Agent', exact: true })
   await agentSelect.click()
   await expect(page.getByRole('option').first()).toBeVisible()

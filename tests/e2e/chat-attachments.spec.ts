@@ -4,7 +4,7 @@ import { expect, expectChatReady, expectSingleScroll, initializeRepository, test
 
 test('uploads images and files, previews them and preserves attachments while editing the queue', async ({ page, workspace }) => {
   initializeRepository(workspace.projectPath)
-  await page.goto('/')
+  await page.goto('/tasks')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.locator('.task-focus-detail')).toBeVisible()

@@ -93,3 +93,20 @@ export function duration(start: number | null, end: number | null) {
     ? `${seconds}s`
     : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
+export async function signOut() {
+  if (state.signingOut)
+    return
+  state.signingOut = true
+  try {
+    await api('/logout', { method: 'POST' })
+    state.authenticated = false
+    state.csrf = ''
+    notify('Signed out')
+  }
+  catch (e) {
+    notify((e as Error).message)
+  }
+  finally {
+    state.signingOut = false
+  }
+}

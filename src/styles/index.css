@@ -12,6 +12,7 @@
 @import "./runs.css";
 @import "./activity.css";
 @import "./content.css";
+@import "./signal.css";
 
 @plugin "@egoist/tailwindcss-icons";
 

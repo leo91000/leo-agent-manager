@@ -8,7 +8,8 @@ import './styles/index.css'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/tasks' },
+    { path: '/', component: () => import('./views/Fil.vue') },
+    { path: '/atelier', component: () => import('./views/Atelier.vue') },
     { path: '/chats/:id?', component: () => import('./views/Chats.vue') },
     { path: '/mcps', component: () => import('./views/Mcps.vue') },
     { path: '/tasks', component: () => import('./views/Tasks.vue') },

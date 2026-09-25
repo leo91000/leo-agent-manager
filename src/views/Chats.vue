@@ -6,11 +6,14 @@ import { latestArtifacts } from '../../shared/artifacts'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, state } from '../api'
 import { chatDelivery, chatWaitNotice } from '../chat-delivery'
+import { publishChats } from '../chat-list'
 import ActivityFeed from '../components/ActivityFeed.vue'
+import AgentAvatar from '../components/AgentAvatar.vue'
 import AssistantPicker from '../components/AssistantPicker.vue'
 import ChatAttachments from '../components/ChatAttachments.vue'
 import ChatQuestions from '../components/ChatQuestions.vue'
 import ChatSwitcher from '../components/ChatSwitcher.vue'
+import FilColumn from '../components/FilColumn.vue'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import NotificationSettings from '../components/NotificationSettings.vue'
@@ -19,7 +22,7 @@ import ThemeControl from '../components/ThemeControl.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import { ArrowDown, Bell, Bot, ChevronDown, Clock, FileText, FolderGit2, Maximize2, Menu, MessageCircle, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Search, Send, Square, Trash2, X, Zap } from '../icons'
+import { ArrowDown, Bell, Bot, ChevronDown, ChevronLeft, Clock, FileText, FolderGit2, Maximize2, Menu, MessageCircle, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Search, Send, Square, Trash2, X, Zap } from '../icons'
 import { chatSkills } from '../skill-mentions'
 import { iconButton } from '../ui'
 import { useLiveRun } from '../use-live-run'
@@ -150,7 +153,7 @@ const skills = computed(() => chatSkills(state.skills, selectedAgent.value, deta
 const skillNames = computed(() => skills.value.map(skill => skill.name))
 const projects = computed(() => [{ value: '', label: 'No project', description: 'Use the agent’s available workspaces', icon: FolderGit2 }, ...state.projects.filter(project => selectedAgent.value?.access.projects === null || selectedAgent.value?.access.projects.includes(project.id)).map(project => ({ value: project.id, label: project.name, icon: FolderGit2 }))])
 const draftKey = `leo-chat-draft:${route.params.id || `new:${agentId.value}:${projectId.value}`}`
-draft.value = sessionStorage.getItem(draftKey) ?? ''
+draft.value = sessionStorage.getItem(draftKey) ?? (typeof route.query.draft === 'string' ? route.query.draft : '')
 watch(draft, value => sessionStorage.setItem(draftKey, value))
 watch(agentId, () => {
   if (!projects.value.some(project => project.value === projectId.value))
@@ -159,6 +162,8 @@ watch(agentId, () => {
 watch(live.snapshot, (value) => {
   detail.value = value?.chat ?? null
   chats.value = value?.chats ?? []
+  if (value?.chats)
+    publishChats(value.chats)
 })
 watch(live.error, (value) => {
   if (value)
@@ -342,192 +347,203 @@ function key(event: KeyboardEvent) {
       </div>
     </div>
   </Modal>
-  <div class="chat-page flex h-full min-h-0 flex-col gap-3 phone:gap-0">
-    <ChatSwitcher v-if="history" :chats="chats" :selected="detail?.id" :anchor="historyButton" @close="history = false" @create="newConversation" />
-    <header class="chat-header flex shrink-0 items-center justify-between gap-2 border-b border-line/70 pb-3 phone:h-15 phone:pb-0">
-      <h1 v-if="detail" class="sr-only hidden phone:block">
-        {{ detail.title }}
-      </h1>
-      <button ref="historyButton" class="flex min-h-10 items-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-semibold text-accent phone:min-w-0 phone:flex-1 phone:justify-start phone:border-0 phone:bg-transparent phone:px-1 phone:py-1" aria-label="Conversations" aria-haspopup="dialog" :aria-expanded="history" @click="history = true">
-        <span class="min-w-0">
-          <span class="flex items-center gap-2"><Icon :name="MessageCircle" :size="18" />Conversations
-            <span class="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] phone:hidden">{{ chats.length }}</span>
-            <Icon :name="ChevronDown" :size="14" />
-          </span>
-          <span class="mt-0.5 hidden truncate text-left text-[11px] font-normal text-muted phone:block">{{ detail?.title || 'New conversation' }}</span>
-        </span>
-      </button>
-      <div class="flex items-center gap-1">
-        <button :class="iconButton" class="phone:hidden!" aria-label="Question notifications" @click="notifications = true">
-          <Icon :name="Bell" :size="19" />
-        </button>
-        <RouterLink to="/chats" aria-label="New chat" class="flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line px-3 py-2 text-xs font-medium text-muted hover:bg-hover hover:text-ink phone:min-h-11 phone:min-w-11 phone:justify-center phone:border-transparent phone:px-2" @click.prevent="newConversation">
-          <Icon :name="Plus" :size="18" /><span class="phone:hidden">New chat</span>
+  <div class="flex h-full min-h-0">
+    <aside class="w-88 shrink-0 border-r border-line bg-inset tablet:hidden" aria-label="Fil">
+      <FilColumn :chats="chats" :selected="detail?.id" compact />
+    </aside>
+    <div class="chat-page flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 px-6 pb-4 pt-3 phone:gap-0 phone:px-3 phone:pb-2 phone:pt-[env(safe-area-inset-top)]">
+      <ChatSwitcher v-if="history" :chats="chats" :selected="detail?.id" :anchor="historyButton" @close="history = false" @create="newConversation" />
+      <header class="chat-header flex shrink-0 items-center justify-between gap-2 border-b border-line/70 pb-3 phone:h-15 phone:pb-0">
+        <h1 v-if="detail" class="sr-only hidden phone:block">
+          {{ detail.title }}
+        </h1>
+        <RouterLink to="/" class="hidden size-11 shrink-0 place-items-center rounded-full text-ink hover:bg-hover phone:grid" aria-label="Back to the Fil">
+          <Icon :name="ChevronLeft" :size="22" />
         </RouterLink>
-        <button ref="detailsButton" :class="iconButton" class="hidden! phone:inline-flex!" aria-label="Chat details" aria-haspopup="dialog" :aria-expanded="detailsOpen" @click="detailsOpen = true">
-          <Icon :name="MoreHorizontal" :size="20" />
+        <button ref="historyButton" class="flex min-h-10 items-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-semibold text-accent phone:min-w-0 phone:flex-1 phone:justify-start phone:border-0 phone:bg-transparent phone:px-1 phone:py-1" aria-label="Conversations" aria-haspopup="dialog" :aria-expanded="history" @click="history = true">
+          <span class="min-w-0">
+            <span class="flex items-center gap-2"><Icon :name="MessageCircle" :size="18" />Conversations
+              <span class="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] phone:hidden">{{ chats.length }}</span>
+              <Icon :name="ChevronDown" :size="14" />
+            </span>
+            <span class="mt-0.5 hidden truncate text-left text-[11px] font-normal text-muted phone:block">{{ detail?.title || 'New conversation' }}</span>
+          </span>
         </button>
+        <div class="flex items-center gap-1">
+          <button :class="iconButton" class="phone:hidden!" aria-label="Question notifications" @click="notifications = true">
+            <Icon :name="Bell" :size="19" />
+          </button>
+          <RouterLink to="/chats" aria-label="New chat" class="flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-line px-3 py-2 text-xs font-medium text-muted hover:bg-hover hover:text-ink phone:min-h-11 phone:min-w-11 phone:justify-center phone:border-transparent phone:px-2" @click.prevent="newConversation">
+            <Icon :name="Plus" :size="18" /><span class="phone:hidden">New chat</span>
+          </RouterLink>
+          <button ref="detailsButton" :class="iconButton" class="hidden! phone:inline-flex!" aria-label="Chat details" aria-haspopup="dialog" :aria-expanded="detailsOpen" @click="detailsOpen = true">
+            <Icon :name="MoreHorizontal" :size="20" />
+          </button>
+        </div>
+      </header>
+      <div v-if="detail" class="phone:hidden mx-auto flex w-full max-w-205 shrink-0 items-start gap-3.5 px-9 pb-1 pt-3 phone:px-4 phone:pt-1">
+        <AgentAvatar :name="detail.agentName" :identity="detail.agentId" :size="40" :working="detail.run?.status === 'running' && !detail.paused" class="mt-0.5" />
+        <div class="min-w-0 flex-1">
+          <h1 class="line-clamp-2 text-xl! leading-snug! tracking-tight! phone:text-base! wrap-anywhere">
+            {{ detail.title }}
+          </h1>
+          <p class="m-0! mt-1.5! flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted phone:mt-1! phone:text-[10px]">
+            <span class="flex min-w-0 items-center gap-1.5"><Icon :name="Bot" :size="13" /><span class="truncate max-w-40">{{ detail.agentName }}</span></span>
+            <template v-if="detail.projectName">
+              <span aria-hidden="true" class="text-muted/40">/</span>
+              <span class="flex min-w-0 items-center gap-1.5"><Icon :name="FolderGit2" :size="13" /><span class="truncate max-w-48 phone:max-w-32">{{ detail.projectName }}</span></span>
+            </template>
+            <span class="flex items-center gap-1.5 font-semibold" :class="chatStatus === 'Working' ? 'text-accent' : chatStatus === 'Failed' || chatStatus === 'Interrupted' ? 'text-coral' : ''"><span v-if="chatStatus !== 'Working'" class="size-1 shrink-0 rounded-full" :class="active ? 'bg-accent' : 'bg-muted'" />{{ chatStatus }}<span v-if="chatStatus === 'Working'" class="working-wave"><i /><i /><i /></span></span>
+          </p>
+        </div>
       </div>
-    </header>
-    <div v-if="detail" class="phone:hidden mx-auto w-full max-w-205 shrink-0 px-9 pb-1 pt-3 phone:px-4 phone:pt-1">
-      <h1 class="line-clamp-2 text-xl! leading-snug! tracking-tight! phone:text-base! wrap-anywhere">
-        {{ detail.title }}
+      <h1 v-else class="sr-only">
+        Chats
       </h1>
-      <p class="m-0! mt-2! flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted phone:mt-1! phone:text-[10px]">
-        <span class="flex min-w-0 items-center gap-1.5"><Icon :name="Bot" :size="13" /><span class="truncate max-w-40">{{ detail.agentName }}</span></span>
-        <template v-if="detail.projectName">
-          <span aria-hidden="true" class="text-muted/40">/</span>
-          <span class="flex min-w-0 items-center gap-1.5"><Icon :name="FolderGit2" :size="13" /><span class="truncate max-w-48 phone:max-w-32">{{ detail.projectName }}</span></span>
-        </template>
-        <span class="flex items-center gap-1.5"><span class="size-1 shrink-0 rounded-full" :class="active ? 'bg-accent' : 'bg-muted'" />{{ chatStatus }}</span>
-      </p>
-    </div>
-    <h1 v-else class="sr-only">
-      Chats
-    </h1>
-    <div class="flex min-h-0 flex-1 flex-col">
-      <section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label="Chat workspace">
-        <div v-if="route.params.id && !detail" role="status" class="flex flex-1 items-center justify-center text-sm text-muted">
-          Loading conversation…
-        </div>
-        <div v-else-if="inactive" class="m-auto w-full max-w-xl px-6 py-12 text-center">
-          <h2 class="mb-3 text-xl">
-            {{ detail?.lifecycle === 'purging' ? 'Permanently deleting conversation…' : detail?.lifecycle === 'trash' ? 'This conversation is in the trash.' : detail?.lifecycle === 'restoring' ? 'Restoring conversation…' : detail?.lifecycle === 'archiving' ? 'Archiving conversation…' : 'This conversation is archived.' }}
-          </h2>
-          <p v-if="detail?.purgeAt" class="mb-5 text-sm text-muted">
-            Permanently deleted on {{ new Date(detail.purgeAt).toLocaleDateString() }}.
-          </p>
-          <p v-else class="mb-5 text-sm text-muted">
-            {{ detail?.storageClass === 'GLACIER' ? 'Restoration from cold storage can take a few hours.' : 'Restore this conversation to access its history and working files.' }}
-          </p>
-          <UiAlert v-if="error || detail?.lifecycleError" class="mb-4">
-            {{ error || detail?.lifecycleError }}
-          </UiAlert>
-          <UiButton v-if="detail?.lifecycle === 'trash' || detail?.lifecycle === 'archived' || (detail?.lifecycle === 'restoring' && detail.lifecycleError)" :disabled="busy" variant="primary" @click="action('restore')">
-            {{ detail?.lifecycle === 'restoring' ? 'Retry restoration' : 'Restore conversation' }}
-          </UiButton>
-        </div>
-        <div v-else-if="!detail?.run && !delivery.sending.length" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 pb-[8vh] pt-8 text-center phone:px-2 phone:py-5">
-          <h2 class="mb-7 text-[30px] font-semibold tracking-tight phone:text-2xl">
-            What are we building?
-          </h2>
-          <div v-if="!detail" class="flex flex-wrap justify-center gap-2">
-            <button v-for="idea in ['Explore this project', 'Review recent changes', 'Help me build…']" :key="idea" class="rounded-full bg-surface px-4 py-2.5 text-xs text-muted hover:bg-hover hover:text-ink" @click="draft = idea; textarea?.focus()">
-              {{ idea }}
-            </button>
+      <div class="flex min-h-0 flex-1 flex-col">
+        <section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label="Chat workspace">
+          <div v-if="route.params.id && !detail" role="status" class="flex flex-1 items-center justify-center text-sm text-muted">
+            Loading conversation…
           </div>
-        </div>
-        <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail?.run?.status === 'succeeded' ? detail.run.outcome : null" :sending="delivery.sending" :events="events" :active="detail?.run?.status === 'running'" :agent="detail?.agentName || selectedAgent?.name || 'Main agent'" :task="detail?.title || 'New conversation'" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" :skills="skillNames" chat @load="live.loadOlder" @position="live.savePosition" />
-        <div v-if="!inactive" class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
-          <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" />
-          <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
-            {{ connectionNotice }}
-          </p>
-          <UiAlert v-if="visibleError && !dismissedError" class="mb-3 flex items-start gap-2">
-            <span class="min-w-0 flex-1">{{ visibleError }}</span><button :class="iconButton" class="shrink-0" aria-label="Dismiss error" @click="dismissedError = true">
-              <Icon :name="X" :size="14" />
-            </button>
-          </UiAlert>
-          <div v-if="waitNotice" class="mb-3 rounded-lg border border-line bg-soft px-4 py-3 text-sm" role="status">
-            <p v-if="waitNotice.reconnectClaude" class="mb-1 font-semibold">
-              Reconnect Claude Code
+          <div v-else-if="inactive" class="m-auto w-full max-w-xl px-6 py-12 text-center">
+            <h2 class="mb-3 text-xl">
+              {{ detail?.lifecycle === 'purging' ? 'Permanently deleting conversation…' : detail?.lifecycle === 'trash' ? 'This conversation is in the trash.' : detail?.lifecycle === 'restoring' ? 'Restoring conversation…' : detail?.lifecycle === 'archiving' ? 'Archiving conversation…' : 'This conversation is archived.' }}
+            </h2>
+            <p v-if="detail?.purgeAt" class="mb-5 text-sm text-muted">
+              Permanently deleted on {{ new Date(detail.purgeAt).toLocaleDateString() }}.
             </p>
-            <p>{{ waitNotice.message }}</p>
-            <RouterLink v-if="waitNotice.reconnectClaude" to="/connections" class="mt-2 inline-flex font-semibold text-accent underline">
-              Open Connections
-            </RouterLink>
-          </div>
-          <div v-if="pending.length || detail?.paused" class="mb-3 overflow-hidden rounded-xl border border-line bg-soft">
-            <div class="flex items-center gap-2 px-3 py-2">
-              <button class="flex min-w-0 flex-1 items-center gap-2 text-left text-[11px] font-semibold" :aria-expanded="queueOpen" @click="queueOpen = !queueOpen">
-                <Icon :name="Clock" :size="14" /><span v-if="detail?.paused">Queue paused · </span>{{ pending.length }} queued<Icon :name="ChevronDown" :size="13" :class="queueOpen ? 'rotate-180' : ''" />
-              </button>
-              <button class="flex items-center gap-1 text-[11px] text-accent" :disabled="busy" @click="action('pause', { paused: !detail?.paused })">
-                <Icon :name="detail?.paused ? Play : Pause" :size="13" />{{ detail?.paused ? 'Resume' : 'Pause queue' }}
-              </button>
-            </div>
-            <ul v-if="queueOpen" class="max-h-32 overflow-auto border-t border-line px-3 py-1">
-              <li v-for="message in pending" :key="message.id" class="flex items-center gap-1.5 py-1.5 text-xs">
-                <span class="min-w-0 flex-1 truncate" :title="message.text">{{ message.text || message.attachments?.[0]?.name }}<span v-if="message.attachments?.length" class="ml-2 text-muted">· {{ message.attachments.length }} attached</span></span>
-                <template v-if="message.status === 'queued'">
-                  <button v-if="active && message.mode !== 'steer'" :class="iconButton" aria-label="Steer with this message" title="Steer now" @click="update(message, 'steer')">
-                    <Icon :name="Zap" :size="14" />
-                  </button>
-                  <button v-if="!message.questionId" :class="iconButton" aria-label="Edit queued message" @click="edit(message)">
-                    <Icon :name="Pencil" :size="14" />
-                  </button>
-                  <button :class="iconButton" aria-label="Remove queued message" @click="update(message)">
-                    <Icon :name="Trash2" :size="14" />
-                  </button>
-                </template>
-                <span v-else class="text-[10px] text-muted">{{ detail?.paused ? 'Waiting to resume' : 'Waiting for the agent' }}</span>
-              </li>
-            </ul>
-          </div>
-          <div v-if="detail?.restoredAt && ['failed', 'interrupted'].includes(detail.run?.status ?? '') && !detail.sessionRestartRequested" class="mb-3 rounded-lg border border-line p-3 text-sm">
-            <p>If the restored native session is incompatible, start a fresh session using the preserved history and files.</p>
-            <UiButton :disabled="busy" @click="newSession = true">
-              Start a fresh agent session
+            <p v-else class="mb-5 text-sm text-muted">
+              {{ detail?.storageClass === 'GLACIER' ? 'Restoration from cold storage can take a few hours.' : 'Restore this conversation to access its history and working files.' }}
+            </p>
+            <UiAlert v-if="error || detail?.lifecycleError" class="mb-4">
+              {{ error || detail?.lifecycleError }}
+            </UiAlert>
+            <UiButton v-if="detail?.lifecycle === 'trash' || detail?.lifecycle === 'archived' || (detail?.lifecycle === 'restoring' && detail.lifecycleError)" :disabled="busy" variant="primary" @click="action('restore')">
+              {{ detail?.lifecycle === 'restoring' ? 'Retry restoration' : 'Restore conversation' }}
             </UiButton>
           </div>
-          <p v-if="detail?.sessionRestartRequested" class="mb-3 text-sm text-muted">
-            Ready for a fresh session. Write a new message, then resume the queue.
-          </p>
-          <details v-if="detail?.messages.some(message => message.status === 'cancelled')" class="mb-3 rounded-lg border border-line p-3 text-xs">
-            <summary class="cursor-pointer text-muted">
-              Cancelled messages
-            </summary>
-            <div v-for="message in detail.messages.filter(message => message.status === 'cancelled')" :key="message.id" class="mt-3">
-              <p class="whitespace-pre-wrap wrap-anywhere">
-                {{ message.text }}
-              </p>
-              <ChatAttachments v-if="message.attachments?.length" :attachments="message.attachments" />
-              <button class="mt-2 text-accent" @click="draft = message.text; textarea?.focus()">
-                Copy to message
+          <div v-else-if="!detail?.run && !delivery.sending.length" class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto px-6 pb-[8vh] pt-8 text-center phone:px-2 phone:py-5">
+            <h2 class="mb-7 text-[30px] font-semibold tracking-tight phone:text-2xl">
+              What are we building?
+            </h2>
+            <div v-if="!detail" class="flex flex-wrap justify-center gap-2">
+              <button v-for="idea in ['Explore this project', 'Review recent changes', 'Help me build…']" :key="idea" class="rounded-full bg-surface px-4 py-2.5 text-xs text-muted hover:bg-hover hover:text-ink" @click="draft = idea; textarea?.focus()">
+                {{ idea }}
               </button>
             </div>
-          </details>
-          <form class="chat-composer relative rounded-2xl border border-line/60 bg-raised p-4 shadow-[0_4px_24px_#00000006] focus-within:border-accent/50 phone:p-3" @submit.prevent="send()" @dragenter.prevent="dragging++" @dragover.prevent @dragleave.prevent="dragging = Math.max(0, dragging - 1)" @drop.prevent="dropFiles" @paste="pasteFiles">
-            <div v-if="dragging" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-accent bg-surface/95 text-sm font-semibold text-accent">
-              <Icon :name="Paperclip" :size="20" />Drop files here
-            </div>
-            <div v-if="!detail" class="mb-3 flex max-w-100 items-center gap-1 phone:mb-2">
-              <VirtualSelect v-model="agentId" :options="agents" label="Chat agent" hide-label compact variant="ghost" />
-              <VirtualSelect v-model="projectId" :options="projects" label="Chat project" hide-label compact variant="ghost" />
-            </div>
-            <div v-if="editing" class="mb-2 flex items-center justify-between text-[11px] text-accent">
-              Editing queued message<button type="button" :class="iconButton" aria-label="Cancel edit" @click="editing = null; draft = ''; clearAttachments()">
+          </div>
+          <ActivityFeed v-else ref="activity" :key="String(route.params.id)" :cache-key="`/chats/${route.params.id}/stream`" :position="live.position.value" :deliverables="deliverables" :outcome="detail?.run?.status === 'succeeded' ? detail.run.outcome : null" :sending="delivery.sending" :events="events" :active="detail?.run?.status === 'running'" :agent="detail?.agentName || selectedAgent?.name || 'Main agent'" :task="detail?.title || 'New conversation'" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="catchingUp" :trimmed="0" :skills="skillNames" chat @load="live.loadOlder" @position="live.savePosition" />
+          <div v-if="!inactive" class="mx-auto w-full max-w-205 shrink-0 px-5 pb-1 pt-3 phone:px-0 phone:pt-2">
+            <ChatQuestions v-if="detail" :questions="detail.questions || []" :active="active" :highlighted="typeof route.query.question === 'string' ? route.query.question : undefined" />
+            <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
+              {{ connectionNotice }}
+            </p>
+            <UiAlert v-if="visibleError && !dismissedError" class="mb-3 flex items-start gap-2">
+              <span class="min-w-0 flex-1">{{ visibleError }}</span><button :class="iconButton" class="shrink-0" aria-label="Dismiss error" @click="dismissedError = true">
                 <Icon :name="X" :size="14" />
               </button>
+            </UiAlert>
+            <div v-if="waitNotice" class="mb-3 rounded-lg border border-line bg-soft px-4 py-3 text-sm" role="status">
+              <p v-if="waitNotice.reconnectClaude" class="mb-1 font-semibold">
+                Reconnect Claude Code
+              </p>
+              <p>{{ waitNotice.message }}</p>
+              <RouterLink v-if="waitNotice.reconnectClaude" to="/connections" class="mt-2 inline-flex font-semibold text-accent underline">
+                Open Connections
+              </RouterLink>
             </div>
-            <ChatAttachments v-if="attachments.length" :attachments="attachments" :previews="previews" removable :disabled="busy" class="mb-3!" @remove="removeAttachment" />
-            <div v-if="uploadProgress" class="mb-2 text-xs text-accent" role="status">
-              {{ uploadProgress }}
-            </div>
-            <SkillTextarea ref="textarea" v-model="draft" :skills="skills" aria-label="Message" :placeholder="responding ? 'Add a follow-up…' : skills.length ? 'Message your agent… Type $ for skills' : 'Message your agent…'" rows="2" maxlength="50000" @keydown="key" />
-            <div class="flex items-center justify-between gap-2 pt-2">
-              <div class="flex min-w-0 flex-1 items-center gap-1">
-                <input ref="fileInput" type="file" multiple class="hidden" aria-label="Attach files" :disabled="busy" @change="pickFiles">
-                <button type="button" :class="iconButton" aria-label="Add images or files" title="Add images or files · up to 8 files, 10 MB each" :disabled="busy || attachments.length >= 8" @click="fileInput?.click()">
-                  <Icon :name="Paperclip" :size="18" />
+            <div v-if="pending.length || detail?.paused" class="mb-3 overflow-hidden rounded-xl border border-line bg-soft">
+              <div class="flex items-center gap-2 px-3 py-2">
+                <button class="flex min-w-0 flex-1 items-center gap-2 text-left text-[11px] font-semibold" :aria-expanded="queueOpen" @click="queueOpen = !queueOpen">
+                  <Icon :name="Clock" :size="14" /><span v-if="detail?.paused">Queue paused · </span>{{ pending.length }} queued<Icon :name="ChevronDown" :size="13" :class="queueOpen ? 'rotate-180' : ''" />
                 </button>
-                <AssistantPicker v-model:provider="chosenProvider" v-model:model="model" v-model:reasoning="reasoning" :inherit="inheritAgentModel" :default-model="inheritAgentModel ? selectedAgent?.model : ''" :default-reasoning="inheritAgentModel ? selectedAgent?.reasoning : ''" :switching="switchingProvider" :disabled="busy" />
-              </div>
-              <div class="flex shrink-0 items-center gap-2">
-                <button v-if="active && !editing" type="button" :class="iconButton" aria-label="Stop response" title="Stop response and pause queue" :disabled="busy" @click="action('stop')">
-                  <Icon :name="Square" :size="14" />
+                <button class="flex items-center gap-1 text-[11px] text-accent" :disabled="busy" @click="action('pause', { paused: !detail?.paused })">
+                  <Icon :name="detail?.paused ? Play : Pause" :size="13" />{{ detail?.paused ? 'Resume' : 'Pause queue' }}
                 </button>
-                <UiButton v-if="active && !editing" type="button" size="small" :disabled="busy || !canSend || switchingProvider" aria-label="Steer now" title="Send into the current turn (Alt + Enter)" @click="send('steer')">
-                  <Icon :name="Zap" :size="14" /><span class="phone:hidden">Steer now</span><span class="hidden phone:inline">Steer</span>
-                </UiButton>
-                <UiButton type="submit" variant="primary" size="small" :disabled="busy || !canSend">
-                  <Icon :name="editing ? Pencil : responding ? Plus : Send" :size="16" />{{ submitting ? 'Sending…' : editing ? 'Save' : responding || detail?.paused ? 'Queue' : 'Send' }}
-                </UiButton>
               </div>
+              <ul v-if="queueOpen" class="max-h-32 overflow-auto border-t border-line px-3 py-1">
+                <li v-for="message in pending" :key="message.id" class="flex items-center gap-1.5 py-1.5 text-xs">
+                  <span class="min-w-0 flex-1 truncate" :title="message.text">{{ message.text || message.attachments?.[0]?.name }}<span v-if="message.attachments?.length" class="ml-2 text-muted">· {{ message.attachments.length }} attached</span></span>
+                  <template v-if="message.status === 'queued'">
+                    <button v-if="active && message.mode !== 'steer'" :class="iconButton" aria-label="Steer with this message" title="Steer now" @click="update(message, 'steer')">
+                      <Icon :name="Zap" :size="14" />
+                    </button>
+                    <button v-if="!message.questionId" :class="iconButton" aria-label="Edit queued message" @click="edit(message)">
+                      <Icon :name="Pencil" :size="14" />
+                    </button>
+                    <button :class="iconButton" aria-label="Remove queued message" @click="update(message)">
+                      <Icon :name="Trash2" :size="14" />
+                    </button>
+                  </template>
+                  <span v-else class="text-[10px] text-muted">{{ detail?.paused ? 'Waiting to resume' : 'Waiting for the agent' }}</span>
+                </li>
+              </ul>
             </div>
-          </form>
-        </div>
-      </section>
+            <div v-if="detail?.restoredAt && ['failed', 'interrupted'].includes(detail.run?.status ?? '') && !detail.sessionRestartRequested" class="mb-3 rounded-lg border border-line p-3 text-sm">
+              <p>If the restored native session is incompatible, start a fresh session using the preserved history and files.</p>
+              <UiButton :disabled="busy" @click="newSession = true">
+                Start a fresh agent session
+              </UiButton>
+            </div>
+            <p v-if="detail?.sessionRestartRequested" class="mb-3 text-sm text-muted">
+              Ready for a fresh session. Write a new message, then resume the queue.
+            </p>
+            <details v-if="detail?.messages.some(message => message.status === 'cancelled')" class="mb-3 rounded-lg border border-line p-3 text-xs">
+              <summary class="cursor-pointer text-muted">
+                Cancelled messages
+              </summary>
+              <div v-for="message in detail.messages.filter(message => message.status === 'cancelled')" :key="message.id" class="mt-3">
+                <p class="whitespace-pre-wrap wrap-anywhere">
+                  {{ message.text }}
+                </p>
+                <ChatAttachments v-if="message.attachments?.length" :attachments="message.attachments" />
+                <button class="mt-2 text-accent" @click="draft = message.text; textarea?.focus()">
+                  Copy to message
+                </button>
+              </div>
+            </details>
+            <form class="chat-composer relative rounded-2xl border border-line/60 bg-raised p-4 shadow-[0_4px_24px_#00000006] focus-within:border-accent/50 phone:p-3" @submit.prevent="send()" @dragenter.prevent="dragging++" @dragover.prevent @dragleave.prevent="dragging = Math.max(0, dragging - 1)" @drop.prevent="dropFiles" @paste="pasteFiles">
+              <div v-if="dragging" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-accent bg-surface/95 text-sm font-semibold text-accent">
+                <Icon :name="Paperclip" :size="20" />Drop files here
+              </div>
+              <div v-if="!detail" class="mb-3 flex max-w-100 items-center gap-1 phone:mb-2">
+                <VirtualSelect v-model="agentId" :options="agents" label="Chat agent" hide-label compact variant="ghost" />
+                <VirtualSelect v-model="projectId" :options="projects" label="Chat project" hide-label compact variant="ghost" />
+              </div>
+              <div v-if="editing" class="mb-2 flex items-center justify-between text-[11px] text-accent">
+                Editing queued message<button type="button" :class="iconButton" aria-label="Cancel edit" @click="editing = null; draft = ''; clearAttachments()">
+                  <Icon :name="X" :size="14" />
+                </button>
+              </div>
+              <ChatAttachments v-if="attachments.length" :attachments="attachments" :previews="previews" removable :disabled="busy" class="mb-3!" @remove="removeAttachment" />
+              <div v-if="uploadProgress" class="mb-2 text-xs text-accent" role="status">
+                {{ uploadProgress }}
+              </div>
+              <SkillTextarea ref="textarea" v-model="draft" :skills="skills" aria-label="Message" :placeholder="responding ? 'Add a follow-up…' : skills.length ? 'Message your agent… Type $ for skills' : 'Message your agent…'" rows="2" maxlength="50000" @keydown="key" />
+              <div class="flex items-center justify-between gap-2 pt-2">
+                <div class="flex min-w-0 flex-1 items-center gap-1">
+                  <input ref="fileInput" type="file" multiple class="hidden" aria-label="Attach files" :disabled="busy" @change="pickFiles">
+                  <button type="button" :class="iconButton" aria-label="Add images or files" title="Add images or files · up to 8 files, 10 MB each" :disabled="busy || attachments.length >= 8" @click="fileInput?.click()">
+                    <Icon :name="Paperclip" :size="18" />
+                  </button>
+                  <AssistantPicker v-model:provider="chosenProvider" v-model:model="model" v-model:reasoning="reasoning" :inherit="inheritAgentModel" :default-model="inheritAgentModel ? selectedAgent?.model : ''" :default-reasoning="inheritAgentModel ? selectedAgent?.reasoning : ''" :switching="switchingProvider" :disabled="busy" />
+                </div>
+                <div class="flex shrink-0 items-center gap-2">
+                  <button v-if="active && !editing" type="button" :class="iconButton" aria-label="Stop response" title="Stop response and pause queue" :disabled="busy" @click="action('stop')">
+                    <Icon :name="Square" :size="14" />
+                  </button>
+                  <UiButton v-if="active && !editing" type="button" size="small" :disabled="busy || !canSend || switchingProvider" aria-label="Steer now" title="Send into the current turn (Alt + Enter)" @click="send('steer')">
+                    <Icon :name="Zap" :size="14" /><span class="phone:hidden">Steer now</span><span class="hidden phone:inline">Steer</span>
+                  </UiButton>
+                  <UiButton type="submit" variant="primary" size="small" :disabled="busy || !canSend">
+                    <Icon :name="editing ? Pencil : responding ? Plus : Send" :size="16" />{{ submitting ? 'Sending…' : editing ? 'Save' : responding || detail?.paused ? 'Queue' : 'Send' }}
+                  </UiButton>
+                </div>
+              </div>
+            </form>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </template>

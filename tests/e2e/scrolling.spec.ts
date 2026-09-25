@@ -23,14 +23,16 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
       await page.setViewportSize(viewport)
       for (const route of ['/tasks', `/runs/${runs[0].id}`]) {
         if (route === '/tasks' && new URL(page.url()).pathname !== route) {
-          const menu = page.getByRole('button', { name: 'Open navigation' })
-          if (await menu.isVisible())
-            await menu.click()
-          await page.locator('.sidebar a[href="/tasks"]').click()
+          // Reading screens hide the phone dock; the rail or dock leads to Missions otherwise.
+          const missions = page.getByRole('link', { name: 'Missions', exact: true }).filter({ visible: true })
+          if (await missions.count())
+            await missions.click()
+          else
+            await page.goto('/tasks')
         }
         else if (route !== '/tasks') {
           if (viewport.width <= 640)
-            await page.getByLabel('Task actions', { exact: true }).click()
+            await page.getByLabel('Mission actions', { exact: true }).click()
           await page.getByRole('link', { name: 'Open run', exact: true }).filter({ visible: true }).click()
         }
         await page.getByRole('button', { name: route === '/tasks' ? 'Conversation' : /^Activity/ }).click()
@@ -44,9 +46,9 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
           await page.getByLabel('Follow output').uncheck()
         }
         if (route === '/tasks') {
-          await page.getByLabel('Task actions', { exact: true }).click()
+          await page.getByLabel('Mission actions', { exact: true }).click()
           await expect(page.locator('.task-action-menu button').last()).toBeInViewport({ ratio: 1 })
-          await page.getByLabel('Task actions', { exact: true }).click()
+          await page.getByLabel('Mission actions', { exact: true }).click()
         }
         await expectSingleScroll(page)
         const scroller = page.getByRole('region', { name: 'Activity output' })
@@ -78,11 +80,11 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${viewport.width}${route === '/tasks' ? '-tasks.png' : '-run.png'}`), animations: 'disabled' })
         if (route === '/tasks') {
           await page.getByRole('button', { name: 'Details', exact: true }).click()
-          await expect(page.getByRole('dialog', { name: 'Task details' })).toBeVisible()
+          await expect(page.getByRole('dialog', { name: 'Mission details' })).toBeVisible()
           await page.getByRole('button', { name: 'Close dialog' }).click()
         }
         else {
-          await page.getByRole('button', { name: 'Task brief', exact: true }).click()
+          await page.getByRole('button', { name: 'Mission brief', exact: true }).click()
         }
         await expectSingleScroll(page)
         await page.getByRole('button', { name: 'Result', exact: true }).click()

@@ -1,4 +1,9 @@
-# Leo Android 0.37.0 — Archives et corbeille
+# Leo Android 0.38.0 — Application web « Signal »
+
+- L’application web adopte le design de l’application Android : Fil, Missions et Atelier, indicateur « Souffle », avatars animés des agents au travail, palette ⌘K et raccourcis clavier.
+- Aucune modification de l’application Android ni du serveur n’est nécessaire.
+
+## Leo Android 0.37.0 — Archives et corbeille
 
 - Les conversations actives restent au premier plan. Les archives et la corbeille sont accessibles dans une vue secondaire.
 - Un swipe vers la gauche révèle « Supprimer ». Une conversation supprimée reste récupérable pendant 30 jours ; arrêter un travail en cours demande confirmation.

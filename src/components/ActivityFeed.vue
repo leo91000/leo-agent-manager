@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Deliverable } from '../../shared/artifacts'
 import type { RunEvent, TaskOutcome } from '../../shared/contracts'
-import type { ActivityArtifact } from '../activity'
+import type { ActivityArtifact, ActivityEntry } from '../activity'
 import type { SendingMessage } from '../chat-delivery'
 import type { ReadingPosition } from '../history-cache'
 import { twMerge } from 'tailwind-merge'
@@ -10,6 +10,7 @@ import { latestArtifacts } from '../../shared/artifacts'
 import { activityEntries } from '../activity'
 import { deliveryEntries } from '../deliverables'
 import { ArrowDown, ChevronDown, Layers, LoaderCircle, Maximize2, Minimize2, Zap } from '../icons'
+import { workingStep } from '../signal'
 import { mentionSegments } from '../skill-mentions'
 import { iconButton } from '../ui'
 import ActivityArtifactCard from './ActivityArtifactCard.vue'
@@ -21,6 +22,7 @@ import ChatNotice from './ChatNotice.vue'
 import ChatOutcome from './ChatOutcome.vue'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
+import WorkingIndicator from './WorkingIndicator.vue'
 
 const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, compactToolbar?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], sending?: SendingMessage[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string, skills?: string[] }>()
 const emit = defineEmits<{ load: [], position: [value: ReadingPosition, key?: string] }>()
@@ -34,6 +36,7 @@ const entries = computed(() => {
   }
   return deliveryEntries(entries, props.deliverables ?? [])
 })
+const working = computed(() => workingStep(entries.value.filter((entry): entry is ActivityEntry => entry.kind !== 'deliverables'), props.agent, props.events[0]?.createdAt ?? null))
 const visibleOutcome = computed(() => props.chat && !props.active && !props.sending?.length && !props.loading ? props.outcome : null)
 const outcomeEntryId = computed(() => {
   const items = entries.value
@@ -250,8 +253,11 @@ defineExpose({
 
             <ChatOutcome v-if="visibleOutcome && !outcomeEntryId" :key="`${visibleOutcome.messageId}:${visibleOutcome.reportedAt}`" :outcome="visibleOutcome" :agent="agent" />
 
-            <div v-if="active && !sending?.length" class="activity-working flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
-              <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0 live" />{{ events.length ? 'Your agent is working…' : 'Waiting for the worker…' }}
+            <div v-if="active && !sending?.length && events.length" class="activity-working mt-7.5 mb-0.5 rounded-2xl border border-line bg-surface px-4 py-3">
+              <WorkingIndicator :step="working" />
+            </div>
+            <div v-else-if="active && !sending?.length" class="activity-working flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
+              <span class="activity-presence w-[7px] h-[7px] rounded-full bg-[light-dark(#8e8baa,_var(--dark-accent-surface))] shrink-0 live" />Waiting for the worker…
             </div>
             <div v-else-if="!chat" class="activity-end flex items-center justify-center gap-3 text-muted text-3xs mt-7.5 mb-0.5 mx-0">
               <span />{{ events.length ? 'End of activity' : 'No activity recorded yet' }}<span />

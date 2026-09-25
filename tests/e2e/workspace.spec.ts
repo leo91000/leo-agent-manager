@@ -33,6 +33,7 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
     .getByLabel('Password', { exact: true })
     .fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Create workspace' }).click()
+  await page.getByRole('link', { name: 'Atelier', exact: true }).click()
   await page.getByRole('link', { name: 'Agents', exact: true }).click()
   await page.getByRole('button', { name: 'New agent', exact: true }).click()
   await page
@@ -68,9 +69,9 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
     )
   await page.getByRole('button', { name: 'Save skill' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
-  await page.getByRole('button', { name: 'New task', exact: true }).click()
-  await page.getByLabel('Task name').fill('Weekly dependency review')
+  await page.getByRole('link', { name: 'Missions', exact: true }).click()
+  await page.getByRole('button', { name: 'New mission', exact: true }).click()
+  await page.getByLabel('Mission name').fill('Weekly dependency review')
   await page
     .getByLabel('What should happen?')
     .fill('Review dependencies and report the checks you ran. fixture:activity')
@@ -84,10 +85,10 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
   await page.getByRole('button', { name: 'Preview next runs' }).click()
   await expect(page.getByRole('alert')).toContainText('IANA timezone')
   await page.getByLabel('Timezone').fill('Europe/Paris')
-  await page.getByLabel('Customize task scope').check()
+  await page.getByLabel('Customize mission scope').check()
   await page.getByLabel('Use the agent’s available skills').uncheck()
   await page.getByLabel('review', { exact: true }).check()
-  await page.getByRole('button', { name: 'Create task', exact: true }).click()
+  await page.getByRole('button', { name: 'Create mission', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(
     page.getByRole('heading', { name: 'Weekly dependency review' }),
@@ -103,13 +104,13 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
   await expect(page.getByText('The fixture task passed.')).toBeVisible()
   await page.reload()
   await expect(page.getByText('The fixture task passed.')).toBeVisible()
-  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await page.getByRole('link', { name: 'Missions', exact: true }).click()
   await page.locator('.task-action-menu > summary').click()
   await page
     .getByRole('button', { name: 'Pause schedule', exact: true })
     .click()
   await expect(page.getByText('Paused', { exact: true }).last()).toBeVisible()
-  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await page.getByRole('link', { name: 'Missions', exact: true }).click()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.mouse.move(0, 0)
   await expect(page.locator('.toast')).toHaveCount(0)
@@ -129,7 +130,7 @@ test('set up, author skills, schedule work, inspect results, and sign out', asyn
     fullPage: true,
     animations: 'disabled',
   })
-  await page.getByRole('button', { name: 'Open navigation', exact: true }).click()
+  await page.getByRole('link', { name: 'Atelier', exact: true }).click()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await expect(
     page.getByRole('button', { name: 'Sign in', exact: true }),
@@ -145,6 +146,7 @@ test('edits supporting files, cancels work, and archives without losing history'
     .getByLabel('Password', { exact: true })
     .fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('link', { name: 'Atelier', exact: true }).click()
   await page.getByRole('link', { name: 'Skills', exact: true }).click()
   await page.getByRole('button', { name: 'Edit review', exact: true }).click()
   await page.getByLabel('New supporting file').fill('references/checks.md')
@@ -165,7 +167,7 @@ test('edits supporting files, cancels work, and archives without losing history'
     page.getByRole('heading', { name: 'Checks', exact: true }),
   ).toBeVisible()
   await page.keyboard.press('Escape')
-  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await page.getByRole('link', { name: 'Missions', exact: true }).click()
   await page.locator('.task-action-menu > summary').click()
   await page
     .getByRole('button', { name: 'Edit Weekly dependency review', exact: true })
@@ -181,7 +183,7 @@ test('edits supporting files, cancels work, and archives without losing history'
     .getByRole('button', { name: 'Stop run', exact: true })
     .click()
   await expect(page.locator('.run-title-meta .status')).toHaveText('cancelled')
-  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await page.getByRole('link', { name: 'Missions', exact: true }).click()
   await page.locator('.task-action-menu > summary').click()
   await page
     .getByRole('button', { name: 'Archive Weekly dependency review' })
@@ -200,10 +202,11 @@ test('edits supporting files, cancels work, and archives without losing history'
   await page
     .getByRole('button', { name: 'Restore Weekly dependency review' })
     .click()
-  await page.getByRole('button', { name: /^All tasks/ }).click()
+  await page.getByRole('button', { name: /^All missions/ }).click()
   await expect(
     page.getByRole('heading', { name: 'Weekly dependency review' }),
   ).toBeVisible()
+  await page.getByRole('link', { name: 'Atelier', exact: true }).click()
   await page.getByRole('link', { name: 'Runs', exact: true }).click()
   await expect(page.locator('tbody tr')).toHaveCount(2)
 })
@@ -253,7 +256,7 @@ test('approves a scoped OAuth connector and revokes its grant', async ({
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.screenshot({ path: 'test-results/theme-consent-desktop.png', fullPage: true, animations: 'disabled' })
   await page.setViewportSize({ width: 320, height: 568 })
-  await expect(page.locator('.sidebar')).toHaveAttribute('inert', '')
+  await expect(page.getByRole('navigation', { name: 'Quick navigation' })).toHaveCount(0)
   await page.screenshot({ path: 'test-results/theme-consent-mobile.png', fullPage: true, animations: 'disabled' })
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.emulateMedia({ colorScheme: 'light' })
@@ -329,7 +332,7 @@ test('appearance follows the device, persists overrides, syncs tabs and paints b
   await page.reload()
   await expect(page.locator('#app')).toBeEmpty()
   await expect(root).toHaveAttribute('data-theme', 'dark')
-  expect(await root.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(27, 27, 32)')
+  expect(await root.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(15, 15, 20)')
 })
 
 test('dark appearance settings, empty states and connection sign-in feedback', async ({ page }, testInfo) => {
@@ -349,7 +352,7 @@ test('dark appearance settings, empty states and connection sign-in feedback', a
   await expect(page.getByRole('button', { name: 'Appearance: dark', exact: true })).toBeFocused()
   await page.route('**/api/tasks', route => route.fulfill({ json: [] }))
   await page.goto('/tasks')
-  await expect(page.getByRole('heading', { name: 'No tasks yet', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'No missions yet', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('empty-tasks.png'), fullPage: true, animations: 'disabled' })
   await page.route('**/api/connections?*', route => route.fulfill({ json: [
     { provider: 'codex', installed: true, connected: false, version: 'Test CLI' },

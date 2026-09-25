@@ -1,0 +1,155 @@
+/* « Signal » motion: the working indicator, live avatars, key hints, tooltips and shared transitions. */
+@property --signal-orbit {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+:root {
+  --ease-signal: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.keycap {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 6px;
+  border: 1px solid var(--color-line);
+  border-bottom-width: 2px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font: 600 10.5px/1 var(--font-sans);
+}
+
+/* Tooltips: data-tip with an optional data-kbd hint, placed with data-side. */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip) '  ' attr(data-kbd);
+  white-space: pre;
+  position: absolute;
+  z-index: 60;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translate(-50%, 4px);
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: light-dark(#16151d, #f3f2f7);
+  color: light-dark(#f4f2ec, #16151d);
+  font: 600 11.5px/1.2 var(--font-sans);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s, transform 0.18s var(--ease-signal);
+}
+[data-tip][data-side='right']::after { left: calc(100% + 10px); bottom: auto; top: 50%; transform: translate(-4px, -50%); }
+[data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); transition-delay: 0.35s; }
+[data-tip][data-side='right']:hover::after, [data-tip][data-side='right']:focus-visible::after { transform: translate(0, -50%); }
+@media (hover: none) { [data-tip]::after { display: none; } }
+
+.lift { transition: transform 0.22s var(--ease-signal), box-shadow 0.22s var(--ease-signal), background-color 0.15s, border-color 0.15s; }
+@media (hover: hover) {
+  .lift:hover { transform: translateY(-1px); box-shadow: var(--shadow-lift); }
+}
+.press { transition: transform 0.12s var(--ease-signal), background-color 0.15s, color 0.15s, box-shadow 0.2s; }
+.press:active { transform: scale(0.96); }
+
+/* Souffle: a breathing dot inside an expanding ring. */
+.souffle-halo { position: relative; display: grid; place-items: center; }
+.souffle-halo::before, .souffle-halo::after { content: ''; position: absolute; inset: 0; border-radius: 999px; }
+.souffle-halo::before { background: color-mix(in srgb, var(--color-accent) 13%, transparent); transform: scale(0.64); }
+.souffle-halo::after { border: 2px solid var(--color-accent); animation: souffle-ring 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+.souffle-halo > .souffle-core { position: relative; z-index: 1; animation: souffle-breath 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
+@keyframes souffle-ring {
+  0% { transform: scale(0.55); opacity: 0.4; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@keyframes souffle-breath {
+  from { transform: scale(0.92); }
+  to { transform: scale(1.06); }
+}
+/* A light sweeping across the current step. */
+.souffle-sweep {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--color-ink) 50%, transparent) 0% 35%, var(--color-ink) 50%, color-mix(in srgb, var(--color-ink) 50%, transparent) 65% 100%);
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: souffle-sweep 1.8s linear infinite;
+}
+@keyframes souffle-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+
+/* A comet arc orbiting a working avatar; it overflows so rows stay aligned. */
+.avatar-orbit {
+  position: absolute;
+  inset: -4px;
+  border-radius: calc(var(--avatar-radius, 10px) + 4px);
+  padding: 2px;
+  background: conic-gradient(from var(--signal-orbit), transparent 0deg 170deg, color-mix(in srgb, var(--color-accent) 20%, transparent) 250deg, var(--color-accent) 355deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: avatar-orbit 1.8s linear infinite;
+  pointer-events: none;
+}
+.avatar-orbit::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid var(--color-accent);
+  animation: avatar-glow 0.9s ease-in-out infinite alternate;
+}
+@keyframes avatar-orbit { to { --signal-orbit: 360deg; } }
+@keyframes avatar-glow {
+  from { opacity: 0.09; }
+  to { opacity: 0.22; }
+}
+
+/* "Working" followed by three dots rising in a wave. */
+.working-wave { display: inline-flex; align-items: flex-end; gap: 2px; height: 0.8em; margin-left: 3px; }
+.working-wave > i { width: 3px; height: 3px; border-radius: 99px; background: currentColor; animation: working-wave 1.2s ease-in-out infinite; }
+.working-wave > i:nth-child(2) { animation-delay: 0.15s; }
+.working-wave > i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes working-wave {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.live-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--color-accent); animation: live-ping 1.6s ease-out infinite; }
+@keyframes live-ping {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 50%, transparent); }
+  to { box-shadow: 0 0 0 7px transparent; }
+}
+
+/* Shared transitions. */
+.fil-row-move, .fil-row-enter-active, .fil-row-leave-active { transition: transform 0.42s var(--ease-signal), opacity 0.3s var(--ease-signal); }
+.fil-row-enter-from { opacity: 0; transform: translateY(-10px) scale(0.98); }
+.fil-row-leave-to { opacity: 0; transform: translateX(-24px); }
+.fil-row-leave-active { position: absolute !important; left: 0; right: 0; }
+
+.signal-pop-enter-active { transition: opacity 0.18s var(--ease-signal), transform 0.26s var(--ease-spring); }
+.signal-pop-leave-active { transition: opacity 0.14s linear, transform 0.14s linear; }
+.signal-pop-enter-from, .signal-pop-leave-to { opacity: 0; transform: scale(0.96) translateY(-6px); }
+.signal-veil-enter-active, .signal-veil-leave-active { transition: opacity 0.2s linear; }
+.signal-veil-enter-from, .signal-veil-leave-to { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .souffle-halo::after, .souffle-halo > .souffle-core, .working-wave > i, .live-dot, .avatar-orbit, .avatar-orbit::before { animation: none; }
+  .souffle-sweep { color: var(--color-ink); background: none; }
+  .avatar-orbit { background: none; }
+  .avatar-orbit::before { opacity: 0.35; }
+  .lift, .press, .fil-row-move, .fil-row-enter-active, .fil-row-leave-active, .signal-pop-enter-active, .signal-pop-leave-active { transition: none; }
+  .lift:hover { transform: none; }
+}

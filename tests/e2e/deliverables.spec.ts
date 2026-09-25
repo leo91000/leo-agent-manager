@@ -42,7 +42,7 @@ test('persistent deliverables have a gallery, revisions, mobile viewer, and play
   await page.goto('/')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await expect(page.getByRole('link', { name: 'Chats', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Fil', exact: true })).toBeVisible()
   await page.goto(`/chats/${chat.id}`)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.emulateMedia({ colorScheme: 'dark' })

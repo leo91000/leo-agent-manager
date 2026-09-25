@@ -26,6 +26,8 @@ export default defineConfig({
     { name: 'layout-webkit-resources', testMatch: 'ui-review.spec.ts', grep: /keeps projects/, use: { browserName: 'webkit' } },
     { name: 'journeys-models', testMatch: 'models.spec.ts' },
     { name: 'layout-webkit-models', testMatch: 'models.spec.ts', use: { browserName: 'webkit', hasTouch: true } },
+    { name: 'journeys-signal', testMatch: 'signal.spec.ts' },
+    { name: 'layout-webkit-signal', testMatch: 'signal.spec.ts', use: { browserName: 'webkit', hasTouch: true } },
     { name: 'journeys-chats', testMatch: 'chats.spec.ts' },
     { name: 'journeys-chat-attachments', testMatch: 'chat-attachments.spec.ts' },
     { name: 'layout-webkit-chat-attachments', testMatch: 'chat-attachments.spec.ts', use: { browserName: 'webkit', hasTouch: true } },

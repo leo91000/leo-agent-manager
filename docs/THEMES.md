@@ -1,8 +1,8 @@
 # Appearance
 
 Leo defaults to the device's preferred color scheme. Choose **System**, **Light**,
-or **Dark** in the top bar, on the sign-in/setup screen, or in
-**Settings → Appearance**. The preference belongs to this browser and origin;
+or **Dark** from the navigation rail, on the sign-in/setup screen, or in
+**Atelier → Appearance** and **Settings → Appearance**. The preference belongs to this browser and origin;
 it does not change another person's device or workspace settings.
 
 System mode responds immediately when the OS changes its appearance. An explicit
@@ -23,14 +23,15 @@ No inline JavaScript, additional dependency, or CSP relaxation is required.
 semantics, a keyboard-accessible popover, focus restoration, and viewport bounds.
 The same control renders as three preview cards in Settings.
 
-The palette in `src/styles/theme.css` defines canvas, panels, raised surfaces,
+The « Signal » palette in `src/styles/theme.css` (paper and ink with the Leo blue as
+the single accent and coral for what needs attention, see [Signal](UI-SIGNAL.md))
+defines canvas, panels, raised surfaces,
 inset code/inputs, borders, text, and semantic colors. Tailwind utilities such as
 `bg-surface`, `text-ink`, and `border-line` resolve through `light-dark()` pairs.
 Dark mode covers cards, tables, forms, validation, toasts,
 selects, overlays, authentication/consent, and all activity artifacts, Markdown,
 JSON, code highlighting, and diff additions/deletions. Native controls and
-scrollbars inherit the selected color scheme. The dark sidebar keeps its brand
-palette with adjusted secondary text. Theme previews intentionally depict both
+scrollbars inherit the selected color scheme. Theme previews intentionally depict both
 light and dark surfaces.
 
 When adding a component, use the semantic Tailwind colors. Add new color pairs
@@ -43,7 +44,7 @@ selected, error, warning, and disabled states distinguishable.
 `pnpm check` covers lint, TypeScript, unit tests, and the production build.
 `pnpm test:e2e` exercises the real production server and fixture worker.
 
-The screenshot matrix covers Overview, Tasks, Runs, Agents, Projects, Skills,
+The screenshot matrix covers the Fil, Missions, Runs, Agents, Projects, Skills,
 Connections, Settings, and run Result/Activity/Brief. It opens all six editors,
 search, virtual selects, fullscreen activity, source/Markdown views, operation
 cards, structured data, and historical output. Chromium and WebKit both run dark

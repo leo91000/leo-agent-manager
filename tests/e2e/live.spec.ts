@@ -6,7 +6,7 @@ test('signing out closes live subscriptions before the session is revoked', asyn
   await page.goto(workspace.url)
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await page.getByRole('link', { name: 'Chats', exact: true }).click()
+  await page.getByRole('link', { name: 'New conversation', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'What are we building?' })).toBeVisible()
   const unauthorized: string[] = []
   page.on('response', (response) => {
@@ -34,7 +34,7 @@ test('two independent clients follow deltas, recover offline, refresh mid-answer
     await target.goto(workspace.url)
     await target.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
     await target.getByRole('button', { name: 'Sign in', exact: true }).click()
-    await expect(target.getByRole('link', { name: 'Chats', exact: true })).toBeVisible()
+    await expect(target.getByRole('heading', { name: 'Fil', exact: true })).toBeVisible()
     await target.goto(`${workspace.url}/chats/${chat.id}`)
   }
   const message = (target: Page) => target.locator('.activity-message').filter({ hasText: 'Streaming proof:' })

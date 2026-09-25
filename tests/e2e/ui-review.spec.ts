@@ -39,8 +39,10 @@ test('reviews the open workspace layout and compact chat controls across themes 
 
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Review our component architecture. fixture:chat-hang')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
-  await expect(page.getByText('Working', { exact: true })).toBeVisible()
+  await expect(page.locator('.activity-working')).toBeVisible()
   await expect(page.locator('.activity-message').filter({ hasText: 'component boundaries' })).toBeVisible()
+  // The follow control lives in the desktop activity toolbar.
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('button', { name: 'Follow output', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Follow output', exact: true })).toHaveAttribute('aria-pressed', 'false')
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 600 }]) {
@@ -117,7 +119,10 @@ test('keeps projects compact and agent summaries readable with several resources
 
 test('reviews workflow permission, fresh project sources and explicit blocked outcomes', async ({ page, workspace }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  const run = workspace.service.store.runs()[0]!
+  // The server rate-limits each client; the previous journey spends this worker's budget.
+  await workspace.restart()
+  // The latest mission run; earlier journeys in this worker also leave conversation runs.
+  const run = workspace.service.store.runs().filter(item => item.trigger !== 'chat').sort((a, b) => b.createdAt - a.createdAt)[0]!
   workspace.service.store.updateRun(run.id, { status: 'succeeded', summary: 'Validated locally. Delivery is blocked by the missing GitHub workflow permission.', outcome: { status: 'blocked', reason: 'The changes passed validation, but GitHub refused the workflow update.', evidence: ['42 tests passed', 'Push refused: missing workflow permission'], reportedAt: Date.now() } })
   await page.route('**/api/connections?*', route => route.fulfill({ json: [{ provider: 'github', installed: true, connected: true, account: 'fixture', version: 'gh fixture', workflowPermission: false }] }))
   await page.goto('/connections')

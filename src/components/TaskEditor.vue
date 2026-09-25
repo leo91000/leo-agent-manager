@@ -130,13 +130,13 @@ async function save() {
 
 <template>
   <Modal
-    :title="task ? 'Edit task' : 'Give your agent a task'"
+    :title="task ? 'Edit mission' : 'Give your agent a mission'"
     wide
     @close="emit('close')"
   >
     <form @submit.prevent="save">
       <div class="modal-body form-grid grid grid-cols-[1fr_1fr] gap-5 phone:grid-cols-1 phone:gap-4.5 px-6.5 py-6 phone:p-5">
-        <label class="span-2 col-span-2 phone:col-span-1">Task name<input
+        <label class="span-2 col-span-2 phone:col-span-1">Mission name<input
           v-model="form.name"
           required
           maxlength="100"
@@ -184,7 +184,7 @@ async function save() {
             }).format(time)
           }}</span>
         </div>
-        <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] span-2 col-span-2 phone:col-span-1 mx-0 my-[9px]"><input v-model="advanced" type="checkbox">Customize task scope</label>
+        <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] span-2 col-span-2 phone:col-span-1 mx-0 my-[9px]"><input v-model="advanced" type="checkbox">Customize mission scope</label>
         <template v-if="advanced">
           <VirtualSelect v-model="projectChoice" class="span-2 col-span-2 phone:col-span-1" label="Project context" :options="projects" :icon="FolderGit2" />
           <label class="checkbox flex-row items-center gap-2 text-xs font-normal phone:text-xs phone:leading-[1.6] span-2 col-span-2 phone:col-span-1 mx-0 my-[9px]"><input v-model="inheritedSkills" type="checkbox">Use the agent’s available skills</label>
@@ -216,7 +216,7 @@ async function save() {
           variant="primary" type="submit"
           :disabled="busy || !state.agents.length"
         >
-          {{ busy ? "Saving…" : task ? "Save changes" : "Create task" }}
+          {{ busy ? "Saving…" : task ? "Save changes" : "Create mission" }}
         </UiButton>
       </footer>
     </form>

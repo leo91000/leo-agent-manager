@@ -40,7 +40,7 @@ docker compose exec manager cat /data/setup-token
 ```
 
 Open `http://localhost:4310`, create your administrator password, then visit
-**Connections → Agents → Projects → Tasks**. The Compose port is bound to localhost.
+**Atelier → Connections, Agents and Projects**, then **Missions**. The Compose port is bound to localhost.
 For a remote server, use an HTTPS reverse proxy or an SSH tunnel for initial setup.
 
 [Deployment, CLI login, project setup, backups, and Coolify](docs/DEPLOYMENT.md)

@@ -33,7 +33,7 @@ describe('theme bootstrap', () => {
     const page = bootstrap(null, true)
     expect(page.root.dataset).toEqual({ theme: 'dark', themePreference: 'system' })
     expect(page.root.style.colorScheme).toBe('dark')
-    expect(page.color()).toBe('#1b1b20')
+    expect(page.color()).toBe('#0f0f14')
     expect(bootstrap('light', true).root.dataset.theme).toBe('light')
     expect(bootstrap('invalid', true).root.dataset.themePreference).toBe('system')
   })
