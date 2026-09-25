@@ -97,17 +97,14 @@ pub fn args(plan: &Value) -> Vec<String> {
     if let Some(session) = plan["sessionId"].as_str() {
         args.extend(["--resume".into(), session.into()]);
     }
+    let mut settings = json!({"attribution":{"commit":""}});
     if plan["sandbox"] == "yolo" {
         args.push("--dangerously-skip-permissions".into());
     } else {
-        let settings = json!({"sandbox":{"enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":["*"]},"filesystem":{"allowWrite":plan["writableRoots"],"denyWrite":if plan["sandbox"]=="read-only" {plan["writableRoots"].clone()}else{json!([])}}}});
-        args.extend([
-            "--permission-mode".into(),
-            "default".into(),
-            "--settings".into(),
-            settings.to_string(),
-        ]);
+        settings["sandbox"] = json!({"enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":["*"]},"filesystem":{"allowWrite":plan["writableRoots"],"denyWrite":if plan["sandbox"]=="read-only" {plan["writableRoots"].clone()}else{json!([])}}});
+        args.extend(["--permission-mode".into(), "default".into()]);
     }
+    args.extend(["--settings".into(), settings.to_string()]);
     for root in plan["writableRoots"]
         .as_array()
         .into_iter()
