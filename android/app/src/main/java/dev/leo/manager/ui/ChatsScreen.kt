@@ -524,6 +524,15 @@ internal fun ChatPage(
             )
         }
     }
+    fun togglePause(current: Chat) {
+        vm.perform {
+            api.request(
+                "POST",
+                "/chats/${segment(current.id)}/pause",
+                buildJsonObject { put("paused", !current.paused) },
+            )
+        }
+    }
     val followGesture = rememberHistoryFollowGesture(listState, follow) { follow = it }
     FollowHistoryTail(
         listState,
@@ -634,13 +643,7 @@ internal fun ChatPage(
                                     enabled = !state.busy,
                                     onClick = {
                                         menu = false
-                                        vm.perform {
-                                            api.request(
-                                                "POST",
-                                                "/chats/${segment(current.id)}/pause",
-                                                buildJsonObject { put("paused", !current.paused) },
-                                            )
-                                        }
+                                        togglePause(current)
                                     },
                                 )
                                 current.runId?.let { runId ->
@@ -894,7 +897,8 @@ internal fun ChatPage(
                             )
                         }
                     }
-                if (pending.isNotEmpty() && !fullscreen)
+                val queueVisible = pending.isNotEmpty() && !fullscreen
+                if (queueVisible)
                     QueueStrip(
                         pending,
                         chat?.questions.orEmpty().filter { q -> q.fields.any { it.secret } }.map { it.id }.toSet(),
@@ -902,14 +906,18 @@ internal fun ChatPage(
                         { queueExpanded = !queueExpanded },
                         busy = state.busy,
                         canSteer = active,
+                        paused = chat?.paused == true,
                         edit = ::edit,
                         steer = ::steerQueued,
                         remove = { removing = it },
+                        togglePause = { chat?.let(::togglePause) },
                         attachments = { AttachmentList(vm, it) },
                     )
                 if (!fullscreen)
                     Surface(
-                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp).testTag("conversation-composer")
+                        // The queue reads as a tab on top of the composer, so they touch.
+                        Modifier.padding(horizontal = 12.dp).padding(top = if (queueVisible) 0.dp else 8.dp, bottom = 8.dp)
+                            .testTag("conversation-composer")
                             // Text selection and editing own horizontal gestures in the composer.
                             .pointerInput(Unit) { detectHorizontalDragGestures { _, _ -> } },
                         shape = RoundedCornerShape(26.dp),
@@ -1367,80 +1375,6 @@ private fun AgentTile(agent: Agent, selected: Boolean, enabled: Boolean, choose:
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
-        }
-    }
-}
-
-/**
- * Follow-ups waiting for the agent, kept next to the composer. The first one is always visible;
- * each can still be edited, sent now (intervention) or removed.
- */
-@Composable
-private fun QueueStrip(
-    pending: List<ChatMessage>,
-    privateQuestions: Set<String>,
-    expanded: Boolean,
-    toggle: () -> Unit,
-    busy: Boolean,
-    canSteer: Boolean,
-    edit: (ChatMessage) -> Unit,
-    steer: (ChatMessage) -> Unit,
-    remove: (ChatMessage) -> Unit,
-    attachments: @Composable (List<ChatAttachment>) -> Unit,
-) {
-    Surface(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 4.dp).testTag("conversation-queue"),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Column(Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(LeoIcons.Clock, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "À la suite · ${pending.size}",
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (pending.size > 1)
-                    TextButton(onClick = toggle) {
-                        Text(if (expanded) "Réduire" else "Tout voir")
-                    }
-            }
-            (if (expanded) pending else pending.take(1)).forEach { message ->
-                val private = message.questionId in privateQuestions
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
-                        Text(
-                            if (private) "Réponse privée" else message.text.ifBlank { "Pièces jointes" },
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = if (expanded) 6 else 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (message.status == "sending")
-                            Text(
-                                "Envoi en cours…",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        if (expanded && message.attachments.isNotEmpty()) attachments(message.attachments)
-                    }
-                    if (message.status == "queued") {
-                        if (message.questionId == null) {
-                            ActionIcon("Modifier le message en attente", LeoIcons.Pencil, !busy) { edit(message) }
-                            if (canSteer && message.mode != "steer")
-                                TextButton(onClick = { steer(message) }, enabled = !busy) {
-                                    Icon(LeoIcons.Steer, null, Modifier.size(14.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Maintenant")
-                                }
-                        }
-                        ActionIcon("Retirer le message", LeoIcons.Close, !busy) { remove(message) }
-                    }
-                }
-            }
         }
     }
 }

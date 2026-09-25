@@ -412,7 +412,8 @@ class ChatJourneyTest {
             )
             // Queued follow-ups stay next to the composer, outside the scrolling history.
             compose.onNodeWithTag("conversation-queue").assertIsDisplayed()
-            compose.onNodeWithContentDescription("Modifier le message en attente").performClick()
+            compose.onNodeWithTag("queued-message").performClick()
+            compose.onNodeWithText("Modifier", substring = false).performClick()
             compose
                 .onNode(hasText("Vérifier les tests") and hasSetTextAction())
                 .performTextReplacement("Vérifier aussi les fichiers")

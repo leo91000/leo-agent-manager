@@ -51,6 +51,7 @@ internal fun rememberTrashConversation(vm: LeoViewModel, onTrashed: (String) -> 
 @Composable
 internal fun SwipeToTrashRow(
     enabled: Boolean = true,
+    label: String = "Supprimer",
     onDelete: () -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
@@ -61,7 +62,7 @@ internal fun SwipeToTrashRow(
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))) {
         if (revealed && enabled)
             TextButton(onClick = onDelete, modifier = Modifier.align(Alignment.CenterEnd).width(104.dp)) {
-                Text("Supprimer", color = MaterialTheme.colorScheme.error)
+                Text(label, color = MaterialTheme.colorScheme.error)
             }
         content(
             Modifier.offset { IntOffset(if (revealed && enabled) -distance else 0, 0) }
