@@ -904,27 +904,9 @@ internal fun ChatPage(
                             )
                         }
                     }
-                val queueVisible = pending.isNotEmpty() && !fullscreen
-                if (queueVisible)
-                    QueueStrip(
-                        pending,
-                        chat?.questions.orEmpty().filter { q -> q.fields.any { it.secret } }.map { it.id }.toSet(),
-                        queueExpanded,
-                        { queueExpanded = !queueExpanded },
-                        busy = state.busy,
-                        canSteer = active,
-                        paused = chat?.paused == true,
-                        edit = ::edit,
-                        steer = ::steerQueued,
-                        remove = { removing = it },
-                        togglePause = { chat?.let(::togglePause) },
-                        attachments = { AttachmentList(vm, it) },
-                    )
                 if (!fullscreen)
                     Surface(
-                        // The queue reads as a tab on top of the composer, so they touch.
-                        Modifier.padding(horizontal = 12.dp).padding(top = if (queueVisible) 0.dp else 8.dp, bottom = 8.dp)
-                            .testTag("conversation-composer")
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp).testTag("conversation-composer")
                             // Text selection and editing own horizontal gestures in the composer.
                             .pointerInput(Unit) { detectHorizontalDragGestures { _, _ -> } },
                         shape = RoundedCornerShape(26.dp),
@@ -932,6 +914,27 @@ internal fun ChatPage(
                         color = MaterialTheme.colorScheme.surface,
                     ) {
                         Column(Modifier.padding(4.dp)) {
+                            // Queued follow-ups open the composer itself, sharing its border and corners.
+                            if (pending.isNotEmpty()) {
+                                QueueStrip(
+                                    pending,
+                                    chat?.questions.orEmpty().filter { q -> q.fields.any { it.secret } }.map { it.id }.toSet(),
+                                    queueExpanded,
+                                    { queueExpanded = !queueExpanded },
+                                    busy = state.busy,
+                                    canSteer = active,
+                                    paused = chat?.paused == true,
+                                    edit = ::edit,
+                                    steer = ::steerQueued,
+                                    remove = { removing = it },
+                                    togglePause = { chat?.let(::togglePause) },
+                                    attachments = { AttachmentList(vm, it) },
+                                )
+                                HorizontalDivider(
+                                    Modifier.padding(horizontal = 12.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                )
+                            }
                             if (attachments.isNotEmpty())
                                 Box(Modifier.heightIn(max = 140.dp)) {
                                     LazyColumn {

@@ -26,7 +26,7 @@ import dev.leo.manager.data.ChatAttachment
 import dev.leo.manager.data.ChatMessage
 
 /**
- * Follow-ups waiting for the agent, drawn as a tab on top of the composer. Each message keeps the
+ * Follow-ups waiting for the agent, shown at the top of the composer. Each message keeps the
  * full width so it stays readable; the only inline action is sending the next one now. Tapping a message
  * opens its actions (edit, pause the queue, remove) and swiping left reveals removal.
  */
@@ -50,79 +50,76 @@ internal fun QueueStrip(
         canSteer && message.status == "queued" && message.questionId == null && message.mode != "steer"
     fun preview(message: ChatMessage) =
         if (message.questionId in privateQuestions) "Réponse privée" else message.text.ifBlank { "Pièces jointes" }
-    Surface(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 4.dp).testTag("conversation-queue"),
-        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+    Column(
+        Modifier.fillMaxWidth().testTag("conversation-queue")
+            .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = if (pending.size > 1) 0.dp else 4.dp)
     ) {
-        Column(Modifier.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = if (pending.size > 1) 0.dp else 6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(LeoIcons.Clock, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    queueHeadline(paused, canSteer) + if (pending.size > 1) " · ${pending.size}" else "",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Column(if (expanded) Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()) else Modifier) {
-                (if (expanded) pending else pending.take(1)).forEachIndexed { index, message ->
-                    key(message.id) {
-                        SwipeToRevealRow(enabled = message.status == "queued" && !busy, label = "Retirer", onDelete = { remove(message) }) { swipe ->
-                            Row(
-                                swipe.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                                    .clickable(onClickLabel = "Options du message en attente") { selected = message.id }
-                                    .testTag("queued-message"),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
-                                    Text(
-                                        preview(message),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    val note =
-                                        when {
-                                            message.status == "sending" -> "Envoi en cours…"
-                                            message.mode == "steer" -> "Transmis dès que possible"
-                                            message.attachments.isNotEmpty() ->
-                                                "${message.attachments.size} pièce${if (message.attachments.size > 1) "s" else ""} jointe${if (message.attachments.size > 1) "s" else ""}"
-                                            else -> null
-                                        }
-                                    if (note != null)
-                                        Text(note, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                // Only the next message gets the shortcut; the others offer it in their sheet.
-                                if (index == 0 && steerable(message)) {
-                                    Spacer(Modifier.width(8.dp))
-                                    FilledTonalButton(
-                                        onClick = { steer(message) },
-                                        enabled = !busy,
-                                        contentPadding = PaddingValues(horizontal = 12.dp),
-                                        modifier = Modifier.height(36.dp),
-                                    ) {
-                                        Icon(LeoIcons.Steer, null, Modifier.size(14.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Maintenant", style = MaterialTheme.typography.labelLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(LeoIcons.Clock, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                queueHeadline(paused, canSteer) + if (pending.size > 1) " · ${pending.size}" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Column(if (expanded) Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()) else Modifier) {
+            (if (expanded) pending else pending.take(1)).forEachIndexed { index, message ->
+                key(message.id) {
+                    SwipeToRevealRow(enabled = message.status == "queued" && !busy, label = "Retirer", onDelete = { remove(message) }) { swipe ->
+                        Row(
+                            swipe.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .clickable(onClickLabel = "Options du message en attente") { selected = message.id }
+                                .testTag("queued-message"),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+                                Text(
+                                    preview(message),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                val note =
+                                    when {
+                                        message.status == "sending" -> "Envoi en cours…"
+                                        message.mode == "steer" -> "Transmis dès que possible"
+                                        message.attachments.isNotEmpty() ->
+                                            "${message.attachments.size} pièce${if (message.attachments.size > 1) "s" else ""} jointe${if (message.attachments.size > 1) "s" else ""}"
+                                        else -> null
                                     }
+                                if (note != null)
+                                    Text(note, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            // Only the next message gets the shortcut; the others offer it in their sheet.
+                            if (index == 0 && steerable(message)) {
+                                Spacer(Modifier.width(8.dp))
+                                FilledTonalButton(
+                                    onClick = { steer(message) },
+                                    enabled = !busy,
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.height(36.dp),
+                                ) {
+                                    Icon(LeoIcons.Steer, null, Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Maintenant", style = MaterialTheme.typography.labelLarge)
                                 }
                             }
                         }
                     }
                 }
             }
-            if (pending.size > 1)
-                TextButton(onClick = toggle, contentPadding = PaddingValues(horizontal = 0.dp)) {
-                    Text(
-                        if (expanded) "Réduire"
-                        else "+ ${pending.size - 1} autre${if (pending.size > 2) "s" else ""} message${if (pending.size > 2) "s" else ""}",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
         }
+        if (pending.size > 1)
+            TextButton(onClick = toggle, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                Text(
+                    if (expanded) "Réduire"
+                    else "+ ${pending.size - 1} autre${if (pending.size > 2) "s" else ""} message${if (pending.size > 2) "s" else ""}",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
     }
     pending.firstOrNull { it.id == selected }?.let { message ->
         QueuedMessageSheet(
