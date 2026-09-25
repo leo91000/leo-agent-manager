@@ -1,4 +1,22 @@
-# Android 0.34.0 — « Signal » interface
+# Android 0.35.0 — pasting images into the composer
+
+`ImagePasteCases` is shared by the Robolectric and Android 16 device suites. It puts a
+FileProvider PNG on the clipboard, pastes it into the composer through the text field's
+paste action, and checks that the typed text is unchanged, the image appears as a
+removable attachment, the upload carries the file name and size, and the sent message
+references the attachment id. A plain-text paste afterwards still lands in the message.
+`ScrollResumeTest` and `CacheMissReproductionTest` now target `conversation-history`,
+because the state-based composer is scrollable too.
+
+Local validation (Robolectric, not an emulator): 146 unit and UI tests run; the only
+failures were intermittent `ChatJourneyTest` / `ChatProviderTest` Robolectric timing
+errors that pass on rerun (`ChatJourneyTest` fails the same way on the previous commit
+on this machine). `lintDebug` reports no error, and `assembleDebug`,
+`assembleDebugAndroidTest` and `assembleRelease` succeed. The local emulator did not
+boot (software emulation, 3 GB RAM); the Android workflow runs `ImagePasteDeviceTest`
+with the other Android 16 device journeys.
+
+## Previous validation: Android 0.34.0 — « Signal » interface
 
 `SignalPresentationTest` covers the pure presentation logic: Fil grouping (questions,
 Claude reconnection, failed conversations, failed or blocked missions, live work,

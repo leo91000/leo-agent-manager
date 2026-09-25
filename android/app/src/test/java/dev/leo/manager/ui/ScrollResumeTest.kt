@@ -184,7 +184,7 @@ class ScrollResumeTest {
                 )
                 // A reader who scrolled upward must stay at the same offset on resume.
                 val composerTop = compose.onNodeWithTag("conversation-composer").fetchSemanticsNode().boundsInRoot.top
-                compose.onNode(hasScrollAction()).performTouchInput { swipeDown() }
+                compose.onNode(hasScrollAction() and hasTestTag("conversation-history")).performTouchInput { swipeDown() }
                 compose.waitForIdle()
                 compose.onNodeWithContentDescription("Derniers messages").assertExists()
                 val viewport = compose.onNodeWithTag("conversation-history").fetchSemanticsNode().boundsInRoot
@@ -196,7 +196,7 @@ class ScrollResumeTest {
                     compose.onNodeWithTag("conversation-composer").fetchSemanticsNode().boundsInRoot.top, 0.1f)
                 fun position() =
                     compose
-                        .onNode(hasScrollAction())
+                        .onNode(hasScrollAction() and hasTestTag("conversation-history"))
                         .fetchSemanticsNode()
                         .config[SemanticsProperties.VerticalScrollAxisRange]
                         .value()

@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.OutputTransformation
+import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
@@ -22,10 +24,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -127,13 +126,14 @@ fun highlightSkills(text: String, names: Set<String>, style: SpanStyle): Annotat
         mentionRanges(text, names).forEach { addStyle(style, it.first, it.last + 1) }
     }
 
-class SkillMentionTransformation(private val names: Set<String>, private val style: SpanStyle) :
-    VisualTransformation {
-    override fun filter(text: AnnotatedString) =
-        TransformedText(highlightSkills(text.text, names, style), OffsetMapping.Identity)
+class SkillMentionHighlight(private val names: Set<String>, private val style: SpanStyle) :
+    OutputTransformation {
+    override fun TextFieldBuffer.transformOutput() {
+        mentionRanges(asCharSequence().toString(), names).forEach { addStyle(style, it.first, it.last + 1) }
+    }
 
     override fun equals(other: Any?) =
-        other is SkillMentionTransformation && other.names == names && other.style == style
+        other is SkillMentionHighlight && other.names == names && other.style == style
 
     override fun hashCode() = 31 * names.hashCode() + style.hashCode()
 }

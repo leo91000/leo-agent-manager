@@ -17,9 +17,13 @@ class Files(private val context: Context) {
     private val root
         get() = File(context.cacheDir, "leo-files").apply { mkdirs() }
 
-    suspend fun stage(uri: Uri): DraftAttachment =
+    // `mediaType` covers pasted content whose provider does not report a type.
+    suspend fun stage(uri: Uri, mediaType: String? = null): DraftAttachment =
         withContext(Dispatchers.IO) {
-            var name = "pièce-jointe"
+            val mime = context.contentResolver.getType(uri) ?: mediaType ?: "application/octet-stream"
+            var name =
+                if (mime.startsWith("image/")) "image.${mime.substringAfter('/').substringBefore('+')}"
+                else "pièce-jointe"
             context.contentResolver
                 .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use {
@@ -46,7 +50,6 @@ class Files(private val context: Context) {
                             }
                         }
                     }
-                val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
                 DraftAttachment(
                     ChatAttachment(
                         id,
