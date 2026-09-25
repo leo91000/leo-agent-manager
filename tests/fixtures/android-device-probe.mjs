@@ -11,6 +11,8 @@ async function main() {
   const ack = process.argv[3]
   const api = process.argv[4] || '34'
   assert.match(api, /^(?:29|[3-9]\d)$/)
+  const system = process.argv[5] || 'google-apis'
+  assert.ok(['aosp', 'google-apis'].includes(system))
   const env = JSON.parse(execFileSync('/usr/local/bin/leo', ['toolkit-env'], { encoding: 'utf8' }))
   const run = (bin, args) => {
     process.stdout.write(`probe.command ${path.basename(bin)} ${bin === 'adb' ? args.slice(2, 5).join(' ') : ''}\n`)
@@ -31,11 +33,12 @@ async function main() {
   }
   const start = Date.now()
   process.stdout.write(run('leo-android', ['setup', '--accept-licenses', 'platforms;android-34', 'build-tools;34.0.0']))
-  process.stdout.write(run('leo-android', ['emulator', 'start', api, '--accept-licenses']))
+  process.stdout.write(run('leo-android', ['emulator', 'start', api, ...(system === 'aosp' ? ['--aosp'] : []), '--accept-licenses']))
   const device = JSON.parse(run('leo-android', ['emulator', 'status']))
   assert.equal(device.state, 'ready')
+  assert.equal(device.image || 'google-apis', system)
   assert.equal(device.acceleration, 'kvm', 'Android must use nested KVM, not software emulation')
-  process.stdout.write(`${JSON.stringify({ bootAndSetupMs: Date.now() - start, mode, api })}\n`)
+  process.stdout.write(`${JSON.stringify({ bootAndSetupMs: Date.now() - start, mode, api, system })}\n`)
   const adb = args => run('adb', ['-s', 'emulator-5580', ...args])
   assert.equal(adb(['shell', 'getprop', 'sys.boot_completed']).trim(), '1')
   for (const setting of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale'])
@@ -78,14 +81,16 @@ async function main() {
     const [x1, y1, x2, y2] = node.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/).slice(1).map(Number)
     adb(['shell', 'input', 'tap', `${Math.floor((x1 + x2) / 2)}`, `${Math.floor((y1 + y2) / 2)}`])
   }
+  let systemWaits = 0
   async function screen() {
-    for (let attempt = 0; ; attempt++) {
+    while (true) {
       const xml = await dump()
-      // TCG cold boots can starve Android's own System UI. Only wait for that
-      // exact system dialog; application ANRs and crashes remain test failures.
-      const wait = xml.includes('System UI isn\'t responding') && xml.match(/<node[^>]*resource-id="android:id\/aerr_wait"[^>]*>/)?.[0]
-      if (!wait || attempt >= 2)
+      // Cold boots may briefly stall Android's own UI or system process.
+      // Allow two explicit waits in total; application ANRs remain failures.
+      const wait = (xml.includes('System UI isn\'t responding') || xml.includes('Process system isn\'t responding')) && xml.match(/<node[^>]*resource-id="android:id\/aerr_wait"[^>]*>/)?.[0]
+      if (!wait || systemWaits >= 2)
         return xml
+      systemWaits++
       process.stdout.write('probe.system-ui.wait\n')
       tap(wait)
       await sleep(2000)

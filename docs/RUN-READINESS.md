@@ -36,7 +36,7 @@ precedence. The SDK and emulator are installed **only on demand**:
 ```sh
 leo-android setup --accept-licenses 'platforms;android-34' 'build-tools;34.0.0'
 ./gradlew test
-leo-android emulator start 34 --accept-licenses
+leo-android emulator start 34 --aosp --accept-licenses
 adb -s emulator-5580 install --no-incremental -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew connectedAndroidTest
 leo-android emulator stop
@@ -182,3 +182,9 @@ References: [GitHub CLI login](https://cli.github.com/manual/gh_auth_login),
 [Android tools](https://developer.android.com/studio),
 [Android environment variables](https://developer.android.com/tools/variables),
 [ADB](https://developer.android.com/tools/adb).
+
+### Android system image selection
+
+Use `--aosp` for UI tests that do not need Google Play services. The official AOSP image excludes Google apps/services and keeps its own persistent AVD, so it does not replace an existing Google APIs device. Omitting the flag retains the Google APIs image and its existing AVD. Stop the current emulator before switching image variants; `emulator status` reports the selected image. [Android image documentation](https://developer.android.com/studio/run/managing-avds).
+
+On the tested Intel host, Android 14 AOSP passed both the actual UI interaction and device-state persistence after Firecracker restart. Google APIs images remained unreliable (system/launcher ANRs on Intel, boot timeout in hosted CI). The required image smoke test therefore selects **API 34 AOSP**, still requires KVM, taps the application and verifies persistence in a fresh Firecracker guest. It does not qualify Google Play-dependent applications. Native Android 16 instrumentation remains a separate required check.

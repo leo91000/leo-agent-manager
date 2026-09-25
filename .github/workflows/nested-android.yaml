@@ -11,6 +11,12 @@ on:
         required: true
         default: '34'
         type: string
+      system:
+        description: Android system image
+        required: true
+        default: google-apis
+        type: choice
+        options: [google-apis, aosp]
 permissions:
   contents: read
   packages: read
@@ -33,6 +39,7 @@ jobs:
         env:
           SMOKE_IMAGE: ${{ inputs.image }}
           ANDROID_TEST_API: ${{ inputs.api }}
+          ANDROID_TEST_SYSTEM: ${{ inputs.system }}
           ANDROID_SCREENSHOTS: ${{ runner.temp }}/nested-android
         run: |
           [[ "$SMOKE_IMAGE" =~ ^ghcr.io/leo91000/leo-agent-manager@sha256:[a-f0-9]{64}$ ]]

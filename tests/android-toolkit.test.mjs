@@ -53,3 +53,30 @@ describe('device process ownership across VM restarts', () => {
     }
   })
 })
+
+describe('android system image selection', () => {
+  it('supports an AOSP device without passing launcher options to the SDK installer', async () => {
+    const { emulator } = await import('../deploy/toolkit/android-emulator.mjs')
+    const selected = []
+    const stop = new Error('SDK installer boundary reached')
+    const env = environment({ HOME: '/nonexistent/android-image-test' })
+    const setup = async (args) => {
+      selected.push(...args)
+      throw stop
+    }
+    await expect(emulator('start', ['34', '--aosp', '--accept-licenses'], env, setup)).rejects.toBe(stop)
+    expect(selected).toEqual(['emulator', 'system-images;android-34;default;x86_64', '--accept-licenses'])
+  })
+  it('retains Google APIs for existing launch commands', async () => {
+    const { emulator } = await import('../deploy/toolkit/android-emulator.mjs')
+    const selected = []
+    const stop = new Error('SDK installer boundary reached')
+    const env = environment({ HOME: '/nonexistent/android-image-test' })
+    const setup = async (args) => {
+      selected.push(...args)
+      throw stop
+    }
+    await expect(emulator('start', ['34', '--accept-licenses'], env, setup)).rejects.toBe(stop)
+    expect(selected).toEqual(['emulator', 'system-images;android-34;google_apis;x86_64', '--accept-licenses'])
+  })
+})

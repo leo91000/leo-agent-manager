@@ -191,8 +191,9 @@ jobs:
         run: |
           node tests/container-smoke.mjs "$SMOKE_IMAGE"
           node tests/runner-smoke.mjs "$SMOKE_IMAGE"
-      - name: Verify accelerated Android inside Firecracker and after restart
+      - name: Verify accelerated Android AOSP inside Firecracker and after restart
         env:
+          ANDROID_TEST_SYSTEM: aosp
           SMOKE_IMAGE: ${{ github.event_name == 'pull_request' && 'leo-agent-manager:test' || format('ghcr.io/{0}@{1}', github.repository, steps.build.outputs.digest) }}
           ANDROID_SCREENSHOTS: ${{ runner.temp }}/nested-android
         run: node tests/android-runner-smoke.mjs "$SMOKE_IMAGE"

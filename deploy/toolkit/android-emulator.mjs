@@ -41,7 +41,7 @@ export async function emulator(action, args, env, setup, run) {
   const current = await running(env)
   if (action === 'status') {
     const booted = current && await adb(env, ['shell', 'getprop', 'sys.boot_completed']).catch(() => '') === '1'
-    output(JSON.stringify({ state: booted ? 'ready' : current ? 'booting' : 'stopped', serial: current ? serial : null, acceleration: current?.acceleration, api: current?.api }))
+    output(JSON.stringify({ state: booted ? 'ready' : current ? 'booting' : 'stopped', serial: current ? serial : null, acceleration: current?.acceleration, api: current?.api, image: current ? current.image || 'google-apis' : null }))
     return
   }
   if (action === 'stop') {
@@ -59,18 +59,19 @@ export async function emulator(action, args, env, setup, run) {
     return
   }
   if (action !== 'start')
-    throw new Error('Usage: leo-android emulator start <API> [--accept-licenses] | status | stop')
+    throw new Error('Usage: leo-android emulator start <API> [--aosp] [--accept-licenses] | status | stop')
   const api = apiLevel(args[0])
-  if (args.slice(1).some(arg => arg !== '--accept-licenses'))
+  if (args.slice(1).some(arg => !['--accept-licenses', '--aosp'].includes(arg)))
     throw new Error('Unknown emulator option.')
-  if (current && current.api !== api)
-    throw new Error(`API ${current.api} is already running. Stop it before switching devices.`)
+  const image = args.includes('--aosp') ? 'aosp' : 'google-apis'
+  if (current && (current.api !== api || (current.image || 'google-apis') !== image))
+    throw new Error(`API ${current.api} (${current.image || 'google-apis'}) is already running. Stop it before switching devices.`)
   let state = current
   if (!state) {
-    const system = `system-images;android-${api};google_apis;x86_64`
-    await setup(['emulator', system, ...args.slice(1)], env)
+    const system = `system-images;android-${api};${image === 'aosp' ? 'default' : 'google_apis'};x86_64`
+    await setup(['emulator', system, ...args.slice(1).filter(arg => arg === '--accept-licenses')], env)
     await mkdir(env.ANDROID_USER_HOME, { recursive: true })
-    const avd = `leo_api_${api}`
+    const avd = `leo_api_${api}${image === 'aosp' ? '_aosp' : ''}`
     const avdHome = path.join(env.ANDROID_USER_HOME, 'avd')
     env = { ...env, ANDROID_AVD_HOME: avdHome }
     await mkdir(avdHome, { recursive: true })
@@ -95,7 +96,7 @@ export async function emulator(action, args, env, setup, run) {
     })
     await log.close()
     child.unref()
-    state = { pid: child.pid, ...await identity(child.pid), serial, api, acceleration, logPath }
+    state = { pid: child.pid, ...await identity(child.pid), serial, api, image, acceleration, logPath }
     const temporary = `${stateFile(env)}.tmp`
     await writeFile(temporary, JSON.stringify(state), { mode: 0o600 })
     await rename(temporary, stateFile(env))
@@ -107,7 +108,7 @@ export async function emulator(action, args, env, setup, run) {
     if (!await running(env))
       throw new Error(`Emulator exited. Inspect ${state.logPath}.`)
     if (await adb(env, ['shell', 'getprop', 'sys.boot_completed']).catch(() => '') === '1') {
-      output(JSON.stringify({ state: 'ready', serial, api, acceleration: state.acceleration, adb: `adb -s ${serial}` }))
+      output(JSON.stringify({ state: 'ready', serial, api, image: state.image || 'google-apis', acceleration: state.acceleration, adb: `adb -s ${serial}` }))
       return
     }
     await sleep(2000)
