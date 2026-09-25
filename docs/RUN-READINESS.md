@@ -73,7 +73,9 @@ The guest kernel includes KVM for Intel and AMD. On a host with nested
 virtualization enabled, the guest creates its own `/dev/kvm`; guest init grants
 UID/GID 1000 access without supplementary groups. `leo-android` then selects
 hardware acceleration automatically and starts the emulator with `-accel on`.
-It does not silently fall back if that accelerated startup fails.
+It does not silently fall back if that accelerated startup fails. Boot readiness
+has a ten-minute deadline and returns as soon as Android is ready; SDK download
+time is separate. Nested acceleration does not guarantee native-host boot speed.
 
 The outer host must expose VMX/SVM and enable `kvm_intel.nested` or
 `kvm_amd.nested`. No host device, host ADB server or host Docker socket is shared
@@ -86,8 +88,9 @@ See [nested KVM source findings](NESTED-KVM-RESEARCH.md) for CPU handling and
 snapshot limitations; the pool keeps live prepared VMs and does not serialize
 running nested-VM state.
 
-Managed devices use a 720 × 1280 display at 320 dpi, 1.5 GiB of Android RAM and
-software graphics with Vulkan disabled. The initial Pixel 6 graphics defaults
+Managed devices use a 720 × 1280 display at 320 dpi and software graphics with
+Vulkan disabled. The launcher requests 1.5 GiB of Android RAM, but the emulator
+can raise it to the system image minimum: Android 14 used 2.5 GiB in validation. The initial Pixel 6 graphics defaults
 exhausted the standard 4 GiB guest during validation; the smaller display keeps
 the existing VM resource allocation. This does not reserve memory for a concurrent
 large Gradle build, and applications requiring Vulkan need a different device.
