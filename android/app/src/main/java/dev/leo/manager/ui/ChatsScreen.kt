@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.leo.manager.data.*
 import java.io.File
 import java.util.UUID
@@ -103,7 +104,8 @@ internal fun ConversationList(
         }
     }
     confirming?.let { chat ->
-        Confirm("Arrêter et supprimer ?", "Le travail sera arrêté et les envois annulés. La conversation restera récupérable pendant 30 jours.", vm.state.value.busy, vm.state.value.error, { confirming = null }) { trash(chat, true) }
+        val appState by vm.state.collectAsStateWithLifecycle()
+        Confirm("Arrêter et supprimer ?", "Le travail sera arrêté et les envois annulés. La conversation restera récupérable pendant 30 jours.", appState.busy, appState.error, { confirming = null }) { trash(chat, true) }
     }
     val chats = if (view == "active") activeChats.filter { it.id !in removed } else other
     var query by rememberSaveable { mutableStateOf("") }
