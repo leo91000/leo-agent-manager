@@ -6,6 +6,11 @@ on:
         description: Existing application image by immutable digest
         required: true
         type: string
+      api:
+        description: Android device API level
+        required: true
+        default: '34'
+        type: string
 permissions:
   contents: read
   packages: read
@@ -27,6 +32,7 @@ jobs:
       - name: Test Android inside the existing Firecracker image
         env:
           SMOKE_IMAGE: ${{ inputs.image }}
+          ANDROID_TEST_API: ${{ inputs.api }}
           ANDROID_SCREENSHOTS: ${{ runner.temp }}/nested-android
         run: |
           [[ "$SMOKE_IMAGE" =~ ^ghcr.io/leo91000/leo-agent-manager@sha256:[a-f0-9]{64}$ ]]

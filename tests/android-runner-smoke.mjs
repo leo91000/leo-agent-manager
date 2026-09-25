@@ -45,7 +45,7 @@ async function main() {
     for (const mode of ['first', 'resume']) {
       const id = randomUUID()
       const ackId = randomUUID()
-      const plan = { id, runId, expires: Date.now() + 1800000, sandbox: 'yolo', cwd: `${runRoot}/workspace`, command: ['/usr/local/bin/node', `${runRoot}/workspace/probe.mjs`, mode, ackId], chat: { output: `${runRoot}/output/result.md` }, imports: ['workspace', 'home', 'output'].map(dir => ({ source: `${runRoot}/${dir}`, target: dir === 'home' ? '/home/node' : `${runRoot}/${dir}`, readOnly: false })) }
+      const plan = { id, runId, expires: Date.now() + 1800000, sandbox: 'yolo', cwd: `${runRoot}/workspace`, command: ['/usr/local/bin/node', `${runRoot}/workspace/probe.mjs`, mode, ackId, process.env.ANDROID_TEST_API || '34'], chat: { output: `${runRoot}/output/result.md` }, imports: ['workspace', 'home', 'output'].map(dir => ({ source: `${runRoot}/${dir}`, target: dir === 'home' ? '/home/node' : `${runRoot}/${dir}`, readOnly: false })) }
       await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
       const started = Date.now()
       await api(`/runs/${id}`, 'POST')

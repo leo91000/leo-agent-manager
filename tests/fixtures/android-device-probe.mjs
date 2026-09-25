@@ -9,6 +9,8 @@ async function main() {
   process.chdir(path.dirname(process.argv[1]))
   const mode = process.argv[2]
   const ack = process.argv[3]
+  const api = process.argv[4] || '34'
+  assert.match(api, /^(?:29|[3-9]\d)$/)
   const env = JSON.parse(execFileSync('/usr/local/bin/leo', ['toolkit-env'], { encoding: 'utf8' }))
   const run = (bin, args) => {
     process.stdout.write(`probe.command ${path.basename(bin)} ${bin === 'adb' ? args.slice(2, 5).join(' ') : ''}\n`)
@@ -28,16 +30,16 @@ async function main() {
     assert.equal(fs.statSync(path.join(env.ANDROID_HOME, 'cmdline-tools/latest/bin/sdkmanager')).mtimeMs, previous.sdkMtime)
   }
   const start = Date.now()
-  process.stdout.write(run('leo-android', ['setup', '--accept-licenses', 'platforms;android-34', 'build-tools;34.0.0', 'emulator', 'system-images;android-34;google_apis;x86_64']))
+  process.stdout.write(run('leo-android', ['setup', '--accept-licenses', 'platforms;android-34', 'build-tools;34.0.0', 'emulator', `system-images;android-${api};google_apis;x86_64`]))
   // [DEBUG-nested-kvm] Isolate the deadline hypothesis on the existing image.
   fs.cpSync('/opt/leo-toolkit', 'probe-toolkit', { recursive: true })
   const helper = 'probe-toolkit/android-emulator.mjs'
-  fs.writeFileSync(helper, fs.readFileSync(helper, 'utf8').replace('state.acceleration === \'kvm\' ? 180000 : 600000', '600000').replace('\'-cores\', \'2\'', '\'-cores\', \'1\''))
-  process.stdout.write(run('node', ['probe-toolkit/android.mjs', 'emulator', 'start', '34', '--accept-licenses']))
+  fs.writeFileSync(helper, fs.readFileSync(helper, 'utf8'))
+  process.stdout.write(run('node', ['probe-toolkit/android.mjs', 'emulator', 'start', api, '--accept-licenses']))
   const device = JSON.parse(run('leo-android', ['emulator', 'status']))
   assert.equal(device.state, 'ready')
   assert.equal(device.acceleration, 'kvm', 'Android must use nested KVM, not software emulation')
-  process.stdout.write(`${JSON.stringify({ bootAndSetupMs: Date.now() - start, mode })}\n`)
+  process.stdout.write(`${JSON.stringify({ bootAndSetupMs: Date.now() - start, mode, api })}\n`)
   const adb = args => run('adb', ['-s', 'emulator-5580', ...args])
   assert.equal(adb(['shell', 'getprop', 'sys.boot_completed']).trim(), '1')
   for (const setting of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale'])
@@ -93,14 +95,24 @@ async function main() {
       await sleep(2000)
     }
   }
+  async function waitForScreen(matches) {
+    const deadline = Date.now() + 120000
+    let xml
+    do {
+      xml = await screen()
+      if (matches(xml))
+        return xml
+      await sleep(1000)
+    } while (Date.now() < deadline)
+    assert.fail(`Expected application view did not appear: ${xml}`)
+  }
   if (mode === 'first') {
-    const xml = await screen()
+    const xml = await waitForScreen(xml => xml.includes('content-desc="Verify device"'))
     const node = xml.match(/<node[^>]*content-desc="Verify device"[^>]*>/)?.[0]
     assert.ok(node, xml)
     tap(node)
-    await sleep(500)
   }
-  assert.match(await screen(), /Device test passed/i)
+  assert.match(await waitForScreen(xml => /Device test passed/i.test(xml)), /Device test passed/i)
   fs.writeFileSync('device.png', execFileSync('adb', ['-s', 'emulator-5580', 'exec-out', 'screencap', '-p'], { env, timeout: 30000 }))
   fs.writeFileSync(saved, JSON.stringify({ boot, sdkMtime: fs.statSync(path.join(env.ANDROID_HOME, 'cmdline-tools/latest/bin/sdkmanager')).mtimeMs }))
   process.stdout.write('probe.capture\n')

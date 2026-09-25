@@ -101,7 +101,8 @@ export async function emulator(action, args, env, setup, run) {
     await rename(temporary, stateFile(env))
     output(`Booting Android API ${api} (${acceleration}). Log: ${logPath}`)
   }
-  const deadline = Date.now() + (state.acceleration === 'kvm' ? 180000 : 600000)
+  // Nested KVM on older hosts can exceed three minutes even while boot progresses.
+  const deadline = Date.now() + 600000
   while (Date.now() < deadline) {
     if (!await running(env))
       throw new Error(`Emulator exited. Inspect ${state.logPath}.`)
