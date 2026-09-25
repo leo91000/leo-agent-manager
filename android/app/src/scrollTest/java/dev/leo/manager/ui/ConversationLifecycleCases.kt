@@ -18,13 +18,20 @@ import org.junit.Assert.*
 
 abstract class ConversationLifecycleCases {
     @get:Rule val compose = createComposeRule()
+    protected open fun captureSwipe() = Unit
 
-    @Test fun swipeRevealsDeleteWithoutDeletingAndTrashRemainsSecondary() {
+    @Test fun swipeRevealsDeleteWithoutDeletingAndTrashRemainsSecondary() = withConversation(false)
+
+    @Test fun swipeFromFilRevealsDeleteWithoutOpeningTheConversation() = withConversation(true)
+
+    @Test fun deletingWorkingConversationFromFilRequiresConfirmation() = withConversation(true, true)
+
+    private fun withConversation(fromFil: Boolean, working: Boolean = false) {
         MockWebServer().use { server ->
             val deleted = AtomicBoolean(false)
             val deletes = CopyOnWriteArrayList<String>()
             val restores = CopyOnWriteArrayList<String>()
-            val chat = Chat("chat", title = "Conversation à conserver", agentName = "Agent principal", updatedAt = System.currentTimeMillis())
+            val chat = Chat("chat", title = "Conversation à conserver", agentName = "Agent principal", updatedAt = System.currentTimeMillis(), status = if (working) "running" else "succeeded")
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.path!!.substringBefore('?')
@@ -45,7 +52,10 @@ abstract class ConversationLifecycleCases {
                             wireJson.encodeToString(chat)
                         }
                         path == "/api/chats/chat" && request.method == "DELETE" -> {
-                            deletes += request.body.readUtf8()
+                            val payload = request.body.readUtf8()
+                            deletes += payload
+                            if (working && !wireJson.parseToJsonElement(payload).jsonObject.getValue("confirm").jsonPrimitive.boolean)
+                                return MockResponse().setResponseCode(409).setBody("""{"error":"Confirmation requise"}""")
                             deleted.set(true)
                             "{}"
                         }
@@ -70,7 +80,8 @@ abstract class ConversationLifecycleCases {
                 var selected by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(Unit) { vm.state.first { it.ready }; if (!vm.state.value.session.authenticated) vm.connect(server.url("/").toString()) }
                 LeoTheme {
-                    if (state.session.authenticated) {
+                    if (fromFil) LeoApp(vm = vm)
+                    else if (state.session.authenticated) {
                         if (selected == null) ChatsScreen(vm, state, open = { selected = it }, create = {})
                         else ChatScreen(vm, state, selected, openChat = { selected = it }, openRun = {}, back = { selected = null })
                     }
@@ -78,12 +89,35 @@ abstract class ConversationLifecycleCases {
             }
             compose.waitUntil(20000) { compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Corbeille").assertDoesNotExist()
+            compose.onNodeWithText(chat.title).performTouchInput { swipeRight() }
+            compose.onNodeWithText("Supprimer", substring = false).assertDoesNotExist()
             compose.onNodeWithText(chat.title).performTouchInput { swipeLeft() }
             compose.onNodeWithText("Supprimer", substring = false).assertIsDisplayed()
             assertTrue("The swipe must not delete on its own", deletes.isEmpty())
+            if (fromFil && !working) captureSwipe()
+            compose.onNodeWithText(chat.title).performTouchInput { swipeRight() }
+            compose.onNodeWithText("Supprimer", substring = false).assertDoesNotExist()
+            compose.onNodeWithText(chat.title).performTouchInput { swipeLeft() }
             compose.onNodeWithText("Supprimer", substring = false).performClick()
             compose.waitUntil(10000) { deletes.size == 1 }
+            if (working) {
+                compose.waitUntil(10000) { compose.onAllNodesWithText("Arrêter et supprimer ?").fetchSemanticsNodes().isNotEmpty() }
+                assertFalse("Work must not be stopped before confirmation", deleted.get())
+                compose.onNodeWithText("Annuler", substring = false).performClick()
+                compose.onNodeWithText(chat.title).assertIsDisplayed()
+                assertFalse(deleted.get())
+                compose.onNodeWithText("Supprimer", substring = false).performClick()
+                compose.waitUntil(10000) { compose.onAllNodesWithText("Confirmer").fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText("Confirmer", substring = false).performClick()
+                compose.waitUntil(10000) { deletes.size == 3 }
+                assertEquals(listOf(false, false, true), deletes.map { wireJson.parseToJsonElement(it).jsonObject.getValue("confirm").jsonPrimitive.boolean })
+            }
             compose.waitUntil(15000) { compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isEmpty() }
+            if (fromFil) {
+                compose.onNodeWithTag("fil").assertIsDisplayed()
+                vm.api.closeStreams()
+                return@use
+            }
             compose.onNodeWithContentDescription("Afficher les conversations").performClick()
             compose.onNodeWithText("Corbeille", substring = false).performClick()
             compose.waitUntil(10000) { compose.onAllNodesWithText(chat.title).fetchSemanticsNodes().isNotEmpty() }

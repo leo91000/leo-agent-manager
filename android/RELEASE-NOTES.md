@@ -1,4 +1,10 @@
-# Leo Android 0.38.0 — Application web « Signal »
+# Leo Android 0.38.1 — Suppression depuis le Fil
+
+- Le swipe vers la gauche révèle maintenant « Supprimer » sur les conversations du Fil Android, dans les sections Pour vous, En cours et Récents. Le swipe vers la droite referme le bouton.
+- Le geste seul ne supprime rien. Une conversation avec un travail ou des envois en attente exige toujours une confirmation avant l’arrêt et la mise en corbeille.
+- Le test couvre désormais le parcours depuis l’application complète, en plus du sélecteur de conversations.
+
+## Leo Android 0.38.0 — Application web « Signal »
 
 - L’application web adopte le design de l’application Android : Fil, Missions et Atelier, indicateur « Souffle », avatars animés des agents au travail, palette ⌘K et raccourcis clavier.
 - Aucune modification de l’application Android ni du serveur n’est nécessaire.

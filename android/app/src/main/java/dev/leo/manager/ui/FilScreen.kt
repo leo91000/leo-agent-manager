@@ -167,7 +167,9 @@ fun FilScreen(
             now = System.currentTimeMillis()
         }
     }
-    val chats = live.state?.chats
+    var removed by remember { mutableStateOf(setOf<String>()) }
+    val trash = rememberTrashConversation(vm) { removed = removed + it }
+    val chats = live.state?.chats?.filter { it.id !in removed }
     val feed = remember(chats, activity, state.tasks) { buildFeed(chats.orEmpty(), activity, state.tasks) }
     fun retry(item: FeedItem) {
         val task = item.taskId ?: return
@@ -215,12 +217,12 @@ fun FilScreen(
                 }
             }
         section("Pour vous", feed.forYou) { item ->
-            FeedRow(item, { open(item) }) {
+            FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash(id) } }) {
                 ForYouAction(item, now, !state.busy, { open(item) }, { retry(item) })
             }
         }
         section("En cours", feed.running) { item ->
-            FeedRow(item, { open(item) }) {
+            FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash(id) } }) {
                 Text(
                     elapsed(item.startedAt, now),
                     style = MaterialTheme.typography.labelLarge,
@@ -228,7 +230,7 @@ fun FilScreen(
                 )
             }
         }
-        section("Récents", feed.recent) { item -> FeedRow(item, { open(item) }) { Stamp(item.stamp, now) } }
+        section("Récents", feed.recent) { item -> FeedRow(item, { open(item) }, onDelete = item.chatId?.let { id -> { trash(id) } }) { Stamp(item.stamp, now) } }
     }
 }
 
@@ -281,7 +283,12 @@ internal fun Wordmark() {
 }
 
 @Composable
-private fun FeedRow(item: FeedItem, onClick: () -> Unit, trailing: @Composable () -> Unit) {
+private fun FeedRow(
+    item: FeedItem,
+    onClick: () -> Unit,
+    onDelete: (() -> Unit)? = null,
+    trailing: @Composable () -> Unit,
+) {
     val badge =
         when (item.kind) {
             FeedKind.RUNNING_CHAT, FeedKind.RUNNING_TASK -> AvatarBadge.LIVE
@@ -289,33 +296,35 @@ private fun FeedRow(item: FeedItem, onClick: () -> Unit, trailing: @Composable (
                 AvatarBadge.ATTENTION
             FeedKind.CHAT -> null
         }
-    Surface(onClick = onClick, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.widthIn(max = 760.dp)
-                .heightIn(min = 72.dp)
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AgentAvatar(item.agent, item.agentKey, 44.dp, badge)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    item.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    item.subtitle,
-                    Modifier.padding(top = 2.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    SwipeToTrashRow(enabled = onDelete != null, onDelete = { onDelete?.invoke() }) { swipe ->
+        Surface(onClick = onClick, color = Color.Transparent, modifier = swipe.fillMaxWidth()) {
+            Row(
+                Modifier.widthIn(max = 760.dp)
+                    .heightIn(min = 72.dp)
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AgentAvatar(item.agent, item.agentKey, 44.dp, badge)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        item.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        item.subtitle,
+                        Modifier.padding(top = 2.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                trailing()
             }
-            Spacer(Modifier.width(10.dp))
-            trailing()
         }
     }
 }

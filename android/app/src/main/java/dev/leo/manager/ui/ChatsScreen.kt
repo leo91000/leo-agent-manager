@@ -10,11 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
@@ -36,7 +32,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -87,7 +82,6 @@ internal fun ConversationList(
     var other by remember { mutableStateOf<List<Chat>>(emptyList()) }
     var removed by remember { mutableStateOf(setOf<String>()) }
     var revision by remember { mutableIntStateOf(0) }
-    var confirming by remember { mutableStateOf<Chat?>(null) }
     var listError by remember { mutableStateOf<String?>(null) }
     var fetching by remember { mutableStateOf(false) }
     LaunchedEffect(view, revision) {
@@ -99,23 +93,9 @@ internal fun ConversationList(
             finally { fetching = false }
         }
     }
-    fun trash(chat: Chat, confirm: Boolean = false) {
-        vm.perform {
-            try {
-                api.request("DELETE", "/chats/${segment(chat.id)}", buildJsonObject { put("confirm", confirm) })
-                removed = removed + chat.id
-                chatDrafts.remove(chat.id)
-                historyCache.clear()
-                confirming = null
-                revision++
-            } catch (e: ApiException) {
-                if (e.status == 409 && !confirm) confirming = chat else throw e
-            }
-        }
-    }
-    confirming?.let { chat ->
-        val actionState by vm.state.collectAsStateWithLifecycle()
-        Confirm("Arrêter et supprimer ?", "Le travail sera arrêté et les envois annulés. La conversation restera récupérable pendant 30 jours.", actionState.busy, actionState.error, { confirming = null }) { trash(chat, true) }
+    val trash = rememberTrashConversation(vm) { id ->
+        removed = removed + id
+        revision++
     }
     val chats = if (view == "active") activeChats.filter { it.id !in removed } else other
     var query by rememberSaveable { mutableStateOf("") }
@@ -185,79 +165,67 @@ internal fun ConversationList(
                         )
                     }
                     items(items, key = { it.id }) { chat ->
-                        var revealed by remember(chat.id, view) { mutableStateOf(false) }
-                        var drag by remember { mutableFloatStateOf(0f) }
-                        val distance = with(LocalDensity.current) { 104.dp.roundToPx() }
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))) {
-                        if (revealed && view != "trash")
-                            TextButton(onClick = { trash(chat) }, modifier = Modifier.align(Alignment.CenterEnd).width(104.dp)) {
-                                Text("Supprimer", color = MaterialTheme.colorScheme.error)
-                            }
-                        Surface(
-                            modifier = Modifier.offset { IntOffset(if (revealed) -distance else 0, 0) }
-                                .draggable(
-                                    state = rememberDraggableState { drag += it },
-                                    orientation = Orientation.Horizontal,
-                                    enabled = view != "trash",
-                                    onDragStarted = { drag = 0f },
-                                    onDragStopped = { if (drag < -32f) revealed = true else if (drag > 32f) revealed = false },
-                                ),
-                            onClick = { open(chat.id) },
-                            color =
-                                if (chat.id == selected) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0f),
-                            shape = RoundedCornerShape(16.dp),
-                        ) {
-                            Row(
-                                Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                val working = chat.pendingQuestions == 0 && !chat.paused && chat.status == "running"
-                                if (working) WorkingAvatar(chat.agentName.ifBlank { chat.title }, chat.agentId, 40.dp)
-                                else
-                                    AgentAvatar(
-                                        chat.agentName.ifBlank { chat.title },
-                                        chat.agentId,
-                                        40.dp,
-                                        when {
-                                            chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted") -> AvatarBadge.ATTENTION
-                                            !chat.paused && chat.status == "queued" -> AvatarBadge.LIVE
-                                            else -> null
-                                        },
-                                    )
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        chat.title,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    if (working) WorkingLabel(statusLabel(chat.status))
-                                    else Text(
-                                        when {
-                                            chat.pendingQuestions > 0 -> "${chat.pendingQuestions} question(s) en attente"
-                                            chat.paused -> "En pause"
-                                            chat.status in listOf("running", "queued", "failed", "interrupted") ->
-                                                statusLabel(chat.status)
-                                            else -> listOfNotNull(chat.agentName.ifBlank { null }, chat.projectName).joinToString(" · ")
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color =
-                                            if (chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted")) signal.attention
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                        key(view) {
+                            SwipeToTrashRow(enabled = view != "trash", onDelete = { trash(chat.id) }) { swipe ->
+                                Surface(
+                                    modifier = swipe,
+                                    onClick = { open(chat.id) },
+                                    color =
+                                        if (chat.id == selected) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0f),
+                                    shape = RoundedCornerShape(16.dp),
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 8.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        val working = chat.pendingQuestions == 0 && !chat.paused && chat.status == "running"
+                                        if (working) WorkingAvatar(chat.agentName.ifBlank { chat.title }, chat.agentId, 40.dp)
+                                        else
+                                            AgentAvatar(
+                                                chat.agentName.ifBlank { chat.title },
+                                                chat.agentId,
+                                                40.dp,
+                                                when {
+                                                    chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted") -> AvatarBadge.ATTENTION
+                                                    !chat.paused && chat.status == "queued" -> AvatarBadge.LIVE
+                                                    else -> null
+                                                },
+                                            )
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                chat.title,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            if (working) WorkingLabel(statusLabel(chat.status))
+                                            else Text(
+                                                when {
+                                                    chat.pendingQuestions > 0 -> "${chat.pendingQuestions} question(s) en attente"
+                                                    chat.paused -> "En pause"
+                                                    chat.status in listOf("running", "queued", "failed", "interrupted") ->
+                                                        statusLabel(chat.status)
+                                                    else -> listOfNotNull(chat.agentName.ifBlank { null }, chat.projectName).joinToString(" · ")
+                                                },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color =
+                                                    if (chat.pendingQuestions > 0 || chat.status in setOf("failed", "interrupted")) signal.attention
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            shortStamp(chat.updatedAt),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    shortStamp(chat.updatedAt),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
                             }
-                        }
                         }
                     }
                 }
