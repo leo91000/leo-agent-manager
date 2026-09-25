@@ -108,6 +108,32 @@ class WorkingIndicatorTest {
         capture("working-dark")
     }
 
+    @Test
+    fun `working conversations animate their avatar and status in the list`() {
+        var dark by androidx.compose.runtime.mutableStateOf(false)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            LeoTheme(if (dark) "dark" else "light") {
+                Column(Modifier.background(MaterialTheme.colorScheme.background).padding(20.dp)) {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        WorkingAvatar("Leo", "leo", 40.dp)
+                        Spacer(Modifier.width(12.dp))
+                        WorkingLabel("En cours")
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Row { AgentAvatar("Reviewer", "reviewer", 40.dp) }
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithTag("chat-working-avatar").assertWidthIsEqualTo(40.dp)
+        compose.onNodeWithText("En cours").assertExists()
+        capture("working-list-light")
+        compose.runOnIdle { dark = true }
+        compose.mainClock.advanceTimeBy(900)
+        capture("working-list-dark")
+    }
+
     private fun capture(name: String) {
         val dir = System.getProperty("leo.screenshots.dir") ?: return
         File(dir).mkdirs()

@@ -19,16 +19,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.leo.manager.data.RunEvent
 import kotlinx.coroutines.delay
@@ -143,6 +149,68 @@ internal fun WorkingIndicator(step: WorkingStep, modifier: Modifier = Modifier) 
         if (elapsed.isNotBlank()) {
             Spacer(Modifier.width(8.dp))
             Text(elapsed, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * List avatar of an agent at work: a comet arc orbits the avatar while its live badge breathes.
+ * Follows the system animation scale like the conversation indicator.
+ */
+@Composable
+internal fun WorkingAvatar(name: String, key: String, size: Dp) {
+    val primary = MaterialTheme.colorScheme.primary
+    val transition = rememberInfiniteTransition(label = "avatar-working")
+    val turn by transition.animateFloat(0f, 360f, infiniteRepeatable(tween(1800, easing = LinearEasing)), label = "orbit")
+    val glow by transition.animateFloat(
+        0.25f, 0.6f,
+        infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "glow",
+    )
+    // The ring overflows the avatar so working rows stay aligned with the others.
+    Box(Modifier.size(size).testTag("chat-working-avatar"), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.requiredSize(size + 8.dp)) {
+            val stroke = 2.dp.toPx()
+            val inset = stroke / 2
+            val corner = CornerRadius((size * 0.3f + 4.dp).toPx())
+            val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
+            drawRoundRect(primary.copy(alpha = glow * 0.35f), Offset(inset, inset), arcSize, corner, style = Stroke(stroke))
+            rotate(turn) {
+                drawRoundRect(
+                    Brush.sweepGradient(
+                        0f to primary.copy(alpha = 0f),
+                        0.5f to primary.copy(alpha = 0f),
+                        1f to primary,
+                    ),
+                    Offset(inset, inset), arcSize, corner, style = Stroke(stroke, cap = StrokeCap.Round),
+                )
+            }
+        }
+        AgentAvatar(name, key, size, AvatarBadge.LIVE)
+    }
+}
+
+/** "En cours" followed by three dots rising in a wave. */
+@Composable
+internal fun WorkingLabel(text: String, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "label-working")
+    val phase by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "wave")
+    val color = MaterialTheme.colorScheme.primary
+    Row(modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = color, maxLines = 1)
+        Spacer(Modifier.width(5.dp))
+        Canvas(Modifier.size(18.dp, 10.dp).clearAndSetSemantics {}) {
+            val radius = 1.6.dp.toPx()
+            repeat(3) { index ->
+                // Each dot lifts in turn, then rests for the remainder of the cycle.
+                val local = ((phase - index * 0.18f) % 1f + 1f) % 1f
+                val lift = if (local < 0.4f) kotlin.math.sin(local / 0.4f * Math.PI).toFloat() else 0f
+                drawCircle(
+                    color.copy(alpha = 0.45f + 0.55f * lift),
+                    radius,
+                    Offset(radius + index * (size.width - 2 * radius) / 2, size.height - radius - lift * (size.height - 2 * radius)),
+                )
+            }
         }
     }
 }
