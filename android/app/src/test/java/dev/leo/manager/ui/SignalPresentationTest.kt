@@ -53,6 +53,8 @@ class SignalPresentationTest {
         assertEquals(listOf("chat:running", "chat:queued"), feed.running.map { it.key })
         assertEquals("Leo · Manager", feed.running.first().subtitle)
         assertEquals("En attente · Leo", feed.running.last().subtitle)
+        // Only work that is running animates; queued work keeps its static badge.
+        assertEquals(listOf(true, false), feed.running.map { it.working })
         assertEquals(listOf("chat:paused", "chat:idle"), feed.recent.map { it.key })
         assertTrue(feed.recent.first().subtitle.startsWith("En pause"))
     }
@@ -68,6 +70,7 @@ class SignalPresentationTest {
         val feed = buildFeed(emptyList(), activity, tasks)
         assertEquals(FeedKind.REVIEW_TASK, feed.forYou.single().kind)
         assertEquals("Tâche bloquée", feed.forYou.single().subtitle)
+        assertTrue(feed.running.single().working)
         assertEquals(FeedKind.RUNNING_TASK, feed.running.single().kind)
         assertEquals(10L, feed.running.single().startedAt)
     }

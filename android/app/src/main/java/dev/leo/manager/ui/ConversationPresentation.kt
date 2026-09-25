@@ -203,7 +203,8 @@ internal fun ConversationHeader(
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        AgentAvatar(agent, agentKey, 36.dp)
+                        // The comet ring turns while the agent is running this conversation.
+                        if (live != null) WorkingAvatar(agent, agentKey, 36.dp) else AgentAvatar(agent, agentKey, 36.dp)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(

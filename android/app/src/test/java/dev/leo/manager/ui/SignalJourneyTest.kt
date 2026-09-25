@@ -160,6 +160,9 @@ class SignalJourneyTest {
         compose.onNodeWithText("Une question vous attend").assertExists()
         compose.onNodeWithText("14 min").assertExists()
         compose.onNodeWithText("Revue quotidienne").assertExists()
+        // The running conversation animates in the Fil: comet ring and "En cours" with its wave.
+        compose.onAllNodesWithTag("chat-working-avatar", useUnmergedTree = true).assertCountEquals(1)
+        assertTrue(compose.onAllNodesWithText("En cours", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         capture("fil-light")
         // A failed mission is retried in place and its new run opens.
         compose.onNodeWithContentDescription("Relancer Revue quotidienne").performClick()

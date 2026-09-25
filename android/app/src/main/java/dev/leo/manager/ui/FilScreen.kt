@@ -36,6 +36,8 @@ internal data class FeedItem(
     val chatId: String? = null,
     val runId: String? = null,
     val taskId: String? = null,
+    /** The agent is running now (not queued): the row animates. */
+    val working: Boolean = false,
 )
 
 internal data class Feed(val forYou: List<FeedItem>, val running: List<FeedItem>, val recent: List<FeedItem>) {
@@ -85,7 +87,7 @@ internal fun buildFeed(chats: List<Chat>, activity: List<Run>, tasks: List<Task>
                     FeedKind.RUNNING_CHAT,
                     if (chat.status == "queued") "En attente · ${context(agent, chat.projectName)}"
                     else context(agent, chat.projectName),
-                )
+                ).copy(working = chat.status == "running")
             else ->
                 recent += item(
                     FeedKind.CHAT,
@@ -120,7 +122,7 @@ internal fun buildFeed(chats: List<Chat>, activity: List<Run>, tasks: List<Task>
                     running += item(
                         FeedKind.RUNNING_TASK,
                         if (run.status == "queued") "Mission en attente · $agent" else "Mission · $agent",
-                    )
+                    ).copy(working = run.status == "running")
                 run.status in setOf("failed", "interrupted") ->
                     forYou += item(FeedKind.FAILED_TASK, "${statusLabel(run.status)} · ${shortStamp(run.finishedAt ?: run.createdAt)}")
                 run.status == "succeeded" && run.outcome != null && run.outcome.status != "completed" ->
@@ -304,7 +306,8 @@ private fun FeedRow(
                     .padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AgentAvatar(item.agent, item.agentKey, 44.dp, badge)
+                if (item.working) WorkingAvatar(item.agent, item.agentKey, 44.dp)
+                else AgentAvatar(item.agent, item.agentKey, 44.dp, badge)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -313,14 +316,16 @@ private fun FeedRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        item.subtitle,
-                        Modifier.padding(top = 2.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (item.working) WorkingLabel("En cours", Modifier.padding(end = 6.dp))
+                        Text(
+                            item.subtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Spacer(Modifier.width(10.dp))
                 trailing()
