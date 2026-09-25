@@ -69,12 +69,22 @@ at most twice for that exact Android system dialog; an application ANR still
 fails validation. This environment is suitable for functional checks, not Android
 performance measurements.
 
-Firecracker guests currently do **not** expose KVM. The emulator uses software
-CPU emulation there, and KVM when the same command is run on a suitable development
-host. No host Docker socket, host ADB server, nested KVM or extra guest privilege
-is granted. Software device startup takes minutes and consumes the run's existing
-CPU/RAM budget. Stop the emulator before memory-heavy builds when necessary.
-JVM/Robolectric tests remain useful, but are not device tests.
+The guest kernel includes KVM for Intel and AMD. On a host with nested
+virtualization enabled, the guest creates its own `/dev/kvm`; guest init grants
+UID/GID 1000 access without supplementary groups. `leo-android` then selects
+hardware acceleration automatically and starts the emulator with `-accel on`.
+It does not silently fall back if that accelerated startup fails.
+
+The outer host must expose VMX/SVM and enable `kvm_intel.nested` or
+`kvm_amd.nested`. No host device, host ADB server or host Docker socket is shared
+with the guest. Hosts without usable nesting can still run ordinary agent VMs;
+Android uses software emulation when the guest has no accessible KVM device.
+Recreating the VM with the new image is required: installing packages in an
+already-running guest cannot replace its kernel. Stop the emulator before
+memory-heavy builds. JVM/Robolectric tests do not replace device tests.
+See [nested KVM source findings](NESTED-KVM-RESEARCH.md) for CPU handling and
+snapshot limitations; the pool keeps live prepared VMs and does not serialize
+running nested-VM state.
 
 Managed devices use a 720 × 1280 display at 320 dpi, 1.5 GiB of Android RAM and
 software graphics with Vulkan disabled. The initial Pixel 6 graphics defaults
@@ -125,11 +135,13 @@ run can be recovered; missing intermediate exchanges cannot be reconstructed.
 - Browser tests cover saving/reloading source selection, workflow permission UX,
   blocked outcomes, and mobile/light/dark layouts.
 - `node tests/container-smoke.mjs IMAGE` verifies the actual runtime/toolkit.
-- `node tests/android-runner-smoke.mjs IMAGE` is an explicit opt-in integration
-  test: a real APK is compiled, installed and tapped on a software Android emulator
+- `node tests/android-runner-smoke.mjs IMAGE` is a required container CI check:
+  a real APK is compiled, installed and tapped on a KVM-accelerated Android emulator
   inside Firecracker, then its device/SDK state is checked after VM restart.
+  It first executes a tiny L2 guest through `KVM_RUN` as UID 1000 and rejects
+  Android software fallback.
   It uses disposable state under `/var/tmp` (or `VM_TEST_ROOT`); do not use a small
-  tmpfs for VM disks. It downloads several GiB and is kept out of the fast CI path.
+  tmpfs for VM disks. It downloads several GiB and runs with the image checks, not the fast unit suite.
 
 Local validation on 2026-09-13: 193 JavaScript tests, 80 Rust tests, lint, TypeScript
 and production build, Clippy, the focused browser review, container/toolkit tests

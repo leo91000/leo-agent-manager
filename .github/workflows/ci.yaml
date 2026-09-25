@@ -145,6 +145,13 @@ jobs:
       - name: Prepare KVM build host
         run: |
           test -e /dev/kvm
+          # A working L0 device alone does not guarantee nested KVM for our guest.
+          if grep -qw vmx /proc/cpuinfo; then
+            grep -Eq '^(Y|1)$' /sys/module/kvm_intel/parameters/nested
+          else
+            grep -qw svm /proc/cpuinfo
+            grep -Eq '^(Y|1)$' /sys/module/kvm_amd/parameters/nested
+          fi
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android
       - uses: docker/setup-buildx-action@v4.3.0
       - uses: docker/login-action@v4.6.0
@@ -184,6 +191,18 @@ jobs:
         run: |
           node tests/container-smoke.mjs "$SMOKE_IMAGE"
           node tests/runner-smoke.mjs "$SMOKE_IMAGE"
+      - name: Verify accelerated Android inside Firecracker and after restart
+        env:
+          SMOKE_IMAGE: ${{ github.event_name == 'pull_request' && 'leo-agent-manager:test' || format('ghcr.io/{0}@{1}', github.repository, steps.build.outputs.digest) }}
+          ANDROID_SCREENSHOTS: ${{ runner.temp }}/nested-android
+        run: node tests/android-runner-smoke.mjs "$SMOKE_IMAGE"
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: nested-android-evidence
+          path: ${{ runner.temp }}/nested-android/
+          if-no-files-found: ignore
+          retention-days: 14
   publish:
     needs: [resolve, quality, browser, image]
     if: always() && !cancelled() && github.event_name != 'pull_request' && needs.resolve.outputs.reuse != 'true' && needs.quality.result == 'success' && needs.browser.result == 'success' && needs.image.result == 'success'

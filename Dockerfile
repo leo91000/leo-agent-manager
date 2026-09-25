@@ -94,7 +94,9 @@ RUN make x86_64_defconfig && scripts/kconfig/merge_config.sh -m .config /tmp/leo
         --disable WLAN --disable WIRELESS --disable BT --disable HID --disable INPUT \
         --disable SCSI --disable ATA --disable MD --disable MMC --disable FIREWIRE \
         --disable MODULES --disable DEBUG_INFO --disable DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
-    && make olddefconfig && make -j8 vmlinux && strip --strip-debug vmlinux \
+    && make olddefconfig \
+    && for option in KVM KVM_INTEL KVM_AMD; do grep -qx "CONFIG_${option}=y" .config || exit 1; done \
+    && make -j8 vmlinux && strip --strip-debug vmlinux \
     && mv vmlinux /tmp/leo-vmlinux && make clean && mv /tmp/leo-vmlinux vmlinux
 
 FROM runtime AS guest

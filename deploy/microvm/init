@@ -4,6 +4,12 @@ set -eu
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev || true
+# This is the guest kernel's KVM device, never the host's device. Executions
+# use primary GID 1000 and clear supplementary groups; no udev runs here.
+if [ -c /dev/kvm ]; then
+  chown root:1000 /dev/kvm
+  chmod 0660 /dev/kvm
+fi
 mount -t tmpfs tmpfs /run
 mkdir -p /run/data /run/root
 mount -t ext4 -o noatime /dev/vdb /run/data

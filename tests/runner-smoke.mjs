@@ -47,6 +47,7 @@ async function main() {
     await writeFile(path.join(source, 'home/.codex/leo-managed-auth'), '1')
     await writeFile(path.join(source, 'home/.claude/.credentials.json'), JSON.stringify({ fixture: 'provisioned' }))
     await writeFile(path.join(source, 'chat-input/messages.json'), '[]')
+    await writeFile(path.join(source, 'workspace/nested-kvm.c'), await readFile(new URL('./fixtures/nested-kvm.c', import.meta.url)))
     const fixture = `
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -56,6 +57,8 @@ const root=${JSON.stringify(runRoot)};
 const mode=process.argv[2];
 assert.ok(Math.abs(Date.now()-Number(process.argv[3])) < 30000,'clock repaired before execution');
 const project=root+'/workspace/'+${JSON.stringify(projectId)};
+if(mode==='first')execFileSync('cc',['-Wall','-Wextra','-Werror','-O2',root+'/workspace/nested-kvm.c','-o',root+'/workspace/nested-kvm'],{timeout:30000});
+if(mode==='first'||mode==='resume')assert.match(execFileSync(root+'/workspace/nested-kvm',[],{encoding:'utf8',timeout:15000}),/KVM_RUN, rax=42, HLT/);
 assert.match(execFileSync('uname',['-r'],{encoding:'utf8'}),/^6\\.12\\.109/);
 for(const path of ['/data/private-manager-canary','/data/runner-secret','/var/run/docker.sock'])assert.equal(fs.existsSync(path),false,path);
 assert.equal(process.env.RUNNER_TOKEN,undefined);

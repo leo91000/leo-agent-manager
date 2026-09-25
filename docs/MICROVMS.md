@@ -181,3 +181,21 @@ Sources: [Firecracker production setup](https://github.com/firecracker-microvm/f
 [jailer](https://github.com/firecracker-microvm/firecracker/blob/main/docs/jailer.md),
 [vsock transport](https://github.com/firecracker-microvm/firecracker/blob/main/docs/vsock.md),
 [Linux source](https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.109.tar.xz).
+
+## Nested KVM for Android
+
+The guest kernel builds in Intel and AMD KVM. If the outer host enables nested
+virtualization, agent UID/GID 1000 can use the guest-created `/dev/kvm`. This does
+not pass the outer host device into the guest. The default Firecracker CPU
+configuration is preserved so KVM controls which features are available.
+
+Check `/sys/module/kvm_intel/parameters/nested` (`Y` or `1`) or the corresponding
+`kvm_amd` file on the outer host. Configure it through the host's normal boot
+configuration if disabled; do not unload KVM while production VMs run. A cloud
+VM host must itself expose virtualization extensions. Guest package installation
+cannot compensate for unavailable host capabilities.
+
+The image CI requires a nested `KVM_RUN` probe and an actual Android boot/tap and
+restart scenario. The supported lifecycle remains fresh guest boot from disk;
+we do not serialize Firecracker snapshots containing running nested VMs. See
+[research and limitations](NESTED-KVM-RESEARCH.md).

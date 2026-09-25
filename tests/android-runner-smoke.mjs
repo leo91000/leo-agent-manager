@@ -1,5 +1,5 @@
 // Explicit opt-in integration probe: downloads an Android system image and boots
-// a real device twice in a disposable Firecracker run. No production state.
+// a real KVM-accelerated device twice inside a disposable Firecracker run.
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
@@ -38,6 +38,7 @@ async function main() {
       await mkdir(path.join(root, dir), { recursive: true })
     await writeFile(path.join(root, 'data/runner-secret'), 'fixture-android-token')
     await writeFile(path.join(source, 'workspace/probe.mjs'), await readFile(new URL('./fixtures/android-device-probe.mjs', import.meta.url)))
+    await writeFile(path.join(source, 'workspace/nested-kvm.c'), await readFile(new URL('./fixtures/nested-kvm.c', import.meta.url)))
     docker('run', '-d', '--name', name, '--user', '0:0', '--read-only', '--cap-drop', 'ALL', ...['SYS_ADMIN', 'NET_ADMIN', 'SYS_CHROOT', 'SETUID', 'SETGID', 'MKNOD', 'CHOWN', 'FOWNER', 'KILL', 'DAC_OVERRIDE'].flatMap(cap => ['--cap-add', cap]), '--security-opt', 'apparmor=unconfined', '--security-opt', 'seccomp=unconfined', '--device', '/dev/kvm', '--device', '/dev/net/tun', '--sysctl', 'net.ipv4.ip_forward=1', '--sysctl', 'net.ipv6.conf.all.disable_ipv6=1', '--tmpfs', '/run', '--tmpfs', '/tmp', '-v', `${root}/data:/data`, '-v', `${root}/state:/runner-state`, '-p', '127.0.0.1::4311', '--memory', '7g', '--cpus', '3', '--entrypoint', '/usr/local/bin/leo', image, 'runner-broker')
     url = `http://${docker('port', name, '4311/tcp')}`
     await until(() => fetch(`${url}/health`).then(r => r.ok).catch(() => false))

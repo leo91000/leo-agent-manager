@@ -15,7 +15,10 @@ async function main() {
     const timeout = bin !== 'adb' ? 1200000 : args.includes('uiautomator') ? 30000 : 120000
     return execFileSync(bin, args, { env, encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'pipe'] })
   }
-  assert.equal(fs.existsSync('/dev/kvm'), false)
+  run('cc', ['-Wall', '-Wextra', '-Werror', '-O2', 'nested-kvm.c', '-o', 'nested-kvm'])
+  const nested = run('./nested-kvm', [])
+  assert.match(nested, /KVM_RUN, rax=42, HLT/)
+  process.stdout.write(nested)
   assert.equal(env.ANDROID_HOME, '/home/node/.local/share/android/sdk')
   const boot = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8')
   const saved = path.join(env.HOME, 'android-probe.json')
@@ -27,6 +30,9 @@ async function main() {
   const start = Date.now()
   process.stdout.write(run('leo-android', ['setup', '--accept-licenses', 'platforms;android-34', 'build-tools;34.0.0']))
   process.stdout.write(run('leo-android', ['emulator', 'start', '34', '--accept-licenses']))
+  const device = JSON.parse(run('leo-android', ['emulator', 'status']))
+  assert.equal(device.state, 'ready')
+  assert.equal(device.acceleration, 'kvm', 'Android must use nested KVM, not software emulation')
   process.stdout.write(`${JSON.stringify({ bootAndSetupMs: Date.now() - start, mode })}\n`)
   const adb = args => run('adb', ['-s', 'emulator-5580', ...args])
   assert.equal(adb(['shell', 'getprop', 'sys.boot_completed']).trim(), '1')
