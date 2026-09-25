@@ -109,6 +109,9 @@ async function main() {
   process.stdout.write('probe.done\n')
 }
 main().catch((error) => {
+  const log = '/home/node/.android/leo-emulator.log'
+  if (fs.existsSync(log))
+    process.stderr.write(`[DEBUG-nested-kvm] Emulator log:\n${fs.readFileSync(log, 'utf8').slice(-40000)}\n`)
   process.stderr.write(`${error.message}\n${error.stdout?.toString() || ''}\n${error.stderr?.toString() || ''}`)
   process.exitCode = 1
 })
