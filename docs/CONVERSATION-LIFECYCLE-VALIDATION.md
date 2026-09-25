@@ -27,6 +27,8 @@ La commande globale `pnpm check` a rencontré des délais d’attente trop court
 
 ## Limites de la vérification
 
+Le manque de KVM concerne la VM de travail de l’agent. Les workflows CI existants prévoient déjà KVM : le workflow Android active l’accès à l’accélération et celui de l’image exécute le smoke test Firecracker. `ConversationLifecycleDeviceTest` a été ajouté à la liste explicite des tests instrumentés Android de la CI. Ces modifications locales n’ont pas encore été exécutées en CI ; aucun résultat CI n’est revendiqué ici.
+
 Les APK Android et le test JVM du parcours complet sont compilés et validés. Les tentatives sur émulateurs API 36 puis API 29 en mode logiciel n’ont pas permis d’exécuter le test instrumenté. Sur API 29, le service système de permissions a échoué avec `Error granting/upgrading runtime permissions`, puis le démarrage a dépassé son délai de dix minutes. L’émulateur a été arrêté. Le test `ConversationLifecycleDeviceTest` reste à exécuter sur un appareil ou un émulateur opérationnel ; le test JVM ne le remplace pas.
 
 S3 et Glacier sont exercés avec un exécutable AWS de test utilisant le système de fichiers. Aucun transfert vers un compte AWS réel n’a été effectué. Les données locales ne sont libérées qu’après téléchargement et vérification SHA-256 de l’objet chiffré.
