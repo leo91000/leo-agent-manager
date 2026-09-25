@@ -28,7 +28,13 @@ async function main() {
     assert.equal(fs.statSync(path.join(env.ANDROID_HOME, 'cmdline-tools/latest/bin/sdkmanager')).mtimeMs, previous.sdkMtime)
   }
   const start = Date.now()
-  process.stdout.write(run('leo-android', ['setup', '--accept-licenses', 'platforms;android-34', 'build-tools;34.0.0']))
+  process.stdout.write(run('leo-android', ['setup', '--accept-licenses', 'platforms;android-34', 'build-tools;34.0.0', 'emulator', 'system-images;android-34;google_apis;x86_64']))
+  // [DEBUG-nested-kvm] Capture the L2 kernel without changing boot parameters.
+  const emulatorBinary = path.join(env.ANDROID_HOME, 'emulator/emulator')
+  if (!fs.existsSync(`${emulatorBinary}.real`)) {
+    fs.renameSync(emulatorBinary, `${emulatorBinary}.real`)
+    fs.writeFileSync(emulatorBinary, '#!/bin/sh\nexec "$(dirname "$0")/emulator.real" -show-kernel "$@"\n', { mode: 0o755 })
+  }
   process.stdout.write(run('leo-android', ['emulator', 'start', '34', '--accept-licenses']))
   const device = JSON.parse(run('leo-android', ['emulator', 'status']))
   assert.equal(device.state, 'ready')
@@ -111,7 +117,12 @@ async function main() {
 main().catch((error) => {
   const log = '/home/node/.android/leo-emulator.log'
   if (fs.existsSync(log))
-    process.stderr.write(`[DEBUG-nested-kvm] Emulator log:\n${fs.readFileSync(log, 'utf8').slice(-40000)}\n`)
+    process.stderr.write(`[DEBUG-nested-kvm] Emulator log:\n${fs.readFileSync(log, 'utf8').slice(-60000).replace(/^.*(?:adb public key|adb.pubkey).*$/gm, '<REDACTED>')}\n`)
+  process.stderr.write(`[DEBUG-nested-kvm] Memory:\n${fs.readFileSync('/proc/meminfo', 'utf8')}\n`)
+  try {
+    process.stderr.write(`[DEBUG-nested-kvm] Guest kernel:\n${execFileSync('dmesg', { encoding: 'utf8', timeout: 5000 }).slice(-20000)}\n`)
+  }
+  catch {}
   process.stderr.write(`${error.message}\n${error.stdout?.toString() || ''}\n${error.stderr?.toString() || ''}`)
   process.exitCode = 1
 })
