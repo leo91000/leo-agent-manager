@@ -27,6 +27,55 @@ fn config(root: &TempDir) -> Config {
     }
 }
 
+#[tokio::test]
+async fn restart_restores_missing_chat_summaries_once_without_repeating_existing_answers() {
+    let root = TempDir::new().unwrap();
+    let config = config(&root);
+    let service = Service::new(config.clone()).await.unwrap();
+    let ids = [id(), id(), id(), id(), id(), id(), id()];
+    let fixtures = ids.clone();
+    service.store.transaction(move |db| {
+        for (index, run_id) in fixtures.iter().enumerate() {
+            let status = match index { 3 => "running", 4 => "failed", _ => "succeeded" };
+            db.add_run(&json!({"id":run_id,"taskId":id(),"projectId":null,"status":status,
+                "createdAt":1,"finishedAt":2,"trigger":"chat","summary":if index == 5 { "x".repeat(100000) } else if index == 6 { " \n\t".into() } else { "The requested work is complete.".into() }}), None)?;
+            if index == 1 || index == 2 {
+                db.event(run_id, "item.completed", "The requested work is complete.", Some(&json!({
+                    "type":"item.completed","item":{"id":"existing","type":"agent_message","text":"The requested work is complete.\n"}
+                })))?;
+            }
+            if index == 5 {
+                db.event(run_id, "item.completed", "", Some(&json!({"item":{"type":"agent_message","text":"x".repeat(100001)}})))?;
+            }
+            if index == 2 {
+                db.event(run_id, "chat.user", "Check again", None)?;
+            }
+        }
+        Ok(())
+    }).await.unwrap();
+    for _ in 0..2 {
+        let restarted = Service::new(config.clone()).await.unwrap();
+        restarted.worker.initialize(&restarted).await.unwrap();
+        for (index, run_id) in ids.iter().enumerate() {
+            let run_id = run_id.clone();
+            let events = restarted
+                .store
+                .read(move |db| db.events(&run_id, 0, 100))
+                .await
+                .unwrap();
+            let answers = events
+                .iter()
+                .filter(|e| e["payload"]["item"]["type"] == "agent_message")
+                .count();
+            assert_eq!(
+                answers,
+                [1, 1, 2, 0, 0, 1, 0][index],
+                "case {index}: missing or duplicated summary"
+            );
+        }
+    }
+}
+
 #[test]
 fn weekly_schedules_and_dst_transitions_match_the_existing_scheduler() {
     let cases = json!([

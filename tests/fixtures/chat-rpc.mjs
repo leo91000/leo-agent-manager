@@ -99,6 +99,20 @@ export function chatFixture() {
         notify('item/completed', { threadId: thread.id, item: command })
       }
       const text = params.input[0].text
+      if (text.includes('fixture:verbose-tools')) {
+        for (let index = 0; index < 60; index++)
+          notify('item/completed', { threadId: thread.id, item: { id: `verbose-${index}`, type: 'commandExecution', command: 'fixture verbose output', status: 'completed', exitCode: 0, aggregatedOutput: 'x'.repeat(100_000) } })
+        if (text.includes('fixture:verbose-tools-fail')) {
+          active.status = 'failed'
+          active.error = { message: 'Failure after verbose tools' }
+          notify('turn/completed', { threadId: thread.id, turn: active })
+          active = null
+          return true
+        }
+        notify('item/started', { threadId: thread.id, item: { id: 'after-tools', type: 'agentMessage', text: '' } })
+        notify('item/agentMessage/delta', { threadId: thread.id, itemId: 'after-tools', delta: 'Still responding after verbose tools.' })
+        notify('item/completed', { threadId: thread.id, item: { id: 'after-tools', type: 'agentMessage', text: 'Still responding after verbose tools.' } })
+      }
       if (text.includes('fixture:exhaust') && !existsSync(path.join(process.env.CODEX_HOME, 'fixture-exhausted.json'))) {
         writeFileSync(path.join(process.env.CODEX_HOME, 'fixture-exhausted.json'), JSON.stringify({ account: globalThis.fixtureAccountId, cwd: process.cwd() }))
         writeFileSync(path.join(process.cwd(), 'preserved-work.txt'), 'work before exhaustion')

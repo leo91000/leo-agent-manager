@@ -1,4 +1,10 @@
-# Leo Android 0.33.3 — Explication des skills indisponibles
+# Leo Android 0.33.4 — Réponses préservées dans les longues conversations
+
+- Le serveur conserve les messages de l’agent et les erreurs même lorsque les sorties d’outils atteignent leur limite de journalisation.
+- Au redémarrage, les conclusions encore disponibles dans les résumés des conversations terminées sont réintégrées à l’historique si elles manquent, sans doublon.
+- Le correctif serveur fonctionne avec les applications déjà installées. Les échanges dont aucune copie n’a été sauvegardée ne sont pas reconstitués.
+
+## Leo Android 0.33.3 — Explication des skills indisponibles
 
 - Taper `$` sans skill accessible affiche « Aucun skill disponible pour cette conversation », avec une indication vers la bibliothèque Skills.
 - Une recherche sans résultat affiche un message distinct. Retour ferme le panneau sans effacer le brouillon ; l’envoi reste disponible.

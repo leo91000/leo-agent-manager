@@ -410,6 +410,47 @@ impl Db<'_> {
         }
         Ok(())
     }
+    /// Repair completed chats whose answer survived only in the run summary.
+    /// Match within the latest user turn so repeated answers in later turns survive.
+    pub(crate) fn restore_chat_summaries(&self) -> Result<()> {
+        let summaries = self.json_rows(
+            "SELECT json_object('id',r.id,'summary',json_extract(r.data,'$.summary'),
+                'finishedAt',json_extract(r.data,'$.finishedAt')) FROM runs r
+             WHERE r.status='succeeded' AND json_extract(r.data,'$.trigger')='chat'
+               AND length(trim(COALESCE(json_extract(r.data,'$.summary'),''),char(9)||char(10)||char(13)||' '))>0
+               AND NOT EXISTS (
+                 SELECT 1 FROM events e WHERE e.run_id=r.id
+                   AND e.id>COALESCE((SELECT MAX(u.id) FROM events u WHERE u.run_id=r.id AND u.type='chat.user'),0)
+                   AND (json_extract(e.payload,'$.item.type')='agent_message'
+                     OR (e.type='item.completed' AND json_extract(e.payload,'$.item.type') IS NULL))
+                   AND trim(substr(COALESCE(json_extract(e.payload,'$.item.text'),e.text),1,100000),char(9)||char(10)||char(13)||' ')
+                     =trim(json_extract(r.data,'$.summary'),char(9)||char(10)||char(13)||' ')
+               )",
+            [],
+        )?;
+        for run in summaries {
+            let id = run["id"].as_str().unwrap();
+            let summary = run["summary"].as_str().unwrap();
+            let finished = run["finishedAt"].as_i64().unwrap_or_else(now);
+            self.event(
+                id,
+                "item.completed",
+                summary,
+                Some(&json!({
+                    "type":"item.completed","item":{
+                        "id":format!("recovered-summary:{id}:{finished}"),
+                        "type":"agent_message","phase":"final","text":summary,
+                        "recovered":true
+                    }
+                })),
+            )?;
+            self.0.execute(
+                "UPDATE events SET created_at=? WHERE id=?",
+                params![finished, self.0.last_insert_rowid()],
+            )?;
+        }
+        Ok(())
+    }
     pub fn events(&self, run: &str, after: i64, limit: i64) -> Result<Vec<Value>> {
         self.event_page(run, after, limit)?
             .into_iter()

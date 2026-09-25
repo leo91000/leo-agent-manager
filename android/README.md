@@ -1,5 +1,7 @@
 # Leo for Android
 
+Version 0.33.4 preserves assistant messages after verbose tool output and restores missing saved summaries on the server. Existing Android clients benefit without an app update.
+
 Version 0.33.3 explains when `$` has no available skills or no matching results, alongside skill autocomplete and highlighted mentions (server 0.33.0).
 Version 0.31.0 redesigns the GitHub repository picker: cards with language, stars and recent activity, visibility filters, highlighted search and automatic loading while scrolling (server 0.31.0).
 Version 0.30.1 shows waiting reasons in conversations and links to Connections when Claude Code needs to reconnect.

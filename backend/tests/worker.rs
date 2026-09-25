@@ -17,6 +17,77 @@ struct Fixture {
 }
 
 #[tokio::test]
+async fn verbose_tools_do_not_hide_chat_answers_or_failures() {
+    for fail in [false, true] {
+        let mut fixture = Fixture::new().await;
+        let s = &fixture.service;
+        let chat = s.chat_create(json!({})).await.unwrap();
+        let chat_id = text(&chat, "id");
+        let prompt = if fail {
+            "fixture:verbose-tools-fail"
+        } else {
+            "fixture:verbose-tools"
+        };
+        s.chat_send(chat_id, json!({"id":id(),"text":prompt}))
+            .await
+            .unwrap();
+        let run_id = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(id) = s.chat_detail(chat_id).await.unwrap()["runId"].as_str() {
+                    break id.to_owned();
+                }
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let run = fixture
+            .until(&run_id, |r| {
+                r["status"] == "succeeded" || r["status"] == "failed"
+            })
+            .await;
+        assert_eq!(run["status"], if fail { "failed" } else { "succeeded" });
+        let (events, tail) = s
+            .store
+            .read(move |db| {
+                Ok((
+                    db.events(&run_id, 0, 500)?,
+                    serde_json::to_value(db.events_before(&run_id, i64::MAX)?.0)?,
+                ))
+            })
+            .await
+            .unwrap();
+        assert!(
+            events
+                .iter()
+                .filter(|e| e["payload"]["item"]["type"] == "command_execution")
+                .count()
+                < 60,
+            "Verbose tool history must still be bounded"
+        );
+        if fail {
+            assert!(events.iter().any(|e| e["type"] == "turn.failed"
+                && text(&e["payload"]["error"], "message") == "Failure after verbose tools"));
+        } else {
+            assert!(text(&run, "summary").contains("Ready for the next step."));
+            assert!(
+                tail.as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|event| event["payload"]["item"]["type"] == "agent_message"
+                        && text(&event["payload"]["item"], "text")
+                            .contains("Ready for the next step.")),
+                "The completed answer must reach the newest conversation page even after verbose tools"
+            );
+            assert!(events.iter().any(|e| e["type"] == "item.updated"
+                && e["payload"]["item"]["text"] == "Still responding after verbose tools."));
+            assert!(events.iter().any(|event| event["type"] == "turn.completed"));
+        }
+        fixture.stop(false).await;
+    }
+}
+
+#[tokio::test]
 async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replaying_turns() {
     let mut fixture = Fixture::new().await;
     let s = &fixture.service;

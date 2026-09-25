@@ -105,6 +105,18 @@ new message starts; explicit resume clears it too. Expired grants and grants for
 an earlier message cannot change the new turn. A blocked/input-required outcome
 places a technically successful run under **Needs attention**.
 
+## Conversation output retention
+
+The 5 MB per-execution log budget applies to tool and diagnostic output. Assistant
+messages, thread/turn markers and errors remain recorded after that budget is
+exhausted, so the conversation can display the answer alongside its final status.
+
+On startup, completed chats whose saved summary is missing from the latest user
+turn receive that summary as a recovered assistant message. Existing answers,
+including answers longer than the stored summary, are not duplicated. Running and
+failed chats are not repaired this way. Only the final summary still saved in the
+run can be recovered; missing intermediate exchanges cannot be reconstructed.
+
 ## Validation
 
 - Rust integration tests cover stale/dirty sources, actual missing promisor blobs,

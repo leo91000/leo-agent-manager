@@ -62,6 +62,7 @@ impl Worker {
         self.initialized
             .get_or_try_init(|| {
                 s.store.transaction(|db| {
+                    db.restore_chat_summaries()?;
                     for run in db.active()? {
                         let id = text(&run, "id");
                         if run["status"] != "running" {
@@ -1369,8 +1370,21 @@ async fn record(
                     .await?;
             }
         }
-        if *total < 5_000_000 {
-            *total += raw.len();
+        // Tool/diagnostic volume must never hide the conversation or its outcome.
+        // Keep turn markers as well: clients use them to scope reused message IDs.
+        let conversation = event["item"]["type"] == "agent_message"
+            || [
+                "thread.started",
+                "turn.started",
+                "turn.completed",
+                "turn.failed",
+                "error",
+            ]
+            .contains(&text(&event, "type"));
+        if conversation || *total < 5_000_000 {
+            if !conversation {
+                *total += raw.len();
+            }
             let value = event["item"]
                 .get("text")
                 .or_else(|| event["item"].get("aggregated_output"))
