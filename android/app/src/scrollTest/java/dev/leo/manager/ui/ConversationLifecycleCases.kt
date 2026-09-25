@@ -117,7 +117,10 @@ abstract class ConversationLifecycleCases {
                     moveTo(Offset(width * .6f, centerY))
                     moveTo(Offset(width * .3f, centerY))
                 }
-                if (fromFil) captureSwipe()
+                if (fromFil) {
+                    compose.waitForIdle()
+                    captureSwipe()
+                }
                 row.performTouchInput { up() }
                 compose.waitUntil(10000) { deletes.size == 1 }
                 compose.waitUntil(10000) { compose.onAllNodesWithText("Conversation supprimée").fetchSemanticsNodes().isNotEmpty() }
