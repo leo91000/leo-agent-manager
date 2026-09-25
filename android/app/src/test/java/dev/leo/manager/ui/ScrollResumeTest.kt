@@ -189,8 +189,9 @@ class ScrollResumeTest {
                 compose.onNodeWithContentDescription("Derniers messages").assertExists()
                 val viewport = compose.onNodeWithTag("conversation-history").fetchSemanticsNode().boundsInRoot
                 val arrow = compose.onNodeWithContentDescription("Derniers messages").fetchSemanticsNode().boundsInRoot
-                assertTrue("The latest-message control floats at the top right", arrow.top >= viewport.top &&
-                    arrow.bottom <= viewport.top + 72f && arrow.right <= viewport.right && arrow.left >= viewport.right - 72f)
+                assertTrue("The latest-message control floats centred above the composer", arrow.bottom <= viewport.bottom &&
+                    arrow.top >= viewport.bottom - 72f && arrow.bottom <= composerTop &&
+                    kotlin.math.abs((arrow.left + arrow.right) / 2 - (viewport.left + viewport.right) / 2) < 1f)
                 assertEquals("Showing the overlay does not move the composer", composerTop,
                     compose.onNodeWithTag("conversation-composer").fetchSemanticsNode().boundsInRoot.top, 0.1f)
                 fun position() =
