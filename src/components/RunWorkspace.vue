@@ -133,7 +133,7 @@ async function copy() {
         </UiButton>
       </div>
     </div>
-    <p v-if="connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
+    <p v-if="!run && connectionNotice" role="status" class="px-4 py-2 text-xs text-muted">
       {{ connectionNotice }}
     </p>
     <UiAlert v-if="error">
@@ -199,6 +199,9 @@ async function copy() {
         <div v-else class="result-content flex-1 min-h-0 overflow-auto overscroll-contain [scrollbar-width:thin] text-sm leading-[1.8] p-7.5 phone:p-5.5">
           <RunDetails :run="run" :active="!!active" @cleanup="confirmCleanup = true" />
         </div>
+        <p v-if="connectionNotice" role="status" class="shrink-0 border-t border-line px-4 py-2 text-xs text-muted">
+          {{ connectionNotice }}
+        </p>
       </section>
       <p v-if="!embedded" class="muted text-muted run-id text-2xs mt-[17px] wrap-anywhere">
         Run {{ run.id

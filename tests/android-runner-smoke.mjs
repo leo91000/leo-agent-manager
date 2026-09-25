@@ -14,6 +14,21 @@ async function main() {
   const root = await mkdtemp(path.join(process.env.VM_TEST_ROOT || '/var/tmp', 'leo-android-vm-'))
   const name = `leo-android-test-${randomUUID().slice(0, 8)}`
   const docker = (...args) => execFileSync('docker', ['--context', 'default', ...args], { encoding: 'utf8', timeout: 180000 }).trim()
+  const results = []
+  let evidence
+  if (process.env.ANDROID_EVIDENCE) {
+    assert.notEqual(process.env.KEEP_VM_TEST, '1', 'Qualification requires cleanup')
+    assert.match(image, /^ghcr\.io\/[\w.-]+\/[\w.-]+@sha256:[a-f0-9]{64}$/)
+    const cpu = await readFile('/proc/cpuinfo', 'utf8')
+    assert.match(cpu, /vendor_id\s*:\s*GenuineIntel/)
+    assert.equal(process.env.ANDROID_TEST_SYSTEM, 'aosp')
+    assert.equal(process.env.ANDROID_TEST_API || '34', '34')
+    assert.match(process.env.ANDROID_TEST_COMMIT || '', /^[a-f0-9]{40}$/)
+    docker('pull', image)
+    const labels = JSON.parse(docker('image', 'inspect', '--format', '{{json .Config.Labels}}', image))
+    assert.equal(labels['org.opencontainers.image.revision'], process.env.ANDROID_TEST_COMMIT)
+    evidence = { schema: 1, repository: image.slice('ghcr.io/'.length).split('@')[0], image, commit: process.env.ANDROID_TEST_COMMIT, cpuVendor: 'GenuineIntel', api: '34', system: 'aosp', results }
+  }
   const runId = randomUUID()
   const runRoot = `/data/runs/${runId}`
   let url
@@ -81,7 +96,9 @@ async function main() {
       const result = await (await api(`/runs/${id}/wait`, 'POST')).json()
       assert.equal(result.StatusCode, 0, output.slice(-6000))
       assert.ok(output.includes('probe.done'))
-      process.stdout.write(`${JSON.stringify({ mode, durationMs: Date.now() - started, status: 'passed' })}\n`)
+      const passed = { mode, durationMs: Date.now() - started, status: 'passed' }
+      results.push(passed)
+      process.stdout.write(`${JSON.stringify(passed)}\n`)
     }
   }
   catch (error) {
@@ -103,6 +120,8 @@ async function main() {
       await rm(root, { recursive: true, force: true })
     }
   }
+  if (evidence)
+    await writeFile(process.env.ANDROID_EVIDENCE, JSON.stringify({ ...evidence, completedAt: new Date().toISOString() }, null, 2))
 }
 main().catch((error) => {
   console.error(error)

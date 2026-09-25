@@ -91,3 +91,41 @@ test('keeps activity scrolling inside the workspace and gives tabs breathing roo
     }
   }
 })
+
+test('a tab click survives completion of the cached run refresh', async ({ page, workspace }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/tasks')
+  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.locator('.shell')).toBeVisible()
+  const runs = await workspace.api('/api/runs')
+  const run = runs.find((value: { status: string }) => value.status === 'succeeded')
+  await page.goto(`/runs/${run.id}`)
+  await page.getByRole('button', { name: /^Activity/ }).click()
+  await expect(page.locator('.activity-message').first()).toBeVisible()
+  await page.getByRole('link', { name: 'Back to runs' }).click()
+  let release!: () => void
+  const refresh = new Promise<void>(resolve => release = resolve)
+  await page.route(`**/api/runs/${run.id}/stream?*`, async (route) => {
+    await refresh
+    await route.continue()
+  })
+  try {
+    await page.locator(`.run-table a[href="/runs/${run.id}"]`).first().click()
+    const updating = page.getByRole('status').filter({ hasText: 'Updating…' })
+    await expect(updating).toBeVisible()
+    const tab = page.getByRole('button', { name: /^Activity/ })
+    const box = await tab.boundingBox()
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    await page.mouse.down()
+    release()
+    await expect(updating).not.toBeVisible()
+    await page.mouse.up()
+    await expect(tab).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.activity-message').first()).toBeVisible()
+  }
+  finally {
+    release()
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+  }
+})
