@@ -371,7 +371,7 @@ class ChatJourneyTest {
             screenshot("chat")
             compose
                 .onNodeWithTag("conversation-history")
-                .performScrollToNode(hasText("1 action de l’agent"))
+                .performScrollToNode(hasTestTag("agent-actions"))
             compose.runOnIdle {
                 val activity =
                     androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
@@ -455,13 +455,17 @@ class ChatJourneyTest {
             screenshot("chat-dark")
             compose
                 .onNodeWithTag("conversation-history")
-                .performScrollToNode(hasText("1 action de l’agent"))
-            compose.onNodeWithText("1 action de l’agent").performClick()
+                .performScrollToNode(hasTestTag("agent-actions"))
+            // Collapsed, the actions read as one sentence; expanded, as a timeline of steps.
+            compose.onNodeWithTag("agent-actions").assert(hasText("A lancé 1 commande")).performClick()
             compose.onNodeWithText("État du dépôt Git").assertExists()
             compose.onNodeWithText("État du dépôt Git").performClick()
+            compose.onNodeWithTag("agent-step-sheet").assertExists()
             compose.onNodeWithText("Workspace clean").assertExists()
             screenshot("chat-tools-dark")
-            compose.onNodeWithText("1 action de l’agent").performClick()
+            compose.onNodeWithContentDescription("Fermer").performClick()
+            compose.waitUntil(10000) { compose.onAllNodesWithTag("agent-step-sheet").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("agent-actions").performClick()
             compose
                 .onNode(hasSetTextAction())
                 .performTextInput(

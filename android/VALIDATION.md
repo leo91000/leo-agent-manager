@@ -1,4 +1,18 @@
-# Android 0.35.0 — pasting images into the composer
+# Android 0.36.0 — live step and agent actions
+
+`WorkingIndicatorTest` covers the step choice (running step with its command, last finished
+step otherwise, earlier turns and session notices ignored, failed steps never shown as
+running, time from the latest message), per-second elapsed time, the polite live-region
+announcement and both themes. `AgentStepsTest` covers the summary sentence, folding of
+consecutive reads, named edited files, failures kept apart, hiding the running step while
+the agent works, the expanded timeline and the step detail sheet. The chat, workspace and
+Signal journeys now open steps from the timeline and read their output in the sheet.
+
+Local validation (Robolectric, not an emulator): the complete unit and UI suite passes,
+`lintDebug` reports no issue, and debug, instrumentation and release builds succeed.
+The Android workflow runs the Android 16 device journeys before publishing.
+
+## Previous validation: Android 0.35.0 — pasting images into the composer
 
 `ImagePasteCases` is shared by the Robolectric and Android 16 device suites. It puts a
 FileProvider PNG on the clipboard, pastes it into the composer through the text field's

@@ -860,7 +860,7 @@ fun ChatScreen(
                                 }
                             historyHeader(live, loadOlder)
                             items(timeline, key = { it.key }) {
-                                TimelineRow(vm, it, chat?.agentName ?: "Leo", rendering)
+                                TimelineRow(vm, it, chat?.agentName ?: "Leo", rendering, hideRunning = chat?.run?.status == "running")
                             }
                             if (!active && delivery.sending.isEmpty() && !live.catchingUp)
                                 chat?.run?.outcome?.let { outcome ->

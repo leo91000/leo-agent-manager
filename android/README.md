@@ -1,5 +1,6 @@
 # Leo for Android
 
+Version 0.36.0 shows the agent’s live step with the « Souffle » indicator and presents agent actions as a one-sentence summary that expands into a timeline, with full step details in a sheet.
 Version 0.35.0 lets you paste images, or insert them from the keyboard, into the chat composer as attachments.
 Version 0.34.0 introduces the « Signal » interface: Fil, Missions and Atelier tabs with an always-available new-conversation button, on-screen agent/project choice, missions with readable schedules and run history, a connection-first Atelier, universal search and a paper/ink palette with the Leo blue accent. See [release notes](RELEASE-NOTES.md).
 Version 0.33.4 preserves assistant messages after verbose tool output and restores missing saved summaries on the server. Existing Android clients benefit without an app update.

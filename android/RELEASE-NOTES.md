@@ -1,4 +1,11 @@
-# Leo Android 0.35.0
+# Leo Android 0.36.0 — Travail de l’agent plus lisible
+
+- **Indicateur « Souffle »** : pendant que l’agent travaille, la conversation et l’exécution affichent l’étape réelle en cours (par exemple « Exécuter les tests » avec sa commande), un halo qui respire, un reflet sur le texte et la durée à la seconde depuis votre dernier message. Sans étape en cours, l’indicateur rappelle la dernière étape terminée. L’étape est annoncée par TalkBack et l’animation suit le réglage d’animations du système.
+- **Actions de l’agent** : repliées, elles se résument en une phrase (« A lu 2 fichiers, cherché 1 fois, modifié 2 fichiers, lancé 1 commande ») avec le nombre d’étapes et d’échecs. Dépliées, elles forment une frise : une ligne par étape, lectures successives regroupées, fichiers modifiés nommés, échecs signalés avec leur code.
+- Toucher une étape ouvre son détail complet dans une feuille : commande, sortie, diff ou résultat structuré, bouton « Copier la sortie » et source technique. L’étape en cours n’est plus répétée sous l’indicateur.
+- Aucune modification du serveur n’est nécessaire.
+
+## Leo Android 0.35.0
 
 - Une image copiée peut être collée directement dans le champ de message (appui long → **Coller**) : elle rejoint les pièces jointes du brouillon au lieu d’être ignorée.
 - Les images proposées par le clavier (presse-papiers de Gboard, GIF, autocollants) sont aussi ajoutées en pièce jointe.

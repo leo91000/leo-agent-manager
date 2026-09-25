@@ -286,10 +286,15 @@ class WorkspaceJourneyTest {
             // The indicator names the command still running in the fixture.
             compose.onNodeWithTag("agent-working")
                 .assert(hasContentDescription("Exécuter les tests : ./gradlew testDebugUnitTest"))
-            compose.onNodeWithText("1 action de l’agent").performClick()
+            // The running command is carried by the indicator; the actions keep the finished steps.
+            compose.onNodeWithTag("agent-actions").assert(hasText("Suivi de l’exécution")).performClick()
+            compose.onNodeWithText("Exécuter les tests").assertDoesNotExist()
             compose.onNodeWithText("Travail commencé").performClick()
+            compose.onNodeWithTag("agent-step-sheet").assertExists()
             compose.onNodeWithText("Le worker démarre la mission").assertExists()
-            compose.onNodeWithText("1 action de l’agent").performClick()
+            compose.onNodeWithContentDescription("Fermer").performClick()
+            compose.waitUntil(10000) { compose.onAllNodesWithTag("agent-step-sheet").fetchSemanticsNodes().isEmpty() }
+            compose.onNodeWithTag("agent-actions").performClick()
             assertTrue(mutations.any { it.first == "/api/tasks/task/run" })
             screenshot("run")
             compose.onNodeWithContentDescription("Retour").performClick()

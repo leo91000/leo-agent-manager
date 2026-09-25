@@ -170,7 +170,7 @@ private fun Outcome(
 }
 
 @Composable
-private fun ActivityBody(p: ActivityPresentation) {
+internal fun ActivityBody(p: ActivityPresentation) {
     val item = p.item
     when (p.kind) {
         ActivityKind.COMMAND,
@@ -303,7 +303,7 @@ internal fun Disclosure(
 }
 
 @Composable
-private fun AdvancedSource(source: String) {
+internal fun AdvancedSource(source: String) {
     Disclosure("Détails techniques · JSON / source") { CodeBlock("Source enregistrée", source) }
 }
 
