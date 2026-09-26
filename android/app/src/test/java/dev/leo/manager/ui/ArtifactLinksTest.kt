@@ -40,6 +40,7 @@ class ArtifactLinksTest {
             val paths = CopyOnWriteArrayList<String>()
             val public = AtomicBoolean(false)
             val file = Deliverable(id = "file", runId = "older", key = "notes", name = "notes.md", kind = "markdown", mediaType = "text/markdown")
+            val sibling = file.copy(id = "sibling", key = "appendix", name = "appendix.md")
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.path!!
@@ -57,8 +58,9 @@ class ArtifactLinksTest {
                             wireJson.encodeToString(file.copy(visibility = if (public.get()) "public" else "private",
                                 publicUrl = if (public.get()) server.url("/api/public/artifacts/public-fixture").toString() else null))
                         "/api/session" -> return MockResponse().setHeader("Set-Cookie", "leo_session=fixture; Path=/; HttpOnly").setBody("{\"authenticated\":true,\"csrf\":\"fixture\"}")
-                        "/api/runs/older/artifacts" -> wireJson.encodeToString(listOf(file))
+                        "/api/runs/older/artifacts" -> wireJson.encodeToString(listOf(file, sibling))
                         "/api/runs/older/artifacts/file?download=1" -> "Document conservé depuis un ancien run."
+                        "/api/runs/older/artifacts/sibling?download=1" -> "Annexe du même run."
                         "/api/agents" -> wireJson.encodeToString(listOf(Agent(id = MAIN_AGENT_ID, name = "Leo")))
                         "/api/overview", "/api/codex/models" -> "{}"
                         else -> "[]"
@@ -94,6 +96,10 @@ class ArtifactLinksTest {
             compose.onNodeWithText("Désactiver le lien public").performClick()
             compose.waitUntil(10000) { compose.onAllNodesWithText("Fichier privé").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Fermer", useUnmergedTree = true).performClick()
+            compose.onNodeWithTag("artifact-pager").performTouchInput { swipeLeft() }
+            compose.waitUntil(10000) { paths.contains("/api/runs/older/artifacts/sibling?download=1") }
+            compose.onNodeWithText("appendix.md").assertExists()
+            compose.onNodeWithText("2 / 2").assertExists()
             compose.onNodeWithContentDescription("Fermer le fichier").performClick()
             assertEquals(listOf("/api/runs/older/artifacts", "/api/runs/older/artifacts/file?download=1"), paths.take(2))
         }
