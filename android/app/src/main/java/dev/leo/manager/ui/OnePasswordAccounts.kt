@@ -1,9 +1,14 @@
 package dev.leo.manager.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import dev.leo.manager.data.*
 import kotlinx.serialization.Serializable
@@ -33,32 +38,54 @@ fun OnePasswordAccounts(vm: LeoViewModel, state: Workspace) {
     LaunchedEffect(Unit) {
         try { load() } catch (e: Exception) { error = e.message; vm.report(e) }
     }
-    Text("1Password", style = MaterialTheme.typography.titleLarge)
-    Text("Ajoutez vos comptes de service et autorisez les agents de votre choix. Aucun agent n’a accès par défaut, y compris l’agent principal.")
-    Button(onClick = { vm.clearMessage(); editing = OnePasswordAccount() }, enabled = loaded && !state.busy) {
-        Text("Ajouter un compte 1Password")
-    }
-    if (!loaded) {
-        if (error == null) LinearProgressIndicator()
-        else TextButton(onClick = { vm.perform { load() } }, enabled = !state.busy) { Text("Réessayer 1Password") }
-    }
-    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-    notice?.let { Text(it) }
-    if (loaded && accounts.isEmpty()) Text("Aucun compte 1Password.")
-    accounts.forEach { account ->
-        Panel {
-            Text(account.name, style = MaterialTheme.typography.titleMedium)
-            Text(if (account.enabled) "Activé" else "Désactivé")
-            Text("${account.agentIds.count { id -> state.agents.any { it.id == id } }} agents autorisés")
-            TextButton(onClick = { vm.clearMessage(); editing = account }, enabled = !state.busy) { Text("Modifier les accès / le token") }
-            TextButton(onClick = {
-                notice = null
-                vm.perform {
-                    api.request("POST", "/onepassword/${segment(account.id)}/test")
-                    notice = "${account.name} : connexion vérifiée"
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) { Icon(LeoIcons.Key, null, Modifier.size(18.dp)) }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("1Password", style = MaterialTheme.typography.titleSmall)
+                val agents = accounts.filter { it.enabled }.flatMap { it.agentIds }.filter { id -> state.agents.any { it.id == id } }.distinct().size
+                Text(
+                    when {
+                        !loaded -> "…"
+                        accounts.isEmpty() -> "Aucun compte de service"
+                        else -> "${accounts.size} compte${if (accounts.size > 1) "s" else ""} · partagé avec $agents agent${if (agents > 1) "s" else ""}"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = { vm.clearMessage(); editing = OnePasswordAccount() }, enabled = loaded && !state.busy) { Text("Ajouter") }
+        }
+        if (!loaded && error != null)
+            TextButton(onClick = { vm.perform { load() } }, enabled = !state.busy) { Text("Réessayer 1Password") }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        accounts.forEach { account ->
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 4.dp)) {
+                    Text(account.name, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "${if (account.enabled) "Activé" else "Désactivé"} · ${account.agentIds.count { id -> state.agents.any { it.id == id } }} agents autorisés",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row {
+                        TextButton(onClick = { vm.clearMessage(); editing = account }, enabled = !state.busy) { Text("Modifier") }
+                        TextButton(onClick = {
+                            notice = null
+                            vm.perform {
+                                api.request("POST", "/onepassword/${segment(account.id)}/test")
+                                notice = "${account.name} : connexion vérifiée"
+                            }
+                        }, enabled = !state.busy) { Text("Tester") }
+                        TextButton(onClick = { vm.clearMessage(); removing = account }, enabled = !state.busy) { Text("Supprimer") }
+                    }
                 }
-            }, enabled = !state.busy) { Text("Tester la connexion") }
-            TextButton(onClick = { vm.clearMessage(); removing = account }, enabled = !state.busy) { Text("Supprimer") }
+            }
         }
     }
     editing?.let { initial ->
@@ -111,7 +138,7 @@ fun OnePasswordEditor(vm: LeoViewModel, state: Workspace, initial: OnePasswordAc
         Text("Les agents disposent uniquement de la lecture. Les coffres accessibles dépendent des permissions du compte dans 1Password.")
         Toggle("Activer ce compte", enabled) { if (!state.busy) enabled = it }
         Text("Agents autorisés", style = MaterialTheme.typography.titleMedium)
-        Text("Retirer un agent bloque immédiatement ses prochaines lectures. Les secrets déjà récupérés ne peuvent pas être rappelés.")
+        Text("Aucun agent n’a accès par défaut, y compris l’agent principal. Retirer un agent bloque immédiatement ses prochaines lectures. Les secrets déjà récupérés ne peuvent pas être rappelés.")
         state.agents.forEach { agent ->
             Toggle(agent.name, agent.id in agents) { allowed ->
                 if (!state.busy) agents = if (allowed) agents + agent.id else agents - agent.id

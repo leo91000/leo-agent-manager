@@ -3,13 +3,13 @@ use crate::{
     error::{Error, Result},
     http::Input,
     service::{Service, next_occurrences},
-    validation::{text, uuid},
+    validation::text,
 };
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc};
 pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
-    if input.path.starts_with("/api/claude/") {
-        return crate::claude::routes(s, input).await;
+    if input.path == "/api/accounts" || input.path.starts_with("/api/accounts/") {
+        return crate::accounts::routes(s, input).await;
     }
     if input.path == "/api/onepassword" || input.path.starts_with("/api/onepassword/") {
         return crate::onepassword::routes(s, input).await;
@@ -163,57 +163,16 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
             s.skills.file(name, file, content, skill_project(s, scope).await?.as_deref()).await
         }
         ("GET", ["connections"]) => s.connections.status(s, input.query.get("refresh").is_some_and(|s| s == "true")).await,
-        ("GET", ["codex", "accounts"]) => {
-            s.accounts.initialize(s).await?;
-            Ok(s.accounts.list(s).await?.into())
-        }
-        ("POST", ["codex", "accounts", "refresh"]) => {
-            s.accounts.poll(s, false).await?;
-            Ok(s.accounts.list(s).await?.into())
-        }
-        ("GET", ["codex", "accounts", "login"]) => Ok(s.account_login.lock().await.as_ref().map(|l| l.view()).unwrap_or(Value::Null)),
-        ("POST", ["codex", "accounts", "login"]) => {
-            let id = input.body["id"].as_str();
-            if let Some(id) = id {
-                uuid(id)?;
-            }
-            s.account_login(input.string("name", 100)?, id).await
-        }
-        ("DELETE", ["codex", "accounts", "login"]) => {
-            s.cancel_account_login().await;
-            Ok(json!({
-            "cancelled":true}
-            ))
-        }
-        ("PUT", ["codex", "accounts", id]) => {
-            uuid(id)?;
-            s.accounts.update(s, id, input.body.clone()).await
-        }
-        ("DELETE", ["codex", "accounts", id]) => {
-            uuid(id)?;
-            s.accounts.remove(s, id).await?;
-            Ok(json!({
-            "deleted":true}
-            ))
-        }
-        ("GET", ["connections", "login"]) => {
-            if s.legacy_codex_login.load(std::sync::atomic::Ordering::Relaxed) {
-                Ok(s.account_login.lock().await.as_ref().map(|l| l.view()).unwrap_or(Value::Null))
-            } else {
-                Ok(s.connections.flow().await)
-            }
-        }
+        ("GET", ["claude", "models"]) => crate::claude::model_catalog(s).await,
+        ("GET", ["connections", "login"]) => Ok(s.connections.flow().await),
         ("POST", ["connections", "login"]) => {
-            let provider = input.string("provider", 20)?;
-            if !["codex", "github"].contains(&provider) {
+            if input.string("provider", 20)? != "github" {
                 return Err(Error::bad("Unknown connection provider."));
             }
-            s.legacy_codex_login.store(provider == "codex", std::sync::atomic::Ordering::Relaxed);
-            if provider == "codex" { s.account_login("Codex account", None).await } else { s.connections.start(s, provider).await }
+            s.connections.start(s).await
         }
         ("DELETE", ["connections", "login"]) => {
             s.connections.cancel().await;
-            s.cancel_account_login().await;
             Ok(json!({
             "cancelled":true}
             ))

@@ -17,12 +17,9 @@ pub struct Service {
     pub worker: Arc<crate::worker::Worker>,
     pub mcps: Arc<crate::mcps::Mcps>,
     pub projects: Arc<crate::project_workspaces::Projects>,
-    pub legacy_codex_login: Arc<std::sync::atomic::AtomicBool>,
     pub accounts: Arc<crate::accounts::Accounts>,
-    pub claude: Arc<crate::claude::Claude>,
     pub models: Arc<crate::models::Models>,
     pub connections: Arc<crate::connections::Connections>,
-    pub account_login: Arc<tokio::sync::Mutex<Option<crate::connections::AccountLogin>>>,
     pub notifications: crate::notifications::Notifications,
     pub retention_lock: Arc<tokio::sync::Mutex<()>>,
     pub attachment_upload: Arc<tokio::sync::Mutex<()>>,
@@ -52,12 +49,9 @@ impl Service {
             worker: Default::default(),
             mcps: Default::default(),
             projects: Default::default(),
-            legacy_codex_login: Default::default(),
             accounts: Default::default(),
-            claude: Default::default(),
             models: Default::default(),
             connections: Default::default(),
-            account_login: Default::default(),
             notifications: Default::default(),
             retention_lock: Default::default(),
             attachment_upload: Default::default(),
@@ -110,6 +104,7 @@ impl Service {
                 Ok(())
             })
             .await?;
+        service.store.transaction(crate::accounts::migrate).await?;
         service.avatars.recover(&service).await?;
         tokio::spawn(crate::artifacts::preview::recover(service.clone()));
         Ok(service)
@@ -135,7 +130,9 @@ impl Service {
         if input.get("provider").is_none()
             && let Some(existing) = &existing
         {
-            input["provider"] = crate::claude::provider(existing).into();
+            input["provider"] = crate::provider::Provider::of_agent(existing)
+                .as_str()
+                .into();
         }
         let mut agent = parse("agent", input)?;
         crate::claude::validate_agent(&agent)?;

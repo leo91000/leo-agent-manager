@@ -94,9 +94,11 @@ export interface Run {
   resumeAvailable?: boolean
   resumeCount?: number
   cancelRequestedAt?: number | null
-  codexAccountId?: string | null
-  codexAccountName?: string | null
+  accountId?: string | null
+  accountName?: string | null
   accountWaitReason?: string | null
+  /** The coding agent whose accounts need the user in Connections before this run can start. */
+  accountRequired?: import('./accounts').Provider | null
   id: string
   taskId: string
   projectId: string | null

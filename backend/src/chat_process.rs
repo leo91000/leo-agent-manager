@@ -563,7 +563,7 @@ pub async fn run(
         .collect::<Vec<_>>();
     let mut session =
         Session::codex(config, home, &args, Some(Path::new(text(&plan, "cwd")))).await?;
-    let mut auth = crate::account_tokens::Client::new(home);
+    let mut auth = crate::accounts::codex::Client::new(home);
     if home.join("leo-managed-auth").exists() && auth.is_none() {
         session.close().await;
         return Err(Error::new(

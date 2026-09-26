@@ -1,11 +1,8 @@
 # Claude Code
 
-Léo can run the official Claude Code CLI alongside Codex. In **Connections**, choose
-**Connect Claude Code**, open Anthropic’s sign-in page, and paste the authorization
-code it provides. The page follows sign-in automatically, survives browser reloads,
-and offers cancellation and retry. Android has the same flow in **Connexions**.
-Passwords are entered only on Anthropic’s page. The sign-in link expires after
-15 minutes; a server restart ends an unfinished sign-in.
+Léo can run the official Claude Code CLI alongside Codex. Claude accounts are
+added, selected and limited like Codex accounts: see [coding-agent accounts](AGENT-ACCOUNTS.md)
+for sign-in, usage windows, parallel runs, credentials and failover.
 
 Choose **Claude Code** in an agent’s **Coding agent** setting. Existing agents
 remain on Codex. Model and effort choices come from the official CLI’s control
@@ -54,58 +51,18 @@ sessions, but explicitly rejects switching drivers on an existing thread. Léo's
 context transfer is an independent implementation, not a port of a T3 Code feature.
 No T3 Code runtime dependency or source code is included.
 
-## Installation and authentication
+## Installation
 
 The manager and guest images include unmodified Claude Code **2.1.280**.
 For development, install that CLI and set `CLAUDE_BIN` if it is outside PATH.
-The CLI owns the interactive login flow and private state in `DATA_DIR/claude`.
-Léo never exposes access/refresh tokens through its public API.
-Identity responses are restricted to connected state, email, subscription type,
-and authentication method. Unlike managed Codex accounts, Claude’s files use the
-CLI’s own file storage, protected by the private data directory and file permissions.
-Include that directory in encrypted server backups.
-
-One Claude account is connected per owner workspace. **Connections → Claude Code →
-Simultaneous Claude conversations** sets its execution limit from 1 to 32, default 4,
-on web and Android. The server's global `CONCURRENCY` capacity still applies across
-providers. Changes are persisted immediately. Lowering the limit lets active runs
-finish and queues subsequent work; it does not cancel conversations.
-
-Only the manager holds refresh credentials. It serializes token rotation under the
-account gate, persists rotated state before replying, and distributes access-only
-credential snapshots through private, run-scoped Unix/vsock connections. It uses the
-OAuth refresh endpoint and client ID of the pinned official CLI (or the client ID
-saved with the login). Guests refresh their snapshot every 30 seconds; the unmodified
-CLI detects the changed credential file before subsequent requests. Guests cannot
-write back to the shared login, so a late-finishing run cannot overwrite new tokens.
-A temporary broker outage keeps the conversation alive while its token remains
-valid; an expired login produces an explicit recoverable authentication error.
-
-Legacy runs that still own a `sync-required` marker drain through the original
-serialized credential handoff before parallel execution starts. Their history and
-workspace remain intact. Reconnect/disconnect continue to wait for active runs.
-Credentials never enter activity logs or deliverable exports. There is no API-key
+The CLI owns the interactive login flow and each account’s private state. Léo never
+exposes access/refresh tokens through its public API. Identity responses are
+restricted to connected state, email and subscription type. There is no API-key
 fallback and no change to the selected provider or subscription billing.
 
 Léo clears inherited Anthropic API-key, bearer-token, cloud-provider, and alternate
 OAuth environment overrides from subscription executions. Sign-in and logout are
 performed with `claude auth login --claudeai` and `claude auth logout`.
-
-## Usage limits
-
-Connections shows the remaining percentage and reset date for the five-hour,
-weekly, and model-specific windows returned by Claude Code, on web and Android.
-Léo reads the CLI's `get_usage` control response (`skip_behaviors: true`) without
-sending a prompt. The pinned CLI 2.1.280 defines utilization as a percentage
-(0–100) and reset dates as ISO 8601 timestamps. This experimental protocol may
-change; unsupported versions and unavailable quotas produce an unavailable state,
-never an invented zero or full allowance. Only allowlisted quota fields are exposed.
-
-Reads are cached for five minutes, including failures. While a run, sign-in, or
-credential recovery owns the account, Connections shows the last known values
-as stale and waits to refresh. Reconnecting or disconnecting clears the cache.
-Quota errors leave account connection status unchanged. No OAuth tokens are
-read by the usage integration, and no model request is made to check the limits.
 
 ## Permissions
 
@@ -129,10 +86,10 @@ Hosting follows the [Claude Code hosting and credential rules](https://code.clau
 
 ## Validation
 
-`backend/tests/claude.rs` exercises the streaming adapter and sign-in lifecycle with
+`backend/tests/claude.rs` exercises the streaming adapter and account lifecycle with
 a synthetic executable. `tests/e2e/claude.spec.ts` exercises the native backend from
 Chromium and WebKit, including mobile layouts and resumed conversations.
-`ClaudeJourneyTest` covers Android’s code-entry flow and provider serialization.
+`AccountsJourneyTest` covers Android’s code-entry flow and provider serialization.
 These fixtures never contact Anthropic or spend subscription allowance.
 The real installed 2.1.280 CLI was also checked with a non-inference initialization
 request, verifying its current model names and effort capabilities.

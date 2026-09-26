@@ -355,20 +355,20 @@ test('dark appearance settings, empty states and connection sign-in feedback', a
   await expect(page.getByRole('heading', { name: 'No missions yet', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('empty-tasks.png'), fullPage: true, animations: 'disabled' })
   await page.route('**/api/connections?*', route => route.fulfill({ json: [
-    { provider: 'codex', installed: true, connected: false, version: 'Test CLI' },
     { provider: 'github', installed: false, connected: false },
   ] }))
   // Synthetic feedback only: never initiate a real device login or capture a real code.
-  await page.route('**/api/codex/accounts/login', route => route.fulfill({ json: { state: 'pending', code: 'DEMO-CODE', url: 'https://example.com' } }))
+  const signIn = { accountId: 'demo', provider: 'codex', state: 'pending', phase: 'authorizing', code: 'DEMO-CODE', url: 'https://example.com', acceptsCode: false, expiresAt: Date.now() + 600000, error: null }
+  await page.route('**/api/accounts', route => route.fulfill({ json: { accounts: [], signIn } }))
   await page.goto('/connections')
-  // The persisted account flow is restored by the accounts panel on page load.
+  // A sign-in in progress reopens its window on page load.
   await expect(page.getByText('DEMO-CODE', { exact: true })).toBeVisible()
   for (const width of [1440, 320]) {
     await page.setViewportSize({ width, height: width === 320 ? 568 : 1000 })
     await page.screenshot({ path: testInfo.outputPath(`${width}-connection-pending.png`), fullPage: true, animations: 'disabled' })
   }
-  await page.unroute('**/api/codex/accounts/login')
-  await page.route('**/api/codex/accounts/login', route => route.fulfill({ json: { state: 'failed', error: 'The verification code expired. Please try again.' } }))
+  await page.unroute('**/api/accounts')
+  await page.route('**/api/accounts', route => route.fulfill({ json: { accounts: [], signIn: { ...signIn, state: 'failed', code: null, error: 'The verification code expired. Please try again.' } } }))
   await expect(page.getByRole('heading', { name: 'Let’s try that again', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('connection-failed.png'), fullPage: true, animations: 'disabled' })
 })

@@ -776,7 +776,7 @@ impl Vm {
             .flatten()
             .find(|m| m["target"] == "/home/node")
             .map(|m| {
-                Path::new(text(m, "source")).join(if plan["chat"]["claudeManagedAuth"] == true {
+                Path::new(text(m, "source")).join(if plan["chat"]["provider"] == "claude" {
                     ".claude/leo-auth.sock"
                 } else {
                     ".codex/leo-auth.sock"
@@ -826,8 +826,7 @@ impl Vm {
                         import(socket, Path::new(text(mount, "source")), "/run/leo-chat").await?;
                     }
                     if mount["target"] == "/home/node" {
-                        if plan["chat"]["provider"] == "claude" && plan["claudeResumeState"] != true
-                        {
+                        if plan["chat"]["provider"] == "claude" {
                             let source = Path::new(text(mount, "source")).join(".claude");
                             if source.exists() {
                                 import(socket, &source, "/home/node/.claude").await?;
@@ -902,35 +901,6 @@ impl Vm {
                             atomic_write(Path::new(output), text(&event, "result").as_bytes())
                                 .await?;
                             std::os::unix::fs::chown(output, Some(1000), Some(1000))?;
-                        }
-                        if let Some(directory) = plan["claudeState"].as_str() {
-                            // Read fixed CLI-owned files through a private control response, never the run log.
-                            let state = request(socket, &json!({"op":"claude-state"})).await?;
-                            if state["ok"] != true
-                                || !state["files"][".credentials.json"].is_string()
-                            {
-                                return Err(Error::new(
-                                    503,
-                                    "Claude sign-in state could not be saved. Reconnect before starting another run.",
-                                ));
-                            }
-                            for name in [".credentials.json", ".claude.json"] {
-                                if let Some(encoded) = state["files"][name].as_str() {
-                                    let bytes = STANDARD.decode(encoded).map_err(|_| {
-                                        Error::bad("Invalid Claude state transfer.")
-                                    })?;
-                                    if bytes.len() > 128_000 {
-                                        return Err(Error::bad(
-                                            "Claude state exceeded the supported limit.",
-                                        ));
-                                    }
-                                    let path = Path::new(directory).join(name);
-                                    atomic_write(&path, &bytes).await?;
-                                    std::os::unix::fs::chown(&path, Some(1000), Some(1000))?;
-                                }
-                            }
-                            tokio::fs::remove_file(Path::new(directory).join("sync-required"))
-                                .await?;
                         }
                         return Ok(code as i32);
                     }

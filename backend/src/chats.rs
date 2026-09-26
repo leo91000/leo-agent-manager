@@ -2,6 +2,7 @@ use crate::{
     config::{id, now},
     error::{Error, Result, required},
     notifications,
+    provider::Provider,
     service::{Service, task_projects},
     store::{Db, merge},
     validation::{parse, text},
@@ -231,7 +232,7 @@ fn validate_steer(db: &Db<'_>, chat: &Value, message: &Value) -> Result<()> {
     if let Some(run) = db.run(text(chat, "runId"))?
         && ["queued", "running"].contains(&text(&run, "status"))
         && ((!text(message, "provider").is_empty()
-            && text(message, "provider") != crate::claude::provider(&run["snapshot"]["agent"]))
+            && text(message, "provider") != Provider::of_run(&run).as_str())
             || (!text(message, "model").is_empty()
                 && message["model"] != run["snapshot"]["agent"]["model"])
             || (!text(message, "reasoning").is_empty()
@@ -729,14 +730,15 @@ impl Service {
         let provider = if !text(&message, "provider").is_empty() {
             text(&message, "provider")
         } else {
-            crate::claude::provider(
+            Provider::of_agent(
                 run.as_ref()
                     .map(|r| &r["snapshot"]["agent"])
                     .unwrap_or(&snapshot["snapshot"]["agent"]),
             )
+            .as_str()
         }
         .to_owned();
-        if provider != crate::claude::provider(&snapshot["snapshot"]["agent"]) {
+        if provider != Provider::of_run(&snapshot).as_str() {
             snapshot["snapshot"]["agent"]["model"] = "".into();
             snapshot["snapshot"]["agent"]["reasoning"] = "".into();
         }
@@ -760,7 +762,7 @@ impl Service {
                 "messageId":message["id"],"text":with_invoked_skills(text(&message, "text"), &snapshot["snapshot"]["skills"]),"attachments":message["attachments"],"recovery":false}
                 );
                 if let Some(run) = run {
-                    let switched = crate::claude::provider(&snapshot["snapshot"]["agent"]) != crate::claude::provider(&run["snapshot"]["agent"]);
+                    let switched = Provider::of_run(&snapshot) != Provider::of_run(&run);
                     if snapshot["snapshot"]["agent"]["access"] != run["snapshot"]["agent"]["access"] {
                         return Err(Error::new(409, "Agent access changed. Start a new chat with the updated permissions."));
                     }
@@ -772,7 +774,7 @@ impl Service {
                         checkpoint["launched"] = false.into();
                         checkpoint.as_object_mut().unwrap().remove("controllerRecoveries");
                         db.patch_run(text(&run, "id"), &json!({"sessionId":null,"resumeAvailable":false}))?;
-                        db.event(text(&run,"id"), "status", &format!("Continuing with {} · conversation context and workspace preserved", if crate::claude::is_claude(&snapshot) { "Claude Code" } else { "Codex" }), None)?;
+                        db.event(text(&run,"id"), "status", &format!("Continuing with {} · conversation context and workspace preserved", Provider::of_run(&snapshot).label()), None)?;
                     }
                     checkpoint["completed"] = false.into();
                     checkpoint["remainingMs"] = crate::run_limits::budget_ms(&snapshot["snapshot"]["agent"]).into();

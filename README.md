@@ -49,9 +49,9 @@ For a remote server, use an HTTPS reverse proxy or an SSH tunnel for initial set
 provide the complete installation procedure. [MCP and OAuth](docs/MCP.md) explain
 ChatGPT/Claude connection setup and the supported protocol boundary.
 
-[Claude Code](docs/CLAUDE-CODE.md) covers subscription sign-in, provider selection, and hosted sessions. Connections lets you configure 1–32 simultaneous Claude conversations (default four), within the server’s total execution capacity.
+[Coding-agent accounts](docs/AGENT-ACCOUNTS.md) explains how Codex and Claude Code accounts are added, selected by remaining usage, run in parallel, and hand sessions over when one runs out.
 
-[Codex accounts](docs/CODEX-ACCOUNTS.md) explains selection, natural resets, and automatic session handoffs.
+[Claude Code](docs/CLAUDE-CODE.md) covers provider selection, hosted sessions, and permissions.
 
 Chat supports images and files through the attachment button, drag-and-drop, or
 pasting an image. Preview images before sending and in the conversation. Attach
@@ -158,7 +158,7 @@ The Kotlin / Jetpack Compose client lives in [`android/`](android/README.md).
 It uses native Material 3 controls with the web theme’s current light/dark colors
 and saved appearance preference. Open `android/` in Android Studio.
 It includes chats, streaming activity, attachments and artifacts, MCP management,
-multiple Codex accounts and optional periodic notifications without Firebase.
+Codex and Claude Code accounts and optional periodic notifications without Firebase.
 [Android coverage](android/README.md#coverage) and [validation](android/VALIDATION.md)
 document the implemented workflows and device/deployment gates. Android builds
 run in their own CI workflow. Native MCP OAuth uses the accompanying server bridge.

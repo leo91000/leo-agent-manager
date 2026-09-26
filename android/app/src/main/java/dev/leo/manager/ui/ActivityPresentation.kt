@@ -319,6 +319,7 @@ internal fun presentActivity(event: RunEvent): ActivityPresentation {
                     data.string("message").ifBlank {
                         data?.get("error").asObject().string("message")
                     }
+            val account = if (event.type == "status") accountUsed(event.text) else null
             val title =
                 when (event.type) {
                     "thread.started" -> "Session ouverte"
@@ -329,8 +330,7 @@ internal fun presentActivity(event: RunEvent): ActivityPresentation {
                     "error" -> "L’agent a rencontré une erreur"
                     "status" ->
                         when {
-                            event.text.startsWith("Using Codex account:") ->
-                                "Compte Codex sélectionné"
+                            account != null -> "Compte ${account.first} sélectionné"
                             event.text.lowercase() in
                                 listOf(
                                     "succeeded",
@@ -359,8 +359,7 @@ internal fun presentActivity(event: RunEvent): ActivityPresentation {
                 }
             val usage = data?.get("usage").asObject()
             val subtitle =
-                if (event.type == "status" && event.text.startsWith("Using Codex account:"))
-                    event.text.substringAfter(':').trim()
+                if (account != null) account.second
                 else if (usage != null)
                     listOf("input_tokens" to "entrée", "output_tokens" to "sortie")
                         .mapNotNull { (key, label) ->
@@ -494,3 +493,7 @@ internal fun resultParts(source: String): List<ResultPart> {
     if (start < source.length) parts.add(ResultPart.Text(source.substring(start)))
     return parts.ifEmpty { listOf(ResultPart.Text(source)) }
 }
+
+/** "Using Claude Code account: Studio" → ("Claude Code", "Studio"). */
+private fun accountUsed(text: String): Pair<String, String>? =
+    Regex("^Using (Codex|Claude Code) account: (.+)$").find(text)?.destructured?.let { (agent, name) -> agent to name.trim() }

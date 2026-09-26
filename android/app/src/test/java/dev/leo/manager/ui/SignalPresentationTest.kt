@@ -26,7 +26,7 @@ class SignalPresentationTest {
                 Chat("paused", "Mise en pause", agentName = "Leo", status = "running", paused = true, updatedAt = 2),
                 Chat("failed", "Échec du build", agentName = "Ops", status = "failed", error = "Tests rouges\ndétail", updatedAt = 1),
                 Chat("reconnect", "Attente Claude", agentName = "Claude", status = "queued", updatedAt = 6,
-                    run = Run("r2", status = "queued", accountWaitReason = "Connect Claude Code in Connections before running this agent.")),
+                    run = Run("r2", status = "queued", accountWaitReason = "Connect a Claude Code account in Connections before running this agent.", accountRequired = "claude")),
                 Chat("idle", "Ancienne conversation", agentName = "Leo", updatedAt = 0),
             )
         val tasks = listOf(Task("daily", "Revue quotidienne", agentId = "agent"), Task("old", "Archivée", archived = true))
@@ -195,27 +195,40 @@ class SignalPresentationTest {
     }
 
     @Test
-    fun `connection summary reports missing Claude and available Codex capacity`() {
+    fun `connection summary reports coding agents without a usable account and the best capacity`() {
         val codex =
             listOf(
-                CodexAccount("a", "Perso", state = "ready", remainingPercent = 40.0),
-                CodexAccount("b", "Pro", state = "ready", remainingPercent = 70.0),
-                CodexAccount("c", "Off", enabled = false, state = "ready", remainingPercent = 99.0),
+                Account("a", "codex", "Perso", state = "ready", remainingPercent = 40.0),
+                Account("b", "codex", "Pro", state = "ready", remainingPercent = 70.0),
+                Account("c", "codex", "Off", enabled = false, state = "ready", remainingPercent = 99.0),
             )
-        val disconnected = ConnectionSummary(true, ClaudeConnectionState(connected = false), codex)
-        assertTrue(disconnected.claudeMissing)
-        assertEquals(2, disconnected.codexReady)
-        assertEquals(70.0, disconnected.codexRemaining!!, 0.0)
-        assertFalse(ConnectionSummary(false, ClaudeConnectionState(connected = false), codex).claudeMissing)
-        // Unknown state is not reported as a disconnection.
-        assertFalse(ConnectionSummary(true, null, null).claudeMissing)
-        assertNull(ConnectionSummary(true, null, null).codexRemaining)
-        val usage =
-            ClaudeConnectionState(
-                connected = true,
-                usage = ClaudeUsage(listOf(ClaudeUsageWindow("five_hour", usedPercent = 20.0), ClaudeUsageWindow("seven_day", usedPercent = 81.0))),
-            )
-        assertEquals(81.0, ConnectionSummary(true, usage, codex).claudeUsed!!, 0.0)
+        val summary = ConnectionSummary(setOf("codex", "claude"), AccountsView(codex, required = listOf("claude")))
+        assertEquals(listOf("claude"), summary.missing)
+        assertEquals(2, summary.ready("codex").size)
+        assertEquals(3, summary.total("codex"))
+        assertEquals(70.0, summary.remaining("codex")!!, 0.0)
+        // The server says which coding agents wait for the user; only those in use matter.
+        assertEquals(emptyList<String>(), ConnectionSummary(setOf("codex"), AccountsView(required = listOf("claude"))).missing)
+        // Unknown state is not reported as missing.
+        assertEquals(emptyList<String>(), ConnectionSummary(setOf("claude"), null).missing)
+        assertNull(ConnectionSummary(setOf("codex"), null).remaining("codex"))
+    }
+
+    @Test
+    fun `account statuses, windows and resets read naturally in French`() {
+        val now = 1_790_000_000_000
+        assertEquals("Prochain", accountStatusLabel(Account("a", name = "A", status = "next")))
+        assertNull(accountStatusLabel(Account("a", name = "A", status = "ready")))
+        assertEquals("Reprise dans 48 min", accountStatusLabel(Account("a", name = "A", status = "waiting", resetsAt = now / 1000 + 48 * 60), now))
+        assertEquals("dans 2 h 05", resetsIn(now / 1000 + 125 * 60, now))
+        assertEquals("maintenant", resetsIn(now / 1000 - 5, now))
+        assertEquals("5 heures", windowLabel(AccountWindow("w", "5-hour window", durationMins = 300)))
+        assertEquals("Semaine", windowLabel(AccountWindow("w", "Weekly", durationMins = 10080)))
+        assertEquals("Semaine · Opus", windowLabel(AccountWindow("w", "Weekly · Opus", durationMins = 10080, models = listOf("opus"))))
+        assertEquals(40.0, AccountWindow("w", usedPercent = 60.0).remaining, 0.0)
+        assertEquals(0.0, AccountWindow("w", usedPercent = 105.0).remaining, 0.0)
+        val usage = AccountUsage(listOf(AccountWindow("week", durationMins = 10080), AccountWindow("opus", models = listOf("opus")), AccountWindow("five", durationMins = 300)))
+        assertEquals(listOf("five", "week"), usage.general.map { it.id })
     }
 
     @Test

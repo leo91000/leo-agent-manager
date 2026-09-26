@@ -10,8 +10,9 @@ static BEARER: LazyLock<regex::Regex> =
 static CREDENTIAL: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r#"(?i)("?(?:access_token|refresh_token|id_token|OPENAI_API_KEY|LEO_AVATAR_API_KEY|CODEX_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|accessToken|refreshToken|OP_SERVICE_ACCOUNT_TOKEN)"?\s*[:=]\s*"?)[^"\s,}]+"#).unwrap()
 });
+// Codex and Claude Code subscription limits. Claude Code reports them as the turn's result.
 static EXHAUSTED: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)^(?:you['’]ve hit your usage limit|you have hit your usage limit|usage limit (?:has been )?(?:reached|exceeded))\b").unwrap()
+    regex::Regex::new(r"(?i)^(?:you['’]ve hit your (?:usage |session |weekly )?limit|you have hit your (?:usage )?limit|usage limit (?:has been )?(?:reached|exceeded)|claude ai usage limit reached|(?:5-hour|session|weekly|opus) limit reached)\b").unwrap()
 });
 pub fn redact(text: &str, secrets: &[String]) -> String {
     let text = TOKEN.replace_all(text, "[redacted]");
@@ -228,7 +229,7 @@ pub fn chat_plan(
             .map(|w| text(w, "path").into()),
     );
     let mut plan = json!({
-    "provider":crate::claude::provider(&run["snapshot"]["agent"]),"claudeMcps":mcp["claudeMcps"],"claudeDeniedTools":mcp["claudeDeniedTools"],"execution":run["chatExecution"],"instructions":prompt(&context,true),"inputDirectory":if prepared["isolated"]==true{
+    "provider":crate::provider::Provider::of_run(run),"claudeMcps":mcp["claudeMcps"],"claudeDeniedTools":mcp["claudeDeniedTools"],"execution":run["chatExecution"],"instructions":prompt(&context,true),"inputDirectory":if prepared["isolated"]==true{
     Path::new("/run/leo-chat").to_owned()}
     else{
     directory.join("chat-input")}
@@ -238,4 +239,33 @@ pub fn chat_plan(
         plan["sessionId"] = session.into();
     }
     plan
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn subscription_limits_of_both_coding_agents_are_exhaustion() {
+        for message in [
+            "You've hit your usage limit. Upgrade or try again later.",
+            "Usage limit reached for this plan",
+            "Claude AI usage limit reached|1790000000",
+            "You've hit your limit · resets 3pm (Europe/Paris)",
+            "5-hour limit reached ∙ resets 5pm",
+        ] {
+            assert!(
+                exhausted(&json!({"type":"turn.failed","error":{"message":message}})),
+                "{message}"
+            );
+        }
+        assert!(exhausted(
+            &json!({"type":"error","code":"usage_limit_reached"})
+        ));
+        for message in ["Rate limit exceeded, retrying", "The usage limit docs say"] {
+            assert!(
+                !exhausted(&json!({"type":"turn.failed","error":{"message":message}})),
+                "{message}"
+            );
+        }
+    }
 }

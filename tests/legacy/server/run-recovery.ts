@@ -1,5 +1,5 @@
-import type { Run } from '../../../shared/contracts.ts'
 import type { Config } from './config.ts'
+import type { Run } from './contracts.ts'
 import type { prepareExecution } from './execution.ts'
 import type { Store } from './store.ts'
 import { readFile } from 'node:fs/promises'

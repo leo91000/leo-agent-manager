@@ -1,4 +1,3 @@
-pub mod account_tokens;
 pub mod accounts;
 pub mod agent_avatars;
 pub mod api;
@@ -24,6 +23,7 @@ pub mod models;
 pub mod network;
 pub mod notifications;
 pub mod process;
+pub mod provider;
 pub mod recovery;
 pub mod rpc;
 mod run_limits;
@@ -49,7 +49,6 @@ pub mod project_git;
 
 pub mod claude;
 pub mod claude_process;
-pub mod claude_tokens;
 
 pub mod github_projects;
 

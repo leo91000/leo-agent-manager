@@ -311,8 +311,8 @@ watch(() => route.query.new, (value) => {
         <template v-if="selected.cron">
           <dt>Next execution</dt><dd>{{ selected.enabled ? date(selected.nextRun) : 'Paused' }}</dd>
         </template>
-        <template v-if="selectedRun?.codexAccountName">
-          <dt>Account</dt><dd>{{ selectedRun.codexAccountName }}</dd>
+        <template v-if="selectedRun?.accountName">
+          <dt>Account</dt><dd>{{ selectedRun.accountName }}</dd>
         </template>
       </dl>
       <h3>Mission brief</h3><pre class="brief-text">{{ selected.prompt }}</pre>

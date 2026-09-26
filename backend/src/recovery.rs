@@ -107,7 +107,7 @@ pub async fn fence(s: &Service, run: &Value) -> Result<()> {
     Ok(())
 }
 pub async fn session(s: &Service, run: &Value, home: &Path, cwd: &Path) -> Result<String> {
-    if crate::claude::is_claude(run) {
+    if crate::provider::Provider::of_run(run) == crate::provider::Provider::Claude {
         return run["sessionId"]
             .as_str()
             .filter(|id| !id.is_empty())

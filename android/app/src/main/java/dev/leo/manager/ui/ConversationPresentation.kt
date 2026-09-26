@@ -27,19 +27,16 @@ internal data class SendingMessage(val message: ChatMessage, val label: String)
 
 internal data class ChatDelivery(val sending: List<SendingMessage>, val queued: List<ChatMessage>)
 
-internal data class ChatWaitNotice(val message: String, val reconnectClaude: Boolean)
+/** [account] names the coding agent whose account the user must connect, reconnect or resume. */
+internal data class ChatWaitNotice(val message: String, val account: String? = null)
 
 internal fun chatWaitNotice(run: Run?): ChatWaitNotice? {
     if (run?.status != "queued") return null
     val reason = run.accountWaitReason?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-    val reconnectClaude =
-        reason == "Reconnect Claude Code after an interrupted credential synchronization." ||
-            reason == "Connect Claude Code in Connections before running this agent."
+    val provider = run.accountRequired ?: return ChatWaitNotice(reason)
     return ChatWaitNotice(
-        if (reconnectClaude)
-            "Reconnectez Claude Code dans Connexions pour continuer. Votre message est conservé et sera envoyé une fois la connexion rétablie."
-        else reason,
-        reconnectClaude,
+        "Connectez ou réactivez un compte ${providerLabel(provider)} dans Connexions. Votre message est conservé et sera envoyé ensuite.",
+        providerLabel(provider),
     )
 }
 
@@ -53,11 +50,11 @@ internal fun ChatWaitingNotice(notice: ChatWaitNotice, openConnections: () -> Un
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                if (notice.reconnectClaude) "Reconnectez Claude Code" else "Conversation en attente",
+                notice.account?.let { "Compte $it requis" } ?: "Conversation en attente",
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(notice.message, style = MaterialTheme.typography.bodyMedium)
-            if (notice.reconnectClaude)
+            if (notice.account != null)
                 TextButton(onClick = openConnections) { Text("Ouvrir les connexions") }
         }
     }
@@ -97,9 +94,8 @@ internal fun chatDelivery(
                         message,
                         when {
                             chat?.run?.status == "queued" ->
-                                if (chatWaitNotice(chat.run)?.reconnectClaude == true)
-                                    "En attente de connexion à Claude Code"
-                                else "En attente de l’agent…"
+                                chatWaitNotice(chat.run)?.account?.let { "En attente d’un compte $it" }
+                                    ?: "En attente de l’agent…"
                             starting -> "Démarrage de l’agent…"
                             steering -> "Transmission à l’agent…"
                             else -> "Envoi en cours…"
