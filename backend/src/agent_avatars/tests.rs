@@ -19,6 +19,7 @@ struct Fixture {
     csrf: String,
     requests: mpsc::UnboundedReceiver<(Value, Reply)>,
     provider: tokio::task::JoinHandle<()>,
+    endpoint: String,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -96,6 +97,7 @@ impl Fixture {
             csrf,
             requests,
             provider,
+            endpoint,
         }
     }
     async fn request(&self, method: &str, path: &str, bytes: Vec<u8>) -> Response {
@@ -405,17 +407,54 @@ async fn missing_or_invalid_images_fail_without_retry_and_release_the_account() 
 }
 
 #[tokio::test]
-async fn shutdown_releases_the_account_and_does_not_retry_the_portrait() {
+async fn close_drains_running_and_queued_portraits_and_rejects_new_jobs() {
     let mut f = Fixture::new(true).await;
-    let agent = f.create().await;
-    let (_, reply) = f.next().await;
-    f.s.shutdown.cancel();
-    let failed = f.wait(text(&agent, "id"), "failed").await;
-    assert_eq!(failed["avatar"]["error"], INTERRUPTED);
+    let first = f.create().await;
+    let (first_request, first_reply) = f.next().await;
+    let second = f.create().await;
+    let (second_request, second_reply) = f.next().await;
+    let queued = f.create().await;
+    tokio::time::timeout(Duration::from_secs(5), f.s.avatars.close())
+        .await
+        .unwrap();
+    // close itself must wait for metadata, process exit and lease release; do not poll.
+    for agent in [&first, &second, &queued] {
+        let failed = f.s.get("agents", text(agent, "id")).await.unwrap();
+        assert_eq!(failed["avatar"]["status"], "failed");
+        assert_eq!(failed["avatar"]["error"], INTERRUPTED);
+    }
+    for request in [&first_request, &second_request] {
+        let pid = request["fixturePid"].as_i64().unwrap() as i32;
+        assert_eq!(
+            unsafe { libc::kill(pid, 0) },
+            -1,
+            "Codex process is still alive after close"
+        );
+    }
     for account in f.s.store.list(crate::accounts::KIND).await.unwrap() {
         assert!(f.s.accounts.active(text(&account, "id")).await.is_empty());
     }
-    let _ = reply.send(generated(png([0, 0, 0])));
+    assert!(
+        tokio::fs::read_dir(f.s.config.data_dir.join("runs"))
+            .await
+            .unwrap()
+            .next_entry()
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        f.request(
+            "POST",
+            &format!("/api/agents/{}/avatar/generate", text(&first, "id")),
+            vec![]
+        )
+        .await
+        .status(),
+        503
+    );
+    let _ = first_reply.send(generated(png([0, 0, 0])));
+    let _ = second_reply.send(generated(png([0, 0, 0])));
     assert!(f.requests.try_recv().is_err());
 }
 
@@ -445,4 +484,116 @@ async fn occupied_account_capacity_does_not_start_a_second_codex_session() {
     assert!(f.requests.try_recv().is_err());
     assert_eq!(f.s.accounts.active(text(&account, "id")).await.len(), 1);
     f.s.accounts.release(&foreground).await.unwrap();
+}
+
+#[tokio::test]
+async fn portrait_selection_respects_the_explicit_models_quota() {
+    let mut f = Fixture::new(true).await;
+    let mut limited =
+        f.s.store
+            .list(crate::accounts::KIND)
+            .await
+            .unwrap()
+            .remove(0);
+    limited["usage"]["windows"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id":"astra:weekly","usedPercent":100,"models":["gpt-6-astra"],"reached":true
+        }));
+    f.s.store
+        .put(crate::accounts::KIND, limited.clone())
+        .await
+        .unwrap();
+    let available =
+        f.s.accounts
+            .create(&f.s, Provider::Codex, "Available")
+            .await
+            .unwrap();
+    f.s.vault.set(&format!("codex-account:{}", text(&available, "id")),
+        &json!({"tokens":{"access_token":"synthetic","refresh_token":"synthetic-refresh","account_id":format!("{}?available", f.endpoint)}})).await.unwrap();
+    f.s.accounts
+        .refresh(&f.s, text(&available, "id"))
+        .await
+        .unwrap();
+    let agent = f.create().await;
+    let (request, reply) = f.next().await;
+    assert_eq!(request["model"], "gpt-6-astra");
+    assert!(f.s.accounts.active(text(&limited, "id")).await.is_empty());
+    let leases = f.s.accounts.active(text(&available, "id")).await;
+    assert_eq!(leases.len(), 1);
+    assert_eq!(leases[0].model, "gpt-6-astra");
+    reply.send(generated(png([10, 20, 30]))).unwrap();
+    f.wait(text(&agent, "id"), "ready").await;
+}
+
+#[tokio::test]
+async fn queued_conversation_interrupts_portrait_and_gets_the_single_account_slot() {
+    let mut f = Fixture::new(true).await;
+    let mut account =
+        f.s.store
+            .list(crate::accounts::KIND)
+            .await
+            .unwrap()
+            .remove(0);
+    account["maxConcurrentRuns"] = 1.into();
+    f.s.store
+        .put(crate::accounts::KIND, account.clone())
+        .await
+        .unwrap();
+    let agent = f.create().await;
+    let (_, reply) = f.next().await;
+    f.s.store
+        .transaction(|db| {
+            db.add_run(
+                &json!({"id":"foreground","taskId":"chat","status":"queued","createdAt":1}),
+                None,
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let failed = f.wait(text(&agent, "id"), "failed").await;
+    assert!(text(&failed["avatar"], "error").contains("yielded to a conversation"));
+    let foreground =
+        f.s.accounts
+            .acquire(&f.s, "foreground", Provider::Codex, "gpt-6-astra")
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(foreground.account_id, account["id"].as_str().unwrap());
+    f.s.accounts.release(&foreground).await.unwrap();
+    let _ = reply.send(generated(png([0, 0, 0])));
+    assert!(f.requests.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn foreground_queue_and_deployment_prevent_starting_a_portrait() {
+    for deployment in [false, true] {
+        let mut f = Fixture::new(true).await;
+        if deployment {
+            f.s.store
+                .set("deployment-lease", "deploy".into(), None)
+                .await
+                .unwrap();
+        } else {
+            f.s.store
+                .transaction(|db| {
+                    db.add_run(
+                        &json!({"id":"foreground","taskId":"chat","status":"queued","createdAt":1}),
+                        None,
+                    )?;
+                    Ok(())
+                })
+                .await
+                .unwrap();
+        }
+        let agent = f.create().await;
+        let failed = f.wait(text(&agent, "id"), "failed").await;
+        assert!(text(&failed["avatar"], "error").contains("yielded"));
+        assert!(f.requests.try_recv().is_err());
+        for account in f.s.store.list(crate::accounts::KIND).await.unwrap() {
+            assert!(f.s.accounts.active(text(&account, "id")).await.is_empty());
+        }
+    }
 }

@@ -24,8 +24,9 @@ async function main() {
       result = { type: 'chatgptAuthTokens' }
     }
     if (method === 'model/list')
-      result = { data: [{ model: 'fixture-default', isDefault: true, supportedReasoningEfforts: [] }], nextCursor: null }
+      result = { data: [{ model: 'gpt-6-astra', isDefault: true, supportedReasoningEfforts: [] }], nextCursor: null }
     if (method === 'thread/start') {
+      assert.equal(params.model, 'gpt-6-astra')
       assert.equal(params.ephemeral, true)
       assert.equal(params.sandbox, 'read-only')
       assert.equal(params.approvalPolicy, 'never')
@@ -40,10 +41,11 @@ async function main() {
       result = { thread: { id: 'portrait-thread' } }
     }
     if (method === 'turn/start') {
+      assert.equal(params.model, 'gpt-6-astra')
       assert.equal(params.threadId, 'portrait-thread')
       // The endpoint is a synthetic account identity, supplied only by the test broker.
       // Notifications deliberately precede the response to catch lost fast results.
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(params) })
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...params, fixturePid: process.pid }) })
       const item = await response.json()
       emit({ method: 'item/completed', params: { threadId: params.threadId, item: response.ok ? item : { type: 'imageGeneration', status: 'failed', result: '', failure: item } } })
       emit({ method: 'turn/completed', params: { threadId: params.threadId, turn: { status: 'completed' } } })

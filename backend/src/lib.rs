@@ -7,6 +7,7 @@ pub mod auth;
 pub mod chat_process;
 pub mod chat_titles;
 pub mod chats;
+mod codex_background;
 mod codex_login;
 pub mod config;
 pub mod connections;
