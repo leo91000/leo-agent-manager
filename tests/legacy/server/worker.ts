@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
-import type { Run } from '../../../shared/contracts.ts'
 import type { ChatPlan } from './chat-process.ts'
 import type { AccountLease } from './codex-accounts.ts'
+import type { Run } from './contracts.ts'
 import type { Service } from './service.ts'
 import { Buffer } from 'node:buffer'
 import { execFile, spawn } from 'node:child_process'

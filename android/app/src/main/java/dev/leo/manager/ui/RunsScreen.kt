@@ -414,7 +414,7 @@ fun RunScreen(
                             "${current.snapshot.project?.name ?: current.snapshot.projects.joinToString { it.name }.ifBlank { "Projets autorisés" }} · ${current.snapshot.agent.model.ifBlank { "Modèle par défaut" }}",
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        current.codexAccountName?.let {
+                        current.accountName?.let {
                             Text("Compte : $it", style = MaterialTheme.typography.bodySmall)
                         }
                         Heading("Instructions d’origine")

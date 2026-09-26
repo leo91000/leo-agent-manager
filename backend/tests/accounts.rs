@@ -87,7 +87,7 @@ async fn codex_accounts_and_the_single_claude_login_migrate_into_one_pool() {
     assert_eq!(claude["plan"], "pro");
     assert_eq!(claude["maxConcurrentRuns"], 3);
     assert_eq!(claude["state"], "error");
-    let home = accounts::claude::home(&s.config, text(claude, "id"));
+    let home = accounts::claude::account_home(&s.config, text(claude, "id"));
     assert!(home.join(".credentials.json").exists());
     assert!(!home.join("sync-required").exists());
     assert!(!legacy.exists());
@@ -139,6 +139,19 @@ async fn each_coding_agent_has_its_own_next_account_and_paused_accounts_are_skip
     let list = s.accounts.list(&s).await.unwrap();
     assert_eq!(status(&list, &ids[0]), "next");
     assert_eq!(status(&list, &ids[1]), "paused");
+    assert_eq!(
+        s.accounts.overview(&s).await.unwrap()["required"],
+        json!([])
+    );
+    // Once every Claude account is paused, Claude runs wait for the user.
+    s.accounts
+        .update(&s, &ids[2], &json!({"enabled":false}))
+        .await
+        .unwrap();
+    assert_eq!(
+        s.accounts.overview(&s).await.unwrap()["required"],
+        json!(["claude"])
+    );
     assert!(
         s.accounts
             .update(&s, &ids[0], &json!({"name":""}))

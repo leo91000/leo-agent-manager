@@ -17,18 +17,23 @@ pub const CATALOG: &str = "claude-models";
 pub fn environment(config: &Config, directory: &Path) -> Environment {
     let mut env = std::env::vars().collect::<Environment>();
     crate::process::remove_archive_environment(&mut env);
-    sanitize(&mut env);
     env.insert("HOME".into(), config.home.to_string_lossy().into_owned());
+    configure(&mut env, directory);
+    env
+}
+/// Points the CLI at `directory` for its state and credentials, without inherited credentials,
+/// updates or browser launches.
+pub fn configure(env: &mut Environment, directory: &Path) {
+    sanitize(env);
     env.insert(
         "CLAUDE_CONFIG_DIR".into(),
         directory.to_string_lossy().into_owned(),
     );
     env.insert("DISABLE_AUTOUPDATER".into(), "1".into());
     env.insert("BROWSER".into(), "true".into());
-    env
 }
 /// Subscription runs never use API keys, cloud providers or alternate OAuth overrides.
-pub fn sanitize(env: &mut Environment) {
+fn sanitize(env: &mut Environment) {
     for key in [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_BASE_URL",
@@ -62,13 +67,13 @@ pub fn validate_agent(agent: &Value) -> Result<()> {
 /// Aliases offered before any account has listed its models.
 pub fn models() -> Value {
     let rows = [("sonnet", "Sonnet"), ("opus", "Opus"), ("haiku", "Haiku")].iter().map(|(model, name)| json!({"model":model,"displayName":name,"description":"Claude Code alias · connect to load account capabilities","hidden":false,"isDefault":false,"defaultReasoningEffort":"","supportedReasoningEfforts":[]})).collect::<Vec<_>>();
-    json!({"models":rows,"checkedAt":null,"stale":true,"error":"Connect Claude Code to load available models and effort levels."})
+    json!({"models":rows,"checkedAt":null,"stale":true,"error":"Connect a Claude Code account to load available models and effort levels."})
 }
 /// Queries the CLI's control protocol on account `id`. Metadata queries never submit a user
 /// message or start a model turn. Caller holds the account lock.
 pub async fn query_metadata(s: &Service, id: &str, request: Option<Value>) -> Result<Value> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
-    let directory = crate::accounts::claude::home(&s.config, id);
+    let directory = crate::accounts::claude::account_home(&s.config, id);
     crate::skills::private_dir(&directory).await?;
     let credentials = crate::accounts::claude::metadata_credentials(&s.config, id).await?;
     let args = [
@@ -228,7 +233,7 @@ async fn discover_models(s: &Service, id: &str) -> Result<Value> {
 
 pub async fn model_catalog(s: &Service) -> Result<Value> {
     let mut catalog = stored_catalog(s).await?;
-    let source = crate::accounts::claude::home(&s.config, text(&catalog, "source"));
+    let source = crate::accounts::claude::account_home(&s.config, text(&catalog, "source"));
     let cached = if catalog["source"].is_string() {
         cached_catalog(&source).await
     } else {

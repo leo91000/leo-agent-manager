@@ -776,7 +776,7 @@ impl Vm {
             .flatten()
             .find(|m| m["target"] == "/home/node")
             .map(|m| {
-                Path::new(text(m, "source")).join(if plan["chat"]["claudeManagedAuth"] == true {
+                Path::new(text(m, "source")).join(if plan["chat"]["provider"] == "claude" {
                     ".claude/leo-auth.sock"
                 } else {
                     ".codex/leo-auth.sock"

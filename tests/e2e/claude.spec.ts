@@ -1,47 +1,12 @@
+import { connectClaude } from './accounts'
 import { expect, expectSingleScroll, test } from './fixtures'
 
-test('Claude sign-in, provider selection and resumed chats work on desktop and mobile', async ({ page, workspace }, testInfo) => {
+test('Claude agents, chats, questions and scheduled work run on a connected Claude account', async ({ page, workspace }, testInfo) => {
   test.setTimeout(120000)
-  await page.goto('/connections')
+  expect((await connectClaude(workspace)).state).toBe('complete')
+  await page.goto('/agents')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  const section = page.getByRole('region', { name: 'Claude Code', exact: true })
-  await section.getByRole('button', { name: 'Connect Claude Code', exact: true }).click()
-  await expect(section.getByRole('link', { name: 'Open Claude sign-in' })).toHaveAttribute('href', 'https://claude.com/oauth/authorize?fixture=1')
-  await page.reload()
-  await expect(section.getByLabel('Claude authorization code')).toBeVisible()
-  for (const width of [1440, 390, 320]) {
-    await page.setViewportSize({ width, height: 900 })
-    await page.emulateMedia({ colorScheme: width === 1440 ? 'light' : 'dark' })
-    await expectSingleScroll(page)
-    await section.screenshot({ path: testInfo.outputPath(`claude-login-${width}.png`) })
-  }
-  await section.getByLabel('Claude authorization code').fill('wrong')
-  await section.getByRole('button', { name: 'Finish sign-in' }).click()
-  await expect(section.getByRole('alert')).toContainText('could not finish')
-  await section.getByRole('button', { name: 'Connect Claude Code', exact: true }).click()
-  await section.getByLabel('Claude authorization code').fill('fixture-code')
-  await section.getByRole('button', { name: 'Finish sign-in' }).click()
-  await expect(section.getByText('Connected', { exact: true })).toBeVisible()
-  await expect(section).not.toContainText('never-return-this-secret')
-  await expect(section.getByRole('progressbar', { name: 'Claude Code 5-hour window remaining' })).toHaveAttribute('aria-valuenow', '75')
-  await expect(section.getByRole('progressbar', { name: 'Claude Code Weekly remaining' })).toHaveAttribute('aria-valuenow', '40')
-  await expect(section.getByRole('progressbar', { name: 'Claude Code Weekly · Sonnet remaining' })).toHaveAttribute('aria-valuenow', '90')
-  await expect(section.getByText('Usage checked', { exact: false })).toBeVisible()
-  for (const width of [1440, 390, 320]) {
-    await page.setViewportSize({ width, height: 900 })
-    await expectSingleScroll(page)
-    await expect(section.getByRole('progressbar').first()).toBeVisible()
-    await section.screenshot({ path: testInfo.outputPath(`claude-usage-${width}.png`) })
-  }
-
-  await section.getByRole('spinbutton', { name: 'Simultaneous Claude conversations' }).fill('2')
-  await section.getByRole('button', { name: 'Save limit', exact: true }).click()
-  await expect(section.getByRole('button', { name: 'Save limit', exact: true })).toBeDisabled()
-  await page.reload()
-  await expect(section.getByRole('spinbutton', { name: 'Simultaneous Claude conversations' })).toHaveValue('2')
-
-  await page.goto('/agents')
   await page.getByRole('button', { name: 'New agent', exact: true }).click()
   await page.getByLabel('Name', { exact: true }).fill('Claude engineer')
   await page.getByRole('button', { name: /^Agent, model and reasoning/ }).click()
@@ -74,26 +39,20 @@ test('Claude sign-in, provider selection and resumed chats work on desktop and m
   const task = await workspace.api('/api/tasks', 'POST', { name: 'Claude scheduled work', prompt: 'Review the workspace', agentId: agent.id })
   const run = await workspace.api(`/api/tasks/${task.id}/run`, 'POST')
   await expect.poll(async () => (await workspace.api(`/api/runs/${run.id}`)).status, { timeout: 20000 }).toBe('succeeded')
-  await page.goto('/connections')
-  await section.getByRole('button', { name: 'Reconnect', exact: true }).click()
-  await section.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(section.getByLabel('Claude authorization code')).toHaveCount(0)
+  // The run is recorded with the Claude account it used.
+  const account = (await workspace.api('/api/accounts')).accounts.find((a: { provider: string }) => a.provider === 'claude')
+  expect((await workspace.api(`/api/runs/${run.id}`)).accountId).toBe(account.id)
 })
 
 test('switching coding agents preserves one chat, context and provider selection after reload', async ({ page, workspace }, testInfo) => {
   test.setTimeout(120000)
+  if (!(await workspace.api('/api/accounts')).accounts.some((a: { provider: string }) => a.provider === 'claude'))
+    expect((await connectClaude(workspace)).state).toBe('complete')
   await page.goto('/connections')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  const section = page.getByRole('region', { name: 'Claude Code', exact: true })
   // Password verification can be slow in an unoptimized native test build.
-  await expect(section).toBeVisible({ timeout: 30000 })
-  if (await section.getByRole('button', { name: 'Connect Claude Code', exact: true }).isVisible()) {
-    await section.getByRole('button', { name: 'Connect Claude Code', exact: true }).click()
-    await section.getByLabel('Claude authorization code').fill('fixture-code')
-    await section.getByRole('button', { name: 'Finish sign-in' }).click()
-  }
-  await expect(section.getByText('Connected', { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Claude Code accounts' })).toBeVisible({ timeout: 30000 })
   const chat = await workspace.api('/api/chats', 'POST', {})
   await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: crypto.randomUUID(), text: 'Preserve the existing design. Work on this conversation.' })
   await expect.poll(async () => (await workspace.api(`/api/chats/${chat.id}`)).run?.status).toBe('succeeded')
@@ -156,29 +115,4 @@ test('switching coding agents preserves one chat, context and provider selection
   expect(last.runId).toBe(first.runId)
   expect(last.run.chatExecution.context).toContain('Claude fixture completed')
   expect(workspace.service.store.chatMessages(chat.id)).toHaveLength(3)
-})
-
-test('Claude usage distinguishes stale limits, unknown usage and disconnected accounts', async ({ page }) => {
-  test.setTimeout(60000)
-  let usage: object | null = { windows: [{ id: 'five_hour', label: '5-hour window', usedPercent: 105, resetsAt: null }], stale: true, checkedAt: 1700000000000, error: 'Claude Code usage is temporarily unavailable.' }
-  let connected = true
-  await page.route('**/api/claude/connection', route => route.fulfill({ json: { connected, busy: false, login: null, usage } }))
-  await page.goto('/connections')
-  await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  const section = page.getByRole('region', { name: 'Claude Code', exact: true })
-  await expect(section).toBeVisible({ timeout: 30000 })
-  await expect(section.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0')
-  await expect(section.getByText('Last known usage', { exact: false })).toBeVisible()
-  await expect(section.getByText('Reset time unavailable')).toBeVisible()
-  await expect(section.getByText('Connected', { exact: true })).toBeVisible()
-  usage = { windows: [], checkedAt: null, stale: true, error: null }
-  await page.reload()
-  await expect(section.getByText('Usage limits unavailable.', { exact: true })).toBeVisible()
-  await expect(section.getByRole('progressbar')).toHaveCount(0)
-  connected = false
-  usage = null
-  await page.reload()
-  await expect(section.getByRole('button', { name: 'Connect Claude Code', exact: true })).toBeVisible()
-  await expect(section.getByText('Usage limits unavailable.', { exact: true })).toHaveCount(0)
 })

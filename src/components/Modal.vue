@@ -5,7 +5,8 @@ import { X } from '../icons'
 import { iconButton } from '../ui'
 import Icon from './Icon.vue'
 
-const props = defineProps<{ title: string, wide?: boolean, sheet?: boolean, returnFocus?: HTMLElement }>()
+// `drawer` opens a panel along the right edge, and a bottom sheet on phones like `sheet`.
+const props = defineProps<{ title: string, wide?: boolean, sheet?: boolean, drawer?: boolean, returnFocus?: HTMLElement }>()
 const emit = defineEmits<{ close: [] }>()
 const dialog = ref<HTMLDialogElement>()
 const titleId = useId()
@@ -27,7 +28,7 @@ onBeforeUnmount(() => {
       ref="dialog"
       class="modal m-auto border border-line rounded-[15px] max-w-[min(560px,_calc(100vw_-_28px))] w-full max-h-[calc(100dvh_-_32px_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] bg-raised text-ink [box-shadow:0_25px_90px_light-dark(#12112335,_#00000035)] p-0"
       :aria-labelledby="titleId"
-      :class="{ wide, 'mobile-sheet': sheet }"
+      :class="{ wide, drawer, 'mobile-sheet': sheet || drawer }"
       @cancel.prevent="emit('close')"
       @click="
         (e) => {
@@ -37,8 +38,10 @@ onBeforeUnmount(() => {
     >
       <div class="modal-inner max-h-[calc(100dvh_-_34px_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] overflow-auto overscroll-contain">
         <header class="modal-head flex items-center justify-between border-b border-line sticky top-0 bg-raised z-2 px-6.5 py-5.5 phone:p-[19px]">
-          <h2 :id="titleId">
-            {{ title }}
+          <h2 :id="titleId" class="min-w-0">
+            <slot name="heading">
+              {{ title }}
+            </slot>
           </h2>
           <button
             :class="twMerge(iconButton, 'icon-button')"
@@ -55,7 +58,32 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.drawer {
+  margin: 12px 12px 12px auto;
+  height: calc(100dvh - 24px);
+  max-height: none;
+  max-width: min(440px, calc(100vw - 24px));
+  border-radius: 22px;
+}
+.drawer .modal-inner {
+  height: 100%;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drawer[open] { animation: drawer-in 0.3s var(--ease-signal); }
+}
+@keyframes drawer-in {
+  from { transform: translateX(28px); opacity: 0; }
+}
 @media (max-width: 640px) {
+  .drawer { height: auto; }
+  .drawer .modal-inner { height: auto; }
+  .drawer[open] { animation-name: sheet-in; }
+  @keyframes sheet-in {
+    from { transform: translateY(40px); opacity: 0; }
+  }
   .mobile-sheet {
     inset: auto 0 0;
     margin: 0;

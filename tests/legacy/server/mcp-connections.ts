@@ -1,7 +1,7 @@
 import type { OAuthClientProvider } from '@modelcontextprotocol/client'
-import type { Agent, Run } from '../../../shared/contracts.ts'
 import type { McpConnection, McpView } from '../../../shared/mcp.ts'
 import type { Config } from './config.ts'
+import type { Agent, Run } from './contracts.ts'
 import type { Store } from './store.ts'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client'

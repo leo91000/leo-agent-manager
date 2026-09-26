@@ -1,9 +1,9 @@
-import type { AccountLimits, CodexAccount } from '../../../shared/codex-accounts.ts'
+import type { AccountLimits, CodexAccount } from './codex-account-types.ts'
 import type { CodexRpc } from './codex-rpc.ts'
 import type { Store } from './store.ts'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { remainingUsage, usageBlocked } from '../../../shared/codex-accounts.ts'
+import { remainingUsage, usageBlocked } from './codex-account-types.ts'
 
 export const RESET_REMAINING_PERCENT = 2
 const outcomeSchema = z.object({ outcome: z.enum(['reset', 'alreadyRedeemed', 'nothingToReset', 'noCredit']) })

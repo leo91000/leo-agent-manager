@@ -1,5 +1,6 @@
 import type { Chat, ChatMessage } from '../../../shared/chats.ts'
-import type { CodexAccount } from '../../../shared/codex-accounts.ts'
+import type { McpConnection } from '../../../shared/mcp.ts'
+import type { CodexAccount } from './codex-account-types.ts'
 import type {
   Agent,
   Project,
@@ -8,8 +9,7 @@ import type {
   RunListItem,
   RunStatus,
   Task,
-} from '../../../shared/contracts.ts'
-import type { McpConnection } from '../../../shared/mcp.ts'
+} from './contracts.ts'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'

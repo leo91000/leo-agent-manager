@@ -101,9 +101,7 @@ impl Models {
             .into_iter()
             .filter(|a| a["enabled"] == true)
             .collect::<Vec<_>>();
-        let sources = if accounts.is_empty()
-            && s.store.kv(crate::accounts::codex::MANAGED).await?.is_none()
-        {
+        let sources = if accounts.is_empty() && !Provider::Codex.driver().managed(s).await? {
             vec![String::new()]
         } else {
             accounts.iter().map(|a| text(a, "id").to_owned()).collect()

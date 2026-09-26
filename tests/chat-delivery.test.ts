@@ -16,17 +16,18 @@ describe('chat delivery presentation', () => {
     const detail = chat([message('first', { status: 'sending' })], {
       ...running,
       status: 'queued',
-      accountWaitReason: 'Reconnect Claude Code after an interrupted credential synchronization.',
+      accountWaitReason: 'Reconnect your Claude Code account in Connections to continue.',
+      accountRequired: 'claude',
     })
-    expect(chatWaitNotice(detail.run)).toMatchObject({ reconnectClaude: true })
-    expect(chatDelivery(detail, []).sending[0].label).toBe('Waiting for Claude Code sign-in')
+    expect(chatWaitNotice(detail.run)).toEqual({ account: 'Claude Code', message: 'Reconnect your Claude Code account in Connections to continue. Your message is saved and will be sent then.' })
+    expect(chatDelivery(detail, []).sending[0].label).toBe('Waiting for a Claude Code account')
     detail.run!.status = 'running'
     expect(chatWaitNotice(detail.run)).toBeNull()
     expect(chatDelivery(detail, []).sending[0].label).toBe('Starting agent…')
   })
   it('preserves other waiting reasons without offering an unrelated reconnection', () => {
     const detail = chat([message('first')], { ...running, status: 'queued', accountWaitReason: 'Waiting for the previous execution to stop before recovery.' })
-    expect(chatWaitNotice(detail.run)).toEqual({ reconnectClaude: false, message: detail.run!.accountWaitReason })
+    expect(chatWaitNotice(detail.run)).toEqual({ account: null, message: detail.run!.accountWaitReason })
     expect(chatDelivery(detail, []).sending[0].label).toBe('Waiting for the agent…')
     expect(chatWaitNotice({ ...detail.run!, accountWaitReason: '' })).toBeNull()
   })

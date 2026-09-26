@@ -1,5 +1,5 @@
-import type { Agent, Project, Run, Task } from '../../../shared/contracts.ts'
 import type { Config } from './config.ts'
+import type { Agent, Project, Run, Task } from './contracts.ts'
 import type { Store } from './store.ts'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'

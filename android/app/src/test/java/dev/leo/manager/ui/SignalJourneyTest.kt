@@ -102,9 +102,12 @@ class SignalJourneyTest {
                             path.startsWith("/api/chats/") && path.endsWith("/messages") -> json("{}")
                             path.startsWith("/api/runs/") && path.endsWith("/stream") ->
                                 stream(LiveState(run = Run(path.removePrefix("/api/runs/").removeSuffix("/stream"), status = "running", snapshot = Snapshot(task = daily, agent = main))))
-                            path == "/api/claude/connection" -> json("{\"connected\":$claudeConnected}")
-                            path == "/api/codex/accounts" ->
-                                json("[{\"id\":\"a\",\"name\":\"Pro\",\"state\":\"ready\",\"remainingPercent\":64.0,\"stale\":false}]")
+                            path == "/api/accounts" ->
+                                json(
+                                    "{\"accounts\":[{\"id\":\"a\",\"provider\":\"codex\",\"name\":\"Pro\",\"state\":\"ready\",\"remainingPercent\":64.0,\"stale\":false}" +
+                                        (if (claudeConnected) ",{\"id\":\"c\",\"provider\":\"claude\",\"name\":\"Claude\",\"state\":\"ready\"}" else "") +
+                                        "],\"required\":[" + (if (claudeConnected) "" else "\"claude\"") + "]}"
+                                )
                             path == "/api/onepassword" -> json("[]")
                             else -> json("{}")
                         }
@@ -254,10 +257,10 @@ class SignalJourneyTest {
     fun `atelier leads with connection health and opens each resource`() = journey(claudeConnected = false) {
         waitDescription("Atelier")
         compose.onNodeWithContentDescription("Atelier").performClick()
-        waitText("Claude Code déconnecté")
+        waitText("Compte Claude Code requis")
         waitText("1/1 prêt · 64 % restant")
-        waitText("Aucun compte")
-        compose.onNodeWithText("Non connecté").assertExists()
+        // Claude Code and 1Password, which loads after the coding-agent accounts.
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Aucun compte", useUnmergedTree = true).fetchSemanticsNodes().size == 2 }
         capture("atelier-light")
         compose.onNodeWithText("Journal des exécutions").performScrollTo().performClick()
         waitText("Journal")

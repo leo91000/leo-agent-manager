@@ -26,7 +26,7 @@ async fn claude_account(s: &Service, parallel_runs: u64) -> String {
         .await
         .unwrap();
     let id = text(&account, "id").to_owned();
-    let home = accounts::claude::home(&s.config, &id);
+    let home = accounts::claude::account_home(&s.config, &id);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(home.join(".credentials.json"), json!({"claudeAiOauth":{"accessToken":"fixture-access","refreshToken":"private-refresh","expiresAt":now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
     let mut account = account;

@@ -1,5 +1,5 @@
-import type { AccountLimits, CodexAccount } from '../shared/codex-accounts'
 import type { fixture } from './helpers'
+import type { AccountLimits, CodexAccount } from './legacy/server/codex-account-types'
 import type { CodexSession } from './legacy/server/codex-rpc'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'

@@ -1,5 +1,5 @@
-import type { Run } from '../../../shared/contracts.ts'
 import type { Config } from './config.ts'
+import type { Run } from './contracts.ts'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { access, copyFile, cp, lstat, mkdir, readdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'

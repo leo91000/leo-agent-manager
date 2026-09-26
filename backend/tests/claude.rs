@@ -41,7 +41,7 @@ async fn connected(s: &Arc<Service>) -> String {
         .await
         .unwrap();
     let id = account["id"].as_str().unwrap().to_owned();
-    let home = accounts::claude::home(&s.config, &id);
+    let home = accounts::claude::account_home(&s.config, &id);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(home.join(".credentials.json"),json!({"claudeAiOauth":{"accessToken":"fixture-access","expiresAt":now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
     account["state"] = "ready".into();
@@ -172,7 +172,7 @@ async fn sign_in_cancellation_failure_retry_identity_and_removal() {
     );
 
     s.accounts.remove(&s, &id).await.unwrap();
-    assert!(!accounts::claude::home(&s.config, &id).exists());
+    assert!(!accounts::claude::account_home(&s.config, &id).exists());
     assert_eq!(
         s.accounts
             .records(&s, Provider::Claude)
@@ -535,7 +535,7 @@ async fn usage_is_sanitized_cached_and_preserved_on_failure_without_changing_con
     let root = TempDir::new().unwrap();
     let s = Service::new(config(&root)).await.unwrap();
     let id = connected(&s).await;
-    let home = accounts::claude::home(&s.config, &id);
+    let home = accounts::claude::account_home(&s.config, &id);
     s.accounts.refresh(&s, &id).await.unwrap();
     let first = view(&s, &id).await;
     assert_eq!(first["state"], "ready");
@@ -609,11 +609,100 @@ async fn usage_is_sanitized_cached_and_preserved_on_failure_without_changing_con
 }
 
 #[tokio::test]
+async fn an_exhausted_account_returns_once_usage_shows_capacity_again() {
+    let root = TempDir::new().unwrap();
+    let s = Service::new(config(&root)).await.unwrap();
+    let id = connected(&s).await;
+    let home = accounts::claude::account_home(&s.config, &id);
+    let read = async |used: u32| {
+        let payload = json!({"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":used,"resets_at":"2030-01-01T12:00:00Z"},"seven_day":{"utilization":60}}});
+        std::fs::write(home.join("fixture-usage.json"), payload.to_string()).unwrap();
+        reset_usage_backoff(&s, &id).await;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        s.accounts.refresh(&s, &id).await.unwrap();
+        view(&s, &id).await["status"].clone()
+    };
+    read(90).await;
+    s.accounts.exhausted(&s, &id, "sonnet").await.unwrap();
+    assert_eq!(view(&s, &id).await["status"], "waiting");
+    // Usage that has not come down yet keeps the account waiting.
+    assert_eq!(read(100).await, "waiting");
+    let run = "11111111-1111-4111-8111-111111111111";
+    assert!(
+        s.accounts
+            .acquire(&s, run, Provider::Claude, "sonnet")
+            .await
+            .is_err()
+    );
+    assert_eq!(read(0).await, "next");
+    let lease = s
+        .accounts
+        .acquire(&s, run, Provider::Claude, "sonnet")
+        .await
+        .unwrap()
+        .unwrap();
+    s.accounts.release(&lease).await.unwrap();
+
+    // Without usage to compare, the account is tried again after a while.
+    std::fs::write(home.join("fixture-usage.json"), "{\"fixtureError\":true}").unwrap();
+    s.accounts.exhausted(&s, &id, "sonnet").await.unwrap();
+    let mut account = s.accounts.get(&s, &id).await.unwrap();
+    account["usage"] = Value::Null;
+    account["exhausted"]["usage"] = Value::Null;
+    s.store.put(KIND, account).await.unwrap();
+    s.accounts.refresh(&s, &id).await.unwrap();
+    assert_eq!(view(&s, &id).await["status"], "waiting");
+    let mut account = s.accounts.get(&s, &id).await.unwrap();
+    account["exhausted"]["at"] = (now() - 16 * 60_000).into();
+    s.store.put(KIND, account).await.unwrap();
+    s.accounts.refresh(&s, &id).await.unwrap();
+    assert_eq!(view(&s, &id).await["status"], "next");
+}
+
+#[tokio::test]
+async fn opus_windows_limit_every_model_that_runs_opus() {
+    let root = TempDir::new().unwrap();
+    let s = Service::new(config(&root)).await.unwrap();
+    let id = connected(&s).await;
+    let home = accounts::claude::account_home(&s.config, &id);
+    s.store
+        .set(
+            claude::CATALOG,
+            json!({"models":[{"model":"opus"},{"model":"default","resolvedModel":"claude-opus-fixture[1m]"},{"model":"sonnet","resolvedModel":"claude-sonnet-fixture"}]}),
+            None,
+        )
+        .await
+        .unwrap();
+    let payload = json!({"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":10},"seven_day":{"utilization":20},"seven_day_opus":{"utilization":100}}});
+    std::fs::write(home.join("fixture-usage.json"), payload.to_string()).unwrap();
+    s.accounts.refresh(&s, &id).await.unwrap();
+    let run = "11111111-1111-4111-8111-111111111111";
+    for model in ["opus", "default"] {
+        assert!(
+            s.accounts
+                .acquire(&s, run, Provider::Claude, model)
+                .await
+                .unwrap_err()
+                .message
+                .contains("available usage"),
+            "{model}"
+        );
+    }
+    let lease = s
+        .accounts
+        .acquire(&s, run, Provider::Claude, "sonnet")
+        .await
+        .unwrap()
+        .unwrap();
+    s.accounts.release(&lease).await.unwrap();
+}
+
+#[tokio::test]
 async fn usage_handles_partial_invalid_and_unavailable_windows() {
     let root = TempDir::new().unwrap();
     let s = Service::new(config(&root)).await.unwrap();
     let id = connected(&s).await;
-    let home = accounts::claude::home(&s.config, &id);
+    let home = accounts::claude::account_home(&s.config, &id);
     let payload = json!({"rate_limits_available":true,"rate_limits":{
         "five_hour":{"utilization":0,"resets_at":null},
         "seven_day":{"utilization":105,"resets_at":"invalid"},

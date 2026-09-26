@@ -22,6 +22,9 @@ impl Provider {
     pub fn of_run(run: &Value) -> Self {
         Self::of_agent(&run["snapshot"]["agent"])
     }
+    pub fn of_account(account: &Value) -> Self {
+        Self::of_agent(account)
+    }
     pub fn parse(value: &str) -> Result<Self> {
         match value {
             "codex" => Ok(Self::Codex),

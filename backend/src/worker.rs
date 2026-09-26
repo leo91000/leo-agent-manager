@@ -319,12 +319,13 @@ impl Worker {
                     }
                 }
             }
+            let provider = Provider::of_run(&run);
             let acquired = s
                 .accounts
                 .acquire(
                     s,
                     run_id,
-                    Provider::of_run(&run),
+                    provider,
                     text(&run["snapshot"]["agent"], "model"),
                 )
                 .await;
@@ -332,12 +333,16 @@ impl Worker {
                 Ok(account) => account,
                 Err(error) => {
                     if run["accountWaitReason"] != error.message {
+                        // Clients offer Connections when the wait needs the user.
+                        let required = s
+                            .accounts
+                            .needs_attention(s, provider)
+                            .await?
+                            .then_some(provider);
                         s.store
                             .patch_run(
                                 run_id,
-                                json!({
-                                "accountWaitReason":error.message}
-                                ),
+                                json!({"accountWaitReason":error.message,"accountRequired":required}),
                             )
                             .await?;
                         s.store
@@ -629,7 +634,7 @@ impl Worker {
         s.store
             .patch_run(
                 &id,
-                json!({"status":"running","startedAt":run["startedAt"].as_i64().unwrap_or_else(now),"finishedAt":null,"accountWaitReason":null,"accountId":account.as_ref().map(|a|&a.account_id),"accountName":account_name}),
+                json!({"status":"running","startedAt":run["startedAt"].as_i64().unwrap_or_else(now),"finishedAt":null,"accountWaitReason":null,"accountRequired":null,"accountId":account.as_ref().map(|a|&a.account_id),"accountName":account_name}),
             )
             .await?;
         if let Some(name) = account_name.as_str() {
@@ -735,13 +740,7 @@ impl Worker {
                 .as_ref()
                 .map(|a| a.home.clone())
                 .unwrap_or_else(|| directory.join("home/.claude"));
-            crate::claude::sanitize(&mut env);
-            env.insert(
-                "CLAUDE_CONFIG_DIR".into(),
-                home.to_string_lossy().into_owned(),
-            );
-            env.insert("DISABLE_AUTOUPDATER".into(), "1".into());
-            env.insert("BROWSER".into(), "true".into());
+            crate::claude::configure(&mut env, &home);
         }
         let mcp = s.mcps.run_configuration(s, run).await?;
         sensitive.extend(

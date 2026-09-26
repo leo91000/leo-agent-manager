@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api, notify } from '../api'
+import { BrandOnePassword, CheckCircle2, Pencil, Plus, Trash2 } from '../icons'
+import { iconButton } from '../ui'
+import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 import UiAlert from './UiAlert.vue'
 import UiButton from './UiButton.vue'
@@ -18,6 +21,7 @@ const name = ref('')
 const token = ref('')
 const enabled = ref(true)
 const agentIds = ref<string[]>([])
+const sharedWith = computed(() => new Set(accounts.value.filter(a => a.enabled).flatMap(a => a.agentIds).filter(id => agents.value.some(agent => agent.id === id))).size)
 async function action(operation: () => Promise<void>) {
   busy.value = true
   error.value = ''
@@ -72,42 +76,44 @@ onMounted(() => action(load))
 </script>
 
 <template>
-  <section aria-label="1Password accounts" class="border-t border-line py-6 space-y-4">
-    <div class="flex items-center justify-between gap-3 flex-wrap">
-      <h2>1Password</h2>
-      <UiButton :disabled="busy || !loaded" @click="edit()">
-        Add service account
+  <section aria-label="1Password accounts" class="grid gap-3 border-b border-line px-4.5 py-4 last:border-0 phone:px-4">
+    <div class="flex items-center gap-3">
+      <span class="grid size-[38px] shrink-0 place-items-center rounded-[30%] bg-hover text-ink"><Icon :name="BrandOnePassword" :size="19" /></span>
+      <div class="min-w-0 flex-1">
+        <h3 class="text-sm font-semibold">
+          1Password
+        </h3>
+        <p class="truncate text-xs text-muted">
+          {{ !loaded ? 'Loading…' : accounts.length ? `${accounts.length} service ${accounts.length === 1 ? 'account' : 'accounts'} · shared with ${sharedWith} ${sharedWith === 1 ? 'agent' : 'agents'}` : 'No 1Password service accounts yet.' }}
+        </p>
+      </div>
+      <UiButton size="small" :disabled="busy || !loaded" @click="edit()">
+        <Icon :name="Plus" :size="14" />Add service account
       </UiButton>
     </div>
-    <p class="text-muted">
-      Store service account tokens and choose which agents can read their secrets. Access is off by default, including for Main agent.
-    </p>
     <UiAlert v-if="error && !open && !removing">
       {{ error }}
     </UiAlert>
-    <UiButton v-if="!loaded" :disabled="busy" @click="action(load)">
-      {{ busy ? 'Loading…' : 'Retry loading 1Password' }}
+    <UiButton v-if="!loaded && error" size="small" :disabled="busy" @click="action(load)">
+      Retry loading 1Password
     </UiButton>
-    <p v-else-if="!accounts.length" class="text-muted">
-      No 1Password service accounts yet.
-    </p>
-    <article v-for="account in accounts" :key="account.id" class="rounded-lg border border-line p-4 space-y-3">
-      <h3>{{ account.name }}</h3>
-      <p class="text-muted">
-        {{ account.enabled ? 'Enabled' : 'Disabled' }} · {{ account.agentIds.filter(id => agents.some(agent => agent.id === id)).length }} authorized agents
-      </p>
-      <div class="flex gap-2 flex-wrap">
-        <UiButton :disabled="busy" :aria-label="`Edit ${account.name}`" @click="edit(account)">
-          Edit access / token
-        </UiButton>
-        <UiButton :disabled="busy" :aria-label="`Test ${account.name}`" @click="test(account)">
-          Test connection
-        </UiButton>
-        <UiButton :disabled="busy" :aria-label="`Delete ${account.name}`" @click="removing = account; error = ''">
-          Delete
-        </UiButton>
-      </div>
-    </article>
+    <ul v-if="accounts.length" class="grid gap-1.5">
+      <li v-for="account in accounts" :key="account.id" class="flex items-center gap-3 rounded-xl bg-inset py-2 pr-2 pl-3.5">
+        <span class="min-w-0 flex-1">
+          <span class="block truncate text-sm font-semibold">{{ account.name }}</span>
+          <span class="block text-xs text-muted">{{ account.enabled ? 'Enabled' : 'Disabled' }} · {{ account.agentIds.filter(id => agents.some(agent => agent.id === id)).length }} authorized agents</span>
+        </span>
+        <button type="button" :class="iconButton" :disabled="busy" :aria-label="`Test ${account.name}`" title="Test connection" @click="test(account)">
+          <Icon :name="CheckCircle2" :size="16" />
+        </button>
+        <button type="button" :class="iconButton" :disabled="busy" :aria-label="`Edit ${account.name}`" title="Edit access and token" @click="edit(account)">
+          <Icon :name="Pencil" :size="16" />
+        </button>
+        <button type="button" :class="iconButton" :disabled="busy" :aria-label="`Delete ${account.name}`" title="Delete" @click="removing = account; error = ''">
+          <Icon :name="Trash2" :size="16" />
+        </button>
+      </li>
+    </ul>
     <Modal v-if="open" :title="editing ? 'Edit 1Password account' : 'Add 1Password account'" @close="close">
       <form class="p-6 space-y-4" @submit.prevent="save">
         <UiAlert v-if="error">
@@ -122,7 +128,7 @@ onMounted(() => action(load))
           <label class="checkbox flex flex-row items-center gap-2"><input v-model="enabled" type="checkbox">Enable this account</label>
           <h3>Authorized agents</h3>
           <p class="text-muted text-sm">
-            Uncheck an agent to revoke future reads immediately. Secrets already retrieved cannot be recalled.
+            Access is off by default, including for Main agent. Uncheck an agent to revoke future reads immediately. Secrets already retrieved cannot be recalled.
           </p>
           <label v-for="agent in agents" :key="agent.id" class="checkbox flex flex-row items-center gap-2"><input v-model="agentIds" type="checkbox" :value="agent.id">{{ agent.name }}</label>
         </fieldset>

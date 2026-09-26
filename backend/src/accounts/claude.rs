@@ -5,7 +5,7 @@ use super::{Driver, KIND, Lease, Login, broker, remove_directory, remove_file};
 use crate::{
     auth::hex_digest,
     claude::environment,
-    config::{Config, id, now},
+    config::{Config, now},
     error::{Error, Result},
     process::{bounded_output, command, read_bounded},
     provider::Provider,
@@ -31,7 +31,7 @@ const STATE: &str = ".claude.json";
 const CREDENTIALS: &str = ".credentials.json";
 
 /// The account's private CLI home, which holds its refresh credentials.
-pub fn home(config: &Config, id: &str) -> PathBuf {
+pub fn account_home(config: &Config, id: &str) -> PathBuf {
     config.data_dir.join("claude-accounts").join(id)
 }
 fn unavailable() -> Error {
@@ -143,7 +143,7 @@ async fn access_at(home: &Path, endpoint: &str) -> Result<Value> {
 /// Access-only credential storage for a manager-side metadata query. Caller holds the
 /// account lock.
 pub async fn metadata_credentials(config: &Config, id: &str) -> Result<tempfile::TempDir> {
-    let snapshot = access_at(&home(config, id), TOKEN_URL).await?;
+    let snapshot = access_at(&account_home(config, id), TOKEN_URL).await?;
     let directory = tempfile::tempdir()?;
     atomic_write(
         &directory.path().join(CREDENTIALS),
@@ -252,6 +252,25 @@ fn usage_windows(value: &Value) -> Result<Vec<Value>> {
     }
     Ok(windows)
 }
+/// A model-scoped window names a model family, such as "opus". It also limits each catalog
+/// model that runs the family, such as "opus[1m]", or "default" when it resolves to Opus.
+fn scope(windows: &mut [Value], catalog: &Value) {
+    for window in windows {
+        let Some(family) = window["models"][0].as_str().map(str::to_lowercase) else {
+            continue;
+        };
+        for row in catalog["models"].as_array().into_iter().flatten() {
+            let model = text(row, "model");
+            let runs = [model, text(row, "resolvedModel")]
+                .iter()
+                .any(|name| name.to_lowercase().contains(&family));
+            let models = window["models"].as_array_mut().unwrap();
+            if runs && !models.iter().any(|m| m == model) {
+                models.push(model.into());
+            }
+        }
+    }
+}
 /// Reads usage at most every five minutes. A failure keeps the last known windows.
 async fn read_usage(s: &Service, id: &str, previous: &Value) -> Value {
     let mut current = if previous.is_object() {
@@ -274,7 +293,15 @@ async fn read_usage(s: &Service, id: &str, previous: &Value) -> Value {
     .await
     .and_then(|v| usage_windows(&v))
     {
-        Ok(windows) => {
+        Ok(mut windows) => {
+            let catalog = s
+                .store
+                .kv(crate::claude::CATALOG)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(crate::claude::models);
+            scope(&mut windows, &catalog);
             current["windows"] = windows.into();
             current["checkedAt"] = now().into();
             current["error"] = Value::Null;
@@ -331,15 +358,22 @@ async fn migrate(s: &Service) -> Result<()> {
             .await?
             .and_then(|v| v.as_u64())
             .unwrap_or(4);
-        let id = id();
-        private_dir(&s.config.data_dir.join("claude-accounts")).await?;
-        tokio::fs::rename(&legacy, home(&s.config, &id)).await?;
-        remove_file(&home(&s.config, &id).join("sync-required")).await?;
+        // A guest may have rotated the refresh token during the old serialized transfer.
+        let mut account = super::record(
+            Provider::Claude,
+            "Claude",
+            if interrupted { "error" } else { "ready" },
+        );
+        let id = text(&account, "id").to_owned();
         let email = saved["email"].as_str();
-        let account = json!({"id":id,"provider":"claude","name":"Claude","enabled":true,"email":email,"plan":saved["subscriptionType"],"identity":email.map(identity),"createdAt":now(),"checkedAt":null,
-            // A guest may have rotated the refresh token during the old serialized transfer.
-            "state":if interrupted {"error"} else {"ready"},"error":if interrupted {"Reconnect this account after an interrupted credential transfer."} else {""},
-            "usage":null,"lastUsedAt":null,"exhausted":null,"maxConcurrentRuns":limit});
+        merge(
+            &mut account,
+            &json!({"email":email,"plan":saved["subscriptionType"],"identity":email.map(identity),"maxConcurrentRuns":limit,
+                "error":if interrupted {"Reconnect this account after an interrupted credential transfer."} else {""}}),
+        );
+        private_dir(&s.config.data_dir.join("claude-accounts")).await?;
+        tokio::fs::rename(&legacy, account_home(&s.config, &id)).await?;
+        remove_file(&account_home(&s.config, &id).join("sync-required")).await?;
         s.store.put(KIND, account).await?;
         s.store
             .audit("account.imported", json!({"id":id,"provider":"claude"}))
@@ -470,28 +504,14 @@ impl Driver for Claude {
         let mut account = s.accounts.get(s, id).await?;
         let fingerprint = identity(email);
         if account["identity"].is_string() && account["identity"] != fingerprint.as_str() {
-            return Err(Error::new(
-                409,
-                "Sign-in belongs to a different account. Add it as a new account instead.",
-            ));
+            return Err(super::different_account());
         }
         merge(
             &mut account,
             &json!({"identity":fingerprint,"email":email,"plan":signed_in["subscriptionType"],"state":"ready","error":"","checkedAt":now(),"usage":null,"exhausted":null}),
         );
-        // Identity uniqueness is checked and saved together, even when two sign-ins finish together.
-        s.store
-            .transaction({
-                let account = account.clone();
-                move |db| {
-                    if db.list(KIND)?.iter().any(|a| a["id"] != account["id"] && a["provider"] == "claude" && a["identity"] == account["identity"]) {
-                        return Err(Error::new(409, "This account is already connected. Reconnect the existing account instead."));
-                    }
-                    db.put(KIND, &account)
-                }
-            })
-            .await?;
-        let target = self::home(&s.config, id);
+        super::claim(s, account).await?;
+        let target = account_home(&s.config, id);
         private_dir(&target).await?;
         for name in [CREDENTIALS, STATE] {
             copy_private(&home.join(name), &target.join(name)).await?;
@@ -501,7 +521,7 @@ impl Driver for Claude {
         self.refresh(s, id, &[]).await
     }
     async fn refresh(&self, s: &Service, id: &str, _models: &[String]) -> Result<()> {
-        let current = status(&s.config, &self::home(&s.config, id)).await?;
+        let current = status(&s.config, &account_home(&s.config, id)).await?;
         if current["connected"] != true {
             return Err(Error::new(409, "Reconnect this Claude account."));
         }
@@ -536,7 +556,7 @@ impl Driver for Claude {
     }
     async fn prepare(&self, s: &Service, id: &str, home: &Path) -> Result<()> {
         private_dir(home).await?;
-        copy_private(&self::home(&s.config, id).join(STATE), &home.join(STATE)).await?;
+        copy_private(&account_home(&s.config, id).join(STATE), &home.join(STATE)).await?;
         self.clear(home).await
     }
     async fn clear(&self, home: &Path) -> Result<()> {
@@ -547,10 +567,10 @@ impl Driver for Claude {
     }
     async fn access(&self, s: &Service, lease: &Lease, _request: &Value) -> Result<Value> {
         let _rotation = s.accounts.lock(&lease.account_id).await;
-        access_at(&self::home(&s.config, &lease.account_id), TOKEN_URL).await
+        access_at(&account_home(&s.config, &lease.account_id), TOKEN_URL).await
     }
     async fn redactions(&self, s: &Service, id: &str) -> Result<Vec<String>> {
-        let value = credentials(&self::home(&s.config, id))
+        let value = credentials(&account_home(&s.config, id))
             .await
             .unwrap_or(Value::Null);
         Ok(["accessToken", "refreshToken"]
@@ -564,7 +584,7 @@ impl Driver for Claude {
             .collect())
     }
     async fn forget(&self, s: &Service, id: &str) -> Result<()> {
-        let directory = self::home(&s.config, id);
+        let directory = account_home(&s.config, id);
         if directory.join(CREDENTIALS).exists() {
             // Best effort: let the CLI revoke the login before its files are deleted.
             let _ = bounded_output(
@@ -637,6 +657,14 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
     use tokio::net::UnixListener;
+    #[test]
+    fn model_windows_limit_the_catalog_models_of_their_family() {
+        let catalog = json!({"models":[{"model":"opus"},{"model":"opus[1m]"},{"model":"default","resolvedModel":"claude-opus-fixture[1m]"},{"model":"sonnet","resolvedModel":"claude-sonnet-fixture"}]});
+        let mut windows = vec![json!({"models":[]}), json!({"models":["opus"]})];
+        scope(&mut windows, &catalog);
+        assert_eq!(windows[0]["models"], json!([]));
+        assert_eq!(windows[1]["models"], json!(["opus", "opus[1m]", "default"]));
+    }
     fn stored() -> Value {
         json!({"claudeAiOauth":{"accessToken":"old-access","refreshToken":"private-refresh","expiresAt":now()-1000,"scopes":["user:profile","user:inference"],"subscriptionType":"max","clientId":"login-client"},"otherSecret":"must-stay-on-host"})
     }

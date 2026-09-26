@@ -105,7 +105,9 @@ data class Run(
     val usage: Map<String, JsonElement>? = null,
     val recoveryPending: Boolean = false,
     val resumeAvailable: Boolean = false,
-    val codexAccountName: String? = null,
+    val accountName: String? = null,
+    /** The coding agent whose accounts need the user in Connexions before this run can start. */
+    val accountRequired: String? = null,
     val accountWaitReason: String? = null,
     val cancelRequestedAt: Long? = null,
     val resumeCount: Int = 0,

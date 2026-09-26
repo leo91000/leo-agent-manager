@@ -5,6 +5,7 @@ use crate::{
     auth::hex_digest,
     config::{id, now},
     error::{Error, Result, required},
+    provider::Provider,
     rpc::{Incoming, Session},
     service::Service,
     skills::{atomic_write, private_dir},
@@ -146,10 +147,7 @@ async fn capture(s: &Service, id: &str, home: &Path) -> Result<()> {
                 && subject(text(&previous["tokens"], "id_token"))
                     != subject(text(&auth["tokens"], "id_token"))))
     {
-        return Err(Error::new(
-            409,
-            "Sign-in belongs to a different account. Add it as a new account instead.",
-        ));
+        return Err(super::different_account());
     }
     s.vault.set(&secret(id), &auth).await?;
     use std::os::unix::fs::PermissionsExt;
@@ -255,36 +253,15 @@ async fn read_usage(
     };
     let fingerprint = hex_digest(&format!("{account_id}:{subject}"));
     if account["identity"].is_string() && account["identity"] != fingerprint {
-        return Err(Error::new(
-            409,
-            "Sign-in belongs to a different account. Add it as a new account instead.",
-        ));
+        return Err(super::different_account());
     }
     merge(
         &mut account,
         &json!({"identity":fingerprint,"email":identity["account"]["email"],"plan":identity["account"]["planType"],"state":"ready","checkedAt":now(),"error":"","usage":current}),
     );
-    if !account["exhausted"].is_null()
-        && usage::recovered(
-            &account["exhausted"]["usage"],
-            &current,
-            text(&account["exhausted"], "model"),
-        )
-    {
-        account["exhausted"] = Value::Null;
-    }
-    // Identity uniqueness is checked and saved together, even when two sign-ins finish together.
-    s.store
-        .transaction({
-            let account = account.clone();
-            move |db| {
-                if db.list(KIND)?.iter().any(|a| a["id"] != account["id"] && a["provider"] == "codex" && a["identity"] == account["identity"]) {
-                    return Err(Error::new(409, "This account is already connected. Reconnect the existing account instead."));
-                }
-                db.put(KIND, &account)
-            }
-        })
-        .await?;
+    // A natural reset comes first: it leaves banked resets for later.
+    super::replenish(&mut account, &Codex);
+    super::claim(s, account.clone()).await?;
     let model = if account["exhausted"].is_null() {
         model
     } else {
@@ -292,22 +269,19 @@ async fn read_usage(
     };
     let (current, reset_error, confirmed) = reset(s, &account, model, rpc, &auth).await?;
     let mut account = s.accounts.get(s, id).await?;
-    if !account["exhausted"].is_null() {
-        let model = text(&account["exhausted"], "model");
-        if (confirmed
-            && !usage::blocked(&current, model)
-            && usage::remaining(&current, model).unwrap_or(0.) > 0.)
-            || usage::recovered(&account["exhausted"]["usage"], &current, model)
-        {
-            account["exhausted"] = Value::Null;
-        } else {
-            account["exhausted"]["usage"] = current.clone();
-        }
+    let model = text(&account["exhausted"], "model").to_owned();
+    // A confirmed banked reset restores capacity before usage reports lower readings.
+    if confirmed
+        && !usage::blocked(&current, &model)
+        && usage::remaining(&current, &model).unwrap_or(0.) > 0.
+    {
+        account["exhausted"] = Value::Null;
     }
     merge(
         &mut account,
         &json!({"usage":current,"resetError":reset_error}),
     );
+    super::replenish(&mut account, &Codex);
     s.store.put(KIND, account).await?;
     Ok(())
 }
@@ -463,11 +437,7 @@ impl Driver for Codex {
         // Earlier versions signed in here; an unfinished sign-in never survives a restart.
         remove_directory(&s.config.data_dir.join("codex-login")).await?;
         // Recover credentials a manager session may have rotated just before a crash.
-        for account in s
-            .accounts
-            .records(s, crate::provider::Provider::Codex)
-            .await?
-        {
+        for account in s.accounts.records(s, Provider::Codex).await? {
             let id = text(&account, "id");
             for purpose in ["codex-monitor", "codex-model-discovery"] {
                 let home = s.config.data_dir.join(purpose).join(id);
@@ -492,12 +462,12 @@ impl Driver for Codex {
         {
             return Ok(());
         }
-        let account = json!({"id":id(),"provider":"codex","name":"Primary account","enabled":true,"email":null,"plan":null,"identity":null,"createdAt":now(),"checkedAt":null,"state":"ready","error":"","usage":null,"lastUsedAt":null,"exhausted":null,"maxConcurrentRuns":4});
+        let account = super::record(Provider::Codex, "Primary account", "ready");
         let imported = account.clone();
         s.store
             .transaction(move |db| {
                 db.put(KIND, &imported)?;
-                db.set(MANAGED, &json!(true), None)
+                Codex.added(db)
             })
             .await?;
         capture(s, text(&account, "id"), &home).await?;
@@ -510,6 +480,10 @@ impl Driver for Codex {
     }
     async fn managed(&self, s: &Service) -> Result<bool> {
         Ok(s.store.kv(MANAGED).await?.is_some())
+    }
+    /// From the first added account on, Codex runs need a managed account, never the host login.
+    fn added(&self, db: &mut crate::store::Db<'_>) -> Result<()> {
+        db.set(MANAGED, &json!(true), None)
     }
     async fn authorize(&self, s: &Service, home: &Path, login: &Login) -> Result<()> {
         private_dir(&home.join(".codex")).await?;
@@ -566,7 +540,7 @@ impl Driver for Codex {
         let pending = s.store.kv(&reset_key(id)).await?.is_some();
         let attention = !account["exhausted"].is_null()
             || pending
-            || usage::remaining(&account["usage"], &model).is_some_and(|n| n <= 10.);
+            || usage::remaining(&account["usage"], &model).is_some_and(|n| n <= super::LOW);
         // Poll quickly near exhaustion while a banked reset can restore capacity.
         let interval = if account["enabled"] == true
             && attention

@@ -50,6 +50,10 @@ pub trait Driver: Send + Sync {
     async fn initialize(&self, s: &Service) -> Result<()>;
     /// Codex runs on the host's own login until a managed account is added.
     async fn managed(&self, s: &Service) -> Result<bool>;
+    /// Records that an account was added, in the transaction that adds it.
+    fn added(&self, _db: &mut crate::store::Db<'_>) -> Result<()> {
+        Ok(())
+    }
     /// Signs in with the official CLI inside `home`, publishing its link and code to `login`.
     async fn authorize(&self, s: &Service, home: &Path, login: &Login) -> Result<()>;
     /// Verifies the identity signed in within `home`, then keeps its credentials for `id`.
@@ -85,9 +89,6 @@ impl Provider {
             Provider::Claude => &claude::Claude,
         }
     }
-}
-pub fn provider(account: &Value) -> Provider {
-    Provider::parse(text(account, "provider")).unwrap_or(Provider::Codex)
 }
 
 /// A sign-in in progress, as seen by a driver.
@@ -155,6 +156,67 @@ pub fn migrate(db: &mut crate::store::Db<'_>) -> Result<()> {
     db.set(key, &json!(true), None)
 }
 
+/// A new account, before its first sign-in or import.
+pub(crate) fn record(provider: Provider, name: &str, state: &str) -> Value {
+    json!({"id":id(),"provider":provider,"name":name,"enabled":true,"email":null,"plan":null,"identity":null,"createdAt":now(),"checkedAt":null,"state":state,"error":"","usage":null,"lastUsedAt":null,"exhausted":null,"maxConcurrentRuns":PARALLEL_RUNS})
+}
+/// Saves a signed-in account unless another account of its coding agent has the same identity.
+/// Both are checked and saved together, even when two sign-ins finish together.
+pub(crate) async fn claim(s: &Service, account: Value) -> Result<()> {
+    s.store
+        .transaction(move |db| {
+            if db.list(KIND)?.iter().any(|a| {
+                a["id"] != account["id"]
+                    && a["provider"] == account["provider"]
+                    && a["identity"] == account["identity"]
+            }) {
+                return Err(Error::new(
+                    409,
+                    "This account is already connected. Reconnect the existing account instead.",
+                ));
+            }
+            db.put(KIND, &account).map(|_| ())
+        })
+        .await
+}
+/// A reconnection signed in with another identity than the account's own.
+pub(crate) fn different_account() -> Error {
+    Error::new(
+        409,
+        "Sign-in belongs to a different account. Add it as a new account instead.",
+    )
+}
+/// Clears exhaustion once usage read after it shows the account recovered; otherwise that
+/// usage becomes what the next reading is compared with. Without any usage to compare, a
+/// coding agent that can run on unknown usage tries the account again after `fresh_for`.
+pub(crate) fn replenish(account: &mut Value, driver: &dyn Driver) {
+    let exhausted = &account["exhausted"];
+    if exhausted.is_null() {
+        return;
+    }
+    let model = text(exhausted, "model");
+    let at = exhausted["at"].as_i64().unwrap_or(0);
+    let current = &account["usage"];
+    let recovered = if current["checkedAt"]
+        .as_i64()
+        .is_some_and(|checked| checked > at)
+    {
+        usage::recovered(&exhausted["usage"], current, model)
+            || (usage::remaining(&exhausted["usage"], model).is_none()
+                && !usage::blocked(current, model)
+                && usage::remaining(current, model).is_some_and(|n| n > 0.))
+    } else {
+        !driver.requires_usage() && now() - at >= driver.fresh_for()
+    };
+    if recovered {
+        account["exhausted"] = Value::Null;
+    } else if current["checkedAt"]
+        .as_i64()
+        .is_some_and(|checked| checked > at)
+    {
+        account["exhausted"]["usage"] = current.clone();
+    }
+}
 fn fresh(account: &Value, driver: &dyn Driver) -> bool {
     account["usage"]["checkedAt"]
         .as_i64()
@@ -364,11 +426,18 @@ impl Accounts {
         let accounts = self.records(s, provider).await?;
         let leases = self.leases.lock().await;
         let label = provider.label();
-        let message = if accounts.iter().all(|a| a["state"] == "pending") {
+        let ready = accounts
+            .iter()
+            .filter(|a| a["state"] == "ready")
+            .collect::<Vec<_>>();
+        let message = if ready.is_empty() && accounts.iter().any(|a| a["state"] == "error") {
+            format!("Reconnect your {label} account in Connections to continue.")
+        } else if ready.is_empty() {
             format!("Connect a {label} account in Connections before running this agent.")
-        } else if accounts.iter().any(|a| {
+        } else if ready.iter().all(|a| a["enabled"] != true) {
+            format!("Every {label} account is paused. Resume one in Connections to continue.")
+        } else if ready.iter().any(|a| {
             a["enabled"] == true
-                && a["state"] == "ready"
                 && leases
                     .values()
                     .filter(|l| a["id"] == l.account_id.as_str())
@@ -382,6 +451,15 @@ impl Accounts {
             format!("Waiting for a {label} account with available usage.")
         };
         Ok(Error::new(409, message))
+    }
+    /// Whether runs of `provider` wait for the user to connect, reconnect or resume an account.
+    pub async fn needs_attention(&self, s: &Service, provider: Provider) -> Result<bool> {
+        Ok(provider.driver().managed(s).await?
+            && !self
+                .records(s, provider)
+                .await?
+                .iter()
+                .any(|a| a["state"] == "ready" && a["enabled"] == true))
     }
     pub async fn release(&self, lease: &Lease) -> Result<()> {
         let _guard = self.lock(&lease.account_id).await;
@@ -467,7 +545,7 @@ impl Accounts {
             let id = text(&account, "id");
             let attempted = self.attempted.lock().await.get(id).copied().unwrap_or(0);
             if !only_due
-                || provider(&account)
+                || Provider::of_account(&account)
                     .driver()
                     .due(s, &account, attempted)
                     .await?
@@ -495,8 +573,9 @@ impl Accounts {
             .into_iter()
             .map(|l| l.model)
             .collect::<Vec<_>>();
-        let provider = provider(&account);
-        if let Err(error) = provider.driver().refresh(s, id, &models).await {
+        let provider = Provider::of_account(&account);
+        let driver = provider.driver();
+        if let Err(error) = driver.refresh(s, id, &models).await {
             let mut account = self.get(s, id).await?;
             let message = if error.status < 500 {
                 error.message
@@ -507,6 +586,12 @@ impl Accounts {
                 )
             };
             merge(&mut account, &json!({"state":"error","error":message}));
+            s.store.put(KIND, account).await?;
+            return Ok(());
+        }
+        let mut account = self.get(s, id).await?;
+        if !account["exhausted"].is_null() {
+            replenish(&mut account, driver);
             s.store.put(KIND, account).await?;
         }
         Ok(())
@@ -536,6 +621,19 @@ impl Accounts {
             })
             .collect())
     }
+    /// Every account, the sign-in in progress, and the coding agents whose runs wait for the
+    /// user to connect, reconnect or resume an account.
+    pub async fn overview(&self, s: &Service) -> Result<Value> {
+        let mut required = Vec::new();
+        for provider in Provider::ALL {
+            if self.needs_attention(s, provider).await? {
+                required.push(provider);
+            }
+        }
+        Ok(
+            json!({"accounts":self.list(s).await?,"signIn":self.sign_in().await,"required":required}),
+        )
+    }
     pub async fn sign_in(&self) -> Value {
         self.signing_in
             .lock()
@@ -550,20 +648,21 @@ impl Accounts {
         let name = valid_name(name)?.to_owned();
         s.store
             .transaction(move |db| {
-                if db.list(KIND)?.iter().filter(|a| a["provider"] == provider.as_str()).count()
+                if db
+                    .list(KIND)?
+                    .iter()
+                    .filter(|a| a["provider"] == provider.as_str())
+                    .count()
                     >= MAX_ACCOUNTS
                 {
                     return Err(Error::bad(format!(
-                        "A maximum of ten {} accounts can be connected.",
+                        "A maximum of {MAX_ACCOUNTS} {} accounts can be connected.",
                         provider.label()
                     )));
                 }
-                let account = json!({"id":id(),"provider":provider,"name":name,"enabled":true,"email":null,"plan":null,"identity":null,"createdAt":now(),"checkedAt":null,"state":"pending","error":"","usage":null,"lastUsedAt":null,"exhausted":null,"maxConcurrentRuns":PARALLEL_RUNS});
+                let account = record(provider, &name, "pending");
                 db.put(KIND, &account)?;
-                if provider == Provider::Codex {
-                    // From now on Codex runs need a managed account, never the host login.
-                    db.set(codex::MANAGED, &json!(true), None)?;
-                }
+                provider.driver().added(db)?;
                 Ok(account)
             })
             .await
@@ -602,7 +701,7 @@ impl Accounts {
         account: Value,
     ) -> Result<Value> {
         let id = text(&account, "id").to_owned();
-        let provider = provider(&account);
+        let provider = Provider::of_account(&account);
         let _guard = self.lock(&id).await;
         let home = s.config.data_dir.join("account-login").join(&id);
         private_dir(&home).await?;
@@ -766,7 +865,7 @@ impl Accounts {
                 "Wait for this account’s runs or sign-in to finish before removing it.",
             ));
         }
-        let provider = provider(&account);
+        let provider = Provider::of_account(&account);
         provider.driver().forget(s, id).await?;
         let id = id.to_owned();
         s.store
@@ -779,7 +878,7 @@ impl Accounts {
 }
 
 fn view(mut account: Value, leases: &HashMap<String, Lease>, next: bool) -> Value {
-    let driver = provider(&account).driver();
+    let driver = Provider::of_account(&account).driver();
     let mut runs = leases
         .values()
         .filter(|l| account["id"] == l.account_id.as_str())
@@ -839,7 +938,7 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
     match (input.method.as_str(), segments.as_slice()) {
         ("GET", []) => {
             accounts.initialize(s).await?;
-            Ok(json!({"accounts":accounts.list(s).await?,"signIn":accounts.sign_in().await}))
+            accounts.overview(s).await
         }
         ("POST", []) => {
             let provider = Provider::parse(input.string("provider", 20)?)?;
@@ -847,7 +946,7 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
         }
         ("POST", ["refresh"]) => {
             accounts.poll(s, false).await?;
-            Ok(json!({"accounts":accounts.list(s).await?,"signIn":accounts.sign_in().await}))
+            accounts.overview(s).await
         }
         ("POST", ["sign-in", "code"]) => {
             let code = input.string("code", 4096)?.trim();

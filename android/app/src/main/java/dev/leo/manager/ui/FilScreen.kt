@@ -79,7 +79,7 @@ internal fun buildFeed(chats: List<Chat>, activity: List<Run>, tasks: List<Task>
                     if (chat.pendingQuestions == 1) "Une question vous attend"
                     else "${chat.pendingQuestions} questions vous attendent",
                 )
-            wait?.reconnectClaude == true -> forYou += item(FeedKind.RECONNECT, "Reconnectez Claude Code pour continuer")
+            wait?.account != null -> forYou += item(FeedKind.RECONNECT, "Compte ${wait.account} requis pour continuer")
             chat.status in setOf("failed", "interrupted") ->
                 forYou += item(FeedKind.FAILED_CHAT, chat.error?.lineSequence()?.firstOrNull()?.ifBlank { null } ?: statusLabel(chat.status))
             !chat.paused && chat.status in setOf("running", "queued") ->

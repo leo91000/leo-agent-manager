@@ -33,6 +33,9 @@ class ActivityPresentationTest {
         val account = presentActivity(event("status", "Using Codex account: Compte principal"))
         assertEquals("Compte Codex sélectionné", account.title)
         assertEquals("Compte principal", account.subtitle)
+        val claude = presentActivity(event("status", "Using Claude Code account: Studio"))
+        assertEquals("Compte Claude Code sélectionné", claude.title)
+        assertEquals("Studio", claude.subtitle)
     }
 
     @Test
