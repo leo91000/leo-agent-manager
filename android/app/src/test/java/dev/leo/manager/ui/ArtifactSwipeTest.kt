@@ -2,6 +2,7 @@ package dev.leo.manager.ui
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
@@ -42,6 +43,12 @@ class ArtifactSwipeTest {
     private val downloads = CopyOnWriteArrayList<String>()
 
     @Before fun setup() {
+        // The gallery decodes files on an IO thread. Robolectric's native decoder must first run on the
+        // test thread: initialized from a worker, it cannot resolve java.nio classes and aborts the JVM.
+        val warm = File.createTempFile("warm", ".png")
+        warm.outputStream().use { Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, it) }
+        BitmapFactory.decodeFile(warm.path)?.recycle()
+        warm.delete()
         WorkManagerTestInitHelper.initializeTestWorkManager(
             ApplicationProvider.getApplicationContext<Application>(),
             Configuration.Builder().setExecutor(SynchronousExecutor()).build(),
@@ -210,7 +217,6 @@ class ArtifactSwipeTest {
                 recycle()
             }
         }.toByteArray()
-        // Initialize Robolectric's native graphics on the test thread, before network workers.
         val blue = png(Color.BLUE)
         val red = png(Color.RED)
         server.dispatcher = object : Dispatcher() {
