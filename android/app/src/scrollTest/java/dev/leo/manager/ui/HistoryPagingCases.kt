@@ -69,7 +69,7 @@ abstract class HistoryPagingCases(@get:Rule val compose: ComposeContentTestRule 
                                     else Markdown((1..35).joinToString("\n\n") { "Message $number, paragraphe $it. Le lecteur doit garder exactement le même texte devant les yeux." })
                                 }
                             }
-                            HistoryPagingStatus(live, list, load)
+                            HistoryStatus(live, list, load)
                         }
                     }
                 }

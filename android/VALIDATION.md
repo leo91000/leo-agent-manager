@@ -13,6 +13,8 @@ question requests each of the five pages once, and no visible question moves whi
 On an API 36 emulator it passes; frame traces showed 0 px movement on every page arrival and no
 row resizing once Markdown renders synchronously (before, each agent answer entering at the top
 grew from 169 to 211 px and pushed the view by up to 42 px). The recorded run is the demo video.
+Positions are compared on screen: the mock stream ends every few seconds, and the resulting
+« Reconnexion… » status used to shift the conversation by 29 px; it is now an overlay pill.
 
 ## Previous validation: Android 0.36.0 — live step and agent actions
 

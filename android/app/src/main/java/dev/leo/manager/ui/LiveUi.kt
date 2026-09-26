@@ -223,30 +223,43 @@ internal fun LazyListState.distanceToStart(): Int {
 }
 
 /**
- * Loading older history is shown over the list rather than as a row: a row at the start would
- * become Compose's scroll anchor and push the reader's text down when the page arrives.
+ * Connection and paging states are shown over the list rather than above it or as a row: a line
+ * above would resize the list on every reconnect, and a row at the start would become Compose's
+ * scroll anchor and push the reader's text down when a page arrives.
  */
 @Composable
-internal fun BoxScope.HistoryPagingStatus(live: LiveSnapshot, list: LazyListState, retry: () -> Unit) {
+internal fun BoxScope.HistoryStatus(live: LiveSnapshot, list: LazyListState, retry: () -> Unit, connection: String? = null) {
     val atStart by remember(list) { derivedStateOf { !list.canScrollBackward } }
     val error = live.olderError
-    val visible = live.loadingOlder && atStart || error != null
-    androidx.compose.animation.AnimatedVisibility(
-        visible,
+    Column(
         Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
-        enter = androidx.compose.animation.fadeIn(),
-        exit = androidx.compose.animation.fadeOut(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shadowElevation = 2.dp,
+        // Keep the last text while fading out, so the pill does not empty before it disappears.
+        var shown by remember { mutableStateOf(connection.orEmpty()) }
+        if (connection != null) shown = connection
+        androidx.compose.animation.AnimatedVisibility(
+            connection != null,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
         ) {
-            Row(
-                Modifier.heightIn(min = 40.dp).padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            StatusPill {
+                Text(
+                    shown,
+                    Modifier.widthIn(max = 280.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            live.loadingOlder && atStart || error != null,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            StatusPill {
                 if (error == null) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Text("Chargement des messages précédents…", style = MaterialTheme.typography.labelMedium)
@@ -262,6 +275,22 @@ internal fun BoxScope.HistoryPagingStatus(live: LiveSnapshot, list: LazyListStat
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StatusPill(content: @Composable RowScope.() -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 2.dp,
+    ) {
+        Row(
+            Modifier.heightIn(min = 32.dp).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            content = content,
+        )
     }
 }
 

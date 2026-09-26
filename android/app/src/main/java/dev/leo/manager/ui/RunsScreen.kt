@@ -343,13 +343,6 @@ fun RunScreen(
                                 ArtifactStrip(vm, latestArtifacts(live.state.artifacts))
                         }
                     1 -> {
-                        if (live.status != "En direct")
-                            Text(
-                                live.status,
-                                Modifier.padding(horizontal = 20.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         if (more) LinearProgressIndicator(Modifier.fillMaxWidth())
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             LazyColumn(
@@ -387,7 +380,7 @@ fun RunScreen(
                                     }
                                 if (events.isEmpty()) item { Text("L’activité apparaîtra ici.") }
                             }
-                            HistoryPagingStatus(live, logState, loadOlder)
+                            HistoryStatus(live, logState, loadOlder, live.status.takeIf { it != "En direct" })
                             HistoryBottomButton(logState, follow, "Dernière activité") { follow = true }
                         }
                     }

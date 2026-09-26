@@ -4,6 +4,7 @@
 - Le texte affiché ne bouge plus quand une page arrive, même pendant un défilement ou un geste rapide. Le groupe d’actions le plus ancien garde sa place quand la page suivante le complète, et une courte conversation reste collée au-dessus du champ de saisie.
 - Les réponses de l’agent s’affichent directement à leur hauteur finale en entrant à l’écran, au lieu de s’agrandir après coup.
 - Un indicateur discret n’apparaît qu’en haut de l’historique pendant un chargement ; en cas d’erreur, « Réessayer » relance la page.
+- L’état de connexion (« Connexion… », « Reconnexion… », erreurs) s’affiche en pastille au-dessus de la conversation, au lieu d’une ligne qui la décalait à chaque reconnexion. Le journal d’une exécution fait de même.
 
 ## Leo Android 0.39.1 — Suivi des réponses
 

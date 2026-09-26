@@ -23,8 +23,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Scroll up through a long, tool-heavy chat on a device: every page arrives while the reader
- * is idle and must not move the visible text, until the first question is reached.
+ * Scroll up through a long, tool-heavy chat on a device: pages and reconnects happen while the
+ * reader is idle and must not move the visible text, until the first question is reached.
  */
 @RunWith(AndroidJUnit4::class)
 class HistoryScrollDeviceTest {
@@ -112,14 +112,13 @@ class HistoryScrollDeviceTest {
                 compose.waitUntil(30000) { compose.onAllNodesWithText("Question $turns", substring = true).fetchSemanticsNodes().isNotEmpty() }
                 Thread.sleep(1500)
                 val list = compose.onNodeWithTag("conversation-history")
-                // Relative to the list: a reconnect status line above it is not part of paging.
-                fun questions(): List<Pair<String, Float>> {
-                    val top = list.fetchSemanticsNode().boundsInRoot.top
-                    return compose.onAllNodes(hasText("Question ", substring = true))
+                // On screen: the stream above ends every few seconds, and its « Reconnexion… »
+                // status must not move the conversation either.
+                fun questions(): List<Pair<String, Float>> =
+                    compose.onAllNodes(hasText("Question ", substring = true))
                         .fetchSemanticsNodes()
                         .filter { it.boundsInRoot.height > 0 }
-                        .map { it.config[androidx.compose.ui.semantics.SemanticsProperties.Text].first().text.substringBefore(" :") to it.boundsInRoot.top - top }
-                }
+                        .map { it.config[androidx.compose.ui.semantics.SemanticsProperties.Text].first().text.substringBefore(" :") to it.boundsInRoot.top }
                 var swipes = 0
                 while (compose.onAllNodesWithText("Question 1 :", substring = true).fetchSemanticsNodes().isEmpty()) {
                     assertTrue("The first question must be reachable by scrolling up", ++swipes < 80)

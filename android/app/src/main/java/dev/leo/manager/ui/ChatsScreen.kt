@@ -724,13 +724,6 @@ internal fun ChatPage(
                         )
                     }
                 }
-            if (live.status != "En direct")
-                Text(
-                    live.error ?: live.status,
-                    Modifier.padding(horizontal = 20.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             chat?.error?.let {
                 Text(
                     it,
@@ -796,8 +789,17 @@ internal fun ChatPage(
                     }
                 }
                 if (live.catchingUp && id != null) {
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                         CircularProgressIndicator(Modifier.size(28.dp))
+                        Text(
+                            live.error ?: live.status,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 } else {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -871,7 +873,7 @@ internal fun ChatPage(
                                     )
                                 }
                         }
-                        HistoryPagingStatus(live, listState, loadOlder)
+                        HistoryStatus(live, listState, loadOlder, (live.error ?: live.status).takeIf { live.status != "En direct" })
                         HistoryBottomButton(listState, follow, "Derniers messages") { follow = true }
                     }
                 }
