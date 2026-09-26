@@ -237,7 +237,11 @@ class ArtifactSwipeTest {
         val vm = LeoViewModel(ApplicationProvider.getApplicationContext<Application>(), MemoryVault())
         restoration.setContent {
             val state by vm.state.collectAsStateWithLifecycle()
-            LaunchedEffect(Unit) { vm.state.first { it.ready }; vm.connect(server.url("/").toString()) }
+            // Restoration recomposes this effect; reconnecting would reset the workspace and rebuild the gallery.
+            LaunchedEffect(Unit) {
+                vm.state.first { it.ready }
+                if (!vm.state.value.session.authenticated) vm.connect(server.url("/").toString())
+            }
             LeoTheme { if (state.agents.isNotEmpty()) content(vm) }
         }
         compose.waitUntil(15000) { compose.onAllNodesWithTag("artifact-pager").fetchSemanticsNodes().isNotEmpty() ||
