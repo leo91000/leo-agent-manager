@@ -15,7 +15,12 @@ const out = value => process.stdout.write(`${JSON.stringify(value)}\n`)
 const lines = createInterface({ input: process.stdin })
 if (args[0] === 'auth') {
   if (args[1] === 'status') {
-    out({ loggedIn: existsSync(auth), email: 'claude-fixture@example.test', subscriptionType: 'max', authMethod: 'oauth_token', accessToken: 'never-return-this-secret' })
+    let email = 'claude-fixture@example.test'
+    try {
+      email = JSON.parse(readFileSync(auth, 'utf8')).fixtureEmail ?? email
+    }
+    catch {}
+    out({ loggedIn: existsSync(auth), email, subscriptionType: 'max', authMethod: 'oauth_token', accessToken: 'never-return-this-secret' })
     process.exit(existsSync(auth) ? 0 : 1)
   }
   if (args[1] === 'logout') {
@@ -24,12 +29,14 @@ if (args[0] === 'auth') {
   }
   process.stdout.write('Open https://claude.com/oauth/authorize?fixture=1\nPaste code here if prompted > ')
   lines.on('line', (code) => {
-    if (code !== 'fixture-code') {
+    // `fixture-code:<email>` signs in another synthetic identity.
+    const match = /^fixture-code(?::(.+))?$/.exec(code)
+    if (!match) {
       process.stderr.write('never-return-this-secret')
       process.exit(1)
     }
     writeFileSync(auth, 'connected')
-    writeFileSync(path.join(home, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-access', refreshToken: 'fixture-refresh', expiresAt: Date.now() + 3600000, scopes: ['user:profile', 'user:inference'], subscriptionType: 'max' } }))
+    writeFileSync(path.join(home, '.credentials.json'), JSON.stringify({ fixtureEmail: match[1], claudeAiOauth: { accessToken: 'fixture-access', refreshToken: 'fixture-refresh', expiresAt: Date.now() + 3600000, scopes: ['user:profile', 'user:inference'], subscriptionType: 'max' } }))
     process.exit(0)
   })
 }

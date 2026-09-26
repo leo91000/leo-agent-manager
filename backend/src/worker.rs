@@ -1,9 +1,10 @@
 use crate::{
-    accounts::Lease,
+    accounts::{Lease, broker},
     config::now,
     error::{Error, Result, required},
     execution,
     process::Environment,
+    provider::Provider,
     recovery, run_output,
     service::{Service, policy, run_projects},
     skills::{atomic_write, private_dir},
@@ -318,18 +319,15 @@ impl Worker {
                     }
                 }
             }
-            let claude_gate = if crate::claude::is_claude(&run) {
-                Some(s.claude.gate.lock().await)
-            } else {
-                None
-            };
-            let acquired = if crate::claude::is_claude(&run) {
-                s.claude.available(s, run_id).await.map(|_| None)
-            } else {
-                s.accounts
-                    .acquire(s, run_id, text(&run["snapshot"]["agent"], "model"))
-                    .await
-            };
+            let acquired = s
+                .accounts
+                .acquire(
+                    s,
+                    run_id,
+                    Provider::of_run(&run),
+                    text(&run["snapshot"]["agent"], "model"),
+                )
+                .await;
             let account = match acquired {
                 Ok(account) => account,
                 Err(error) => {
@@ -351,19 +349,13 @@ impl Worker {
             };
             if s.shutdown.is_cancelled() || s.store.run(run_id).await?["status"] != "queued" {
                 if let Some(account) = account {
-                    s.accounts.release(s, &account).await?;
+                    s.accounts.release(&account).await?;
                 }
                 continue;
             }
             for project in locking_projects(&run) {
                 projects.insert(text(&project, "id").to_owned());
             }
-            if crate::claude::is_claude(&run) {
-                s.store
-                    .patch_run(run_id, json!({"status":"running"}))
-                    .await?;
-            }
-            drop(claude_gate);
             let cancel = CancellationToken::new();
             self.active
                 .lock()
@@ -379,7 +371,7 @@ impl Worker {
                     // launch a second process before the previous one is fenced.
                     loop {
                         let id = run_id.clone();
-                        let lease = s.accounts.leases.lock().await.values().find(|lease| lease.run_id == id).cloned();
+                        let lease = s.accounts.lease(&id).await;
                         let saved = s.store.transaction(move |db| {
                             let Some(current) = db.run(&id)? else { return Ok(()); };
                             let key = format!("run-checkpoint:{id}");
@@ -389,7 +381,7 @@ impl Worker {
                             }
                             db.set(&key, &checkpoint, None)?;
                             let mut patch = json!({"status":"queued","recoveryPending":true,"finishedAt":null,"accountWaitReason":"Recovering after a worker error."});
-                            if let Some(lease) = lease { patch["codexAccountId"] = lease.account_id.into(); }
+                            if let Some(lease) = lease { patch["accountId"] = lease.account_id.into(); }
                             db.patch_run(&id, &patch)?;
                             Ok(())
                         }).await;
@@ -580,11 +572,11 @@ impl Worker {
         }
         if fenced
             && let Some(account) = &account
-            && s.accounts.release(s, account).await.is_err()
+            && s.accounts.release(account).await.is_err()
         {
             s.store
                 .audit(
-                    "codex.account.release_failed",
+                    "account.release_failed",
                     json!({
                     "id":account.account_id,"runId":run_id}
                     ),
@@ -593,11 +585,8 @@ impl Worker {
         }
         s.mcps.revoke_run(s, &run_id).await?;
         if fenced {
-            for relative in ["codex/auth.json", "home/.codex/auth.json"] {
-                let _ = tokio::fs::remove_file(
-                    s.config.data_dir.join("runs").join(&run_id).join(relative),
-                )
-                .await;
+            for provider in Provider::ALL {
+                let _ = provider.driver().recover(s, &run_id).await;
             }
             let _ = tokio::fs::remove_dir_all(
                 s.config
@@ -629,6 +618,8 @@ impl Worker {
         sensitive: &mut Vec<String>,
     ) -> Result<()> {
         let id = text(run, "id").to_owned();
+        let provider = Provider::of_run(run);
+        let claude = provider == Provider::Claude;
         checkpoint.save(json!({})).await?;
         let account_name = if let Some(account) = account {
             s.accounts.get(s, &account.account_id).await?["name"].clone()
@@ -638,14 +629,17 @@ impl Worker {
         s.store
             .patch_run(
                 &id,
-                json!({
-                "status":"running","startedAt":run["startedAt"].as_i64().unwrap_or_else(now),"finishedAt":null,"accountWaitReason":null,"codexAccountId":account.as_ref().map(|a|&a.account_id),"codexAccountName":account_name,"codexAuthMode":account.as_ref().map(|_| "external")}
-                ),
+                json!({"status":"running","startedAt":run["startedAt"].as_i64().unwrap_or_else(now),"finishedAt":null,"accountWaitReason":null,"accountId":account.as_ref().map(|a|&a.account_id),"accountName":account_name}),
             )
             .await?;
         if let Some(name) = account_name.as_str() {
             s.store
-                .event(&id, "status", &format!("Using Codex account: {name}"), None)
+                .event(
+                    &id,
+                    "status",
+                    &format!("Using {} account: {name}", provider.label()),
+                    None,
+                )
                 .await?;
         }
         s.store
@@ -701,20 +695,6 @@ impl Worker {
             "prepared":prepared}
             ))
             .await?;
-        let claude = crate::claude::is_claude(run);
-        let claude_legacy = claude
-            && tokio::fs::read_to_string(crate::claude::home(&s.config).join("sync-required"))
-                .await
-                .is_ok_and(|owner| owner == id);
-        let claude_home = directory.join("home/.claude");
-        if claude {
-            crate::claude::prepare_home(&s.config, &claude_home, claude_legacy).await?;
-        }
-        let _claude_broker = if claude && !claude_legacy {
-            Some(crate::claude_tokens::serve(s, &claude_home).await?)
-        } else {
-            None
-        };
         let codex_home = directory.join(if prepared["isolated"] == true {
             "home/.codex"
         } else {
@@ -726,6 +706,7 @@ impl Worker {
         }
         if let Some(account) = account
             && prepared["isolated"] == true
+            && !claude
         {
             s.accounts.relocate(s, account, &codex_home).await?;
         }
@@ -749,25 +730,18 @@ impl Worker {
             env.remove(key);
         }
         if claude {
-            let auth_home = if claude_legacy || prepared["isolated"] != true {
-                crate::claude::home(&s.config)
-            } else {
-                claude_home.clone()
-            };
-            env.extend(crate::claude::environment(&s.config, &auth_home));
-            if !claude_legacy {
-                env.insert(
-                    "LEO_CLAUDE_AUTH_HOME".into(),
-                    claude_home.to_string_lossy().into_owned(),
-                );
-                env.insert(
-                    "LEO_AUTH_SOCKET".into(),
-                    claude_home
-                        .join(crate::claude_tokens::SOCKET)
-                        .to_string_lossy()
-                        .into_owned(),
-                );
-            }
+            // The session belongs to the run, so it can continue on another Claude account.
+            let home = account
+                .as_ref()
+                .map(|a| a.home.clone())
+                .unwrap_or_else(|| directory.join("home/.claude"));
+            crate::claude::sanitize(&mut env);
+            env.insert(
+                "CLAUDE_CONFIG_DIR".into(),
+                home.to_string_lossy().into_owned(),
+            );
+            env.insert("DISABLE_AUTOUPDATER".into(), "1".into());
+            env.insert("BROWSER".into(), "true".into());
         }
         let mcp = s.mcps.run_configuration(s, run).await?;
         sensitive.extend(
@@ -779,7 +753,7 @@ impl Worker {
                 .map(str::to_owned),
         );
         if let Some(account) = account {
-            sensitive.extend(s.accounts.redactions(s, &account.account_id).await?);
+            sensitive.extend(s.accounts.redactions(s, account).await?);
         }
         for (key, value) in mcp["env"].as_object().unwrap() {
             env.insert(key.clone(), value.as_str().unwrap_or("").into());
@@ -824,15 +798,17 @@ impl Worker {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
             }
-            env.insert(
-                "CODEX_HOME".into(),
-                account
-                    .as_ref()
-                    .map(|a| a.home.clone())
-                    .unwrap_or_else(|| codex_home.clone())
-                    .to_string_lossy()
-                    .into_owned(),
-            );
+            if !claude {
+                env.insert(
+                    "CODEX_HOME".into(),
+                    account
+                        .as_ref()
+                        .map(|a| a.home.clone())
+                        .unwrap_or_else(|| codex_home.clone())
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
             let mut prompt = if resume.is_some() {
                 "Continue the same task from the saved conversation and current workspace. Execution was interrupted. Resume the original task from its last completed step. Preserve completed work and verify external effects before repeating any action.".into()
             } else {
@@ -848,7 +824,7 @@ impl Worker {
                 .collect::<Vec<_>>();
             args.extend(run_output::args(run, output, resume.as_deref()));
             let _auth_broker = if let Some(account) = account.as_ref() {
-                Some(crate::account_tokens::serve(s, account).await?)
+                Some(broker::serve(s, account).await?)
             } else {
                 None
             };
@@ -859,7 +835,7 @@ impl Worker {
                 let mut chat =
                     run_output::chat_plan(run, &prepared, &directory, &mcp, resume.as_deref());
                 if claude {
-                    chat["claudeManagedAuth"] = (!claude_legacy).into();
+                    chat["claudeManagedAuth"] = account.is_some().into();
                 }
                 if !run["chatExecution"].is_object() {
                     // Scheduled work uses the same authenticated protocol as
@@ -918,20 +894,6 @@ impl Worker {
                 );
                 if let Some(chat) = chat {
                     plan["chat"] = chat;
-                }
-                if claude_legacy {
-                    plan["claudeState"] = json!(crate::claude::home(&s.config));
-                    plan["claudeResumeState"] = tokio::fs::read_to_string(
-                        crate::claude::home(&s.config).join("sync-required"),
-                    )
-                    .await
-                    .is_ok_and(|owner| owner == id)
-                    .into();
-                    atomic_write(
-                        &crate::claude::home(&s.config).join("sync-required"),
-                        id.as_bytes(),
-                    )
-                    .await?;
                 }
                 atomic_write(
                     &plans.join(format!("{runner}.json")),
@@ -1010,7 +972,7 @@ impl Worker {
                                     event=events.recv(),if open=>match event{
                 Some((diagnostic,raw))=>{
                 if let Some(account) = account.as_ref() {
-                    for secret in s.accounts.redactions(s, &account.account_id).await? {
+                    for secret in s.accounts.redactions(s, account).await? {
                         if !sensitive.contains(&secret) { sensitive.push(secret); }
                     }
                 }
@@ -1059,13 +1021,11 @@ impl Worker {
                 let previous = account.take().unwrap();
                 let model = text(&run["snapshot"]["agent"], "model");
                 s.accounts.exhausted(s, &previous.account_id, model).await?;
-                s.accounts.release(s, &previous).await?;
+                s.accounts.release(&previous).await?;
                 s.store
                     .patch_run(
                         &id,
-                        json!({
-                        "accountWaitReason":"Usage exhausted. Waiting for an available Codex account to resume.","codexAccountId":null,"codexAccountName":null}
-                        ),
+                        json!({"accountWaitReason":format!("Usage exhausted. Waiting for an available {} account to resume.", provider.label()),"accountId":null,"accountName":null}),
                     )
                     .await?;
                 s.store.event(&id, "status", "Usage exhausted. Saving this session and restoring capacity or switching accounts.", None).await?;
@@ -1075,7 +1035,7 @@ impl Worker {
                     && !s.shutdown.is_cancelled()
                     && checkpoint.deadline.is_none_or(|deadline| now() < deadline)
                 {
-                    match s.accounts.acquire(s, &id, model).await {
+                    match s.accounts.acquire(s, &id, provider, model).await {
                         Ok(value) => *account = value,
                         Err(error) if error.status == 409 => {
                             tokio::select! {
@@ -1091,19 +1051,17 @@ impl Worker {
                     }
                 }
                 if let Some(account) = account {
-                    if prepared["isolated"] == true {
+                    if prepared["isolated"] == true || claude {
                         s.accounts.relocate(s, account, &previous.home).await?;
                     } else {
                         execution::codex_home(&s.config, &account.home).await?;
                     }
-                    sensitive.extend(s.accounts.redactions(s, &account.account_id).await?);
+                    sensitive.extend(s.accounts.redactions(s, account).await?);
                     let name = s.accounts.get(s, &account.account_id).await?["name"].clone();
                     s.store
                         .patch_run(
                             &id,
-                            json!({
-                            "accountWaitReason":null,"codexAccountId":account.account_id,"codexAccountName":name}
-                            ),
+                            json!({"accountWaitReason":null,"accountId":account.account_id,"accountName":name}),
                         )
                         .await?;
                     s.store
@@ -1111,7 +1069,8 @@ impl Worker {
                             &id,
                             "status",
                             &format!(
-                                "Resuming saved session with Codex account: {}",
+                                "Resuming saved session with {} account: {}",
+                                provider.label(),
                                 name.as_str().unwrap_or("")
                             ),
                             None,

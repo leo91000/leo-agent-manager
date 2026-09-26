@@ -69,19 +69,6 @@ async fn handle(
         .await?
         .ok_or_else(|| Error::bad("Missing guest request."))?;
     match text(&request, "op") {
-        "claude-state" => {
-            let _guard = tokio::time::timeout(Duration::from_secs(5), running.lock()).await.map_err(|_| Error::new(409,"Claude is still running."))?;
-            let mut files=json!({});
-            for name in [".credentials.json", ".claude.json"] {
-                let file=tokio::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(Path::new("/home/node/.claude").join(name)).await;
-                match file {
-                    Ok(file)=>{files[name]=STANDARD.encode(crate::process::read_bounded(file,128_000).await?).into();},
-                    Err(e) if e.kind()==std::io::ErrorKind::NotFound=>{},
-                    Err(e)=>return Err(e.into())
-                }
-            }
-            wire::write(&mut write,&json!({"ok":true,"files":files})).await
-        }
         "artifact-export" => {
             let export=async {
                 let (snapshot,size)=crate::artifacts::file::snapshot(Path::new(text(&request,"path")),Path::new(text(&request,"root"))).await?;

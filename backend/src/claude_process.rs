@@ -187,11 +187,9 @@ pub async fn run(
         emit(&events,json!({"type":"item.completed","item":{"id":saved["itemId"].as_str().map(str::to_owned).unwrap_or_else(||format!("{initial_id}-recovered")),"type":"agent_message","text":saved["text"]}})).await?;
         return emit(&events, json!({"type":"turn.completed"})).await;
     }
-    let auth_directory = std::env::var_os("LEO_CLAUDE_AUTH_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| directory.clone());
+    // Managed runs keep access-only credentials from their broker next to their session.
     let mut auth = if plan["claudeManagedAuth"] == true {
-        let mut client = crate::claude_tokens::Client::new(&auth_directory);
+        let mut client = crate::accounts::claude::Client::new(&directory);
         client.sync().await?;
         Some(client)
     } else {
@@ -204,7 +202,7 @@ pub async fn run(
         Some(Path::new(text(&plan, "cwd"))),
     );
     if auth.is_some() {
-        cmd.env("CLAUDE_SECURESTORAGE_CONFIG_DIR", &auth_directory);
+        cmd.env("CLAUDE_SECURESTORAGE_CONFIG_DIR", &directory);
     }
     cmd.stdin(std::process::Stdio::piped()).process_group(0);
     let mut child = cmd.spawn().map_err(|_| {

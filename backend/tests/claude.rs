@@ -1,35 +1,24 @@
-use leo_agent_manager::{claude, claude_process, config::Config, http::Input, service::Service};
+use leo_agent_manager::{
+    accounts::{self, KIND},
+    claude, claude_process,
+    config::{Config, now},
+    provider::Provider,
+    service::Service,
+};
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 fn config(root: &TempDir) -> Config {
     serde_json::from_value(json!({"dataDir":root.path().join("data"),"home":root.path().join("home"),"workspaceRoots":[root.path()],"publicUrl":"http://localhost:4310","host":"127.0.0.1","port":0,"setupToken":"test","codexBin":"/nonexistent-codex","claudeBin":std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/claude.mjs"),"ghBin":"gh","concurrency":1,"logger":false,"workerEnabled":false,"runnerUrl":""})).unwrap()
 }
-async fn route(
-    s: &std::sync::Arc<Service>,
-    method: &str,
-    path: &str,
-    body: Value,
-) -> leo_agent_manager::error::Result<Value> {
-    claude::routes(
-        s,
-        &Input {
-            method: method.into(),
-            path: format!("/api/claude/{path}"),
-            query: Default::default(),
-            headers: Default::default(),
-            body,
-        },
-    )
-    .await
-}
-async fn wait_login(s: &std::sync::Arc<Service>, state: &str) -> Value {
+async fn sign_in_until(s: &Service, condition: impl Fn(&Value) -> bool) -> Value {
     tokio::time::timeout(std::time::Duration::from_secs(8), async {
         loop {
-            let v = route(s, "GET", "connection", Value::Null).await.unwrap();
-            if v["login"]["state"] == state {
-                return v;
+            let view = s.accounts.sign_in().await;
+            if condition(&view) {
+                return view;
             }
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         }
@@ -37,70 +26,86 @@ async fn wait_login(s: &std::sync::Arc<Service>, state: &str) -> Value {
     .await
     .unwrap()
 }
+/// Submits `code` once the sign-in page is ready, and waits for the outcome.
+async fn finish_sign_in(s: &Service, code: &str) -> Value {
+    let view = sign_in_until(s, |v| v["acceptsCode"] == true).await;
+    assert_eq!(view["url"], "https://claude.com/oauth/authorize?fixture=1");
+    s.accounts.submit_code(code).await.unwrap();
+    sign_in_until(s, |v| v["state"] != "pending").await
+}
+/// A signed-in Claude account, as if it had completed sign-in.
+async fn connected(s: &Arc<Service>) -> String {
+    let mut account = s
+        .accounts
+        .create(s, Provider::Claude, "Personal")
+        .await
+        .unwrap();
+    let id = account["id"].as_str().unwrap().to_owned();
+    let home = accounts::claude::home(&s.config, &id);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join(".credentials.json"),json!({"claudeAiOauth":{"accessToken":"fixture-access","expiresAt":now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
+    account["state"] = "ready".into();
+    s.store.put(KIND, account).await.unwrap();
+    id
+}
+async fn view(s: &Service, id: &str) -> Value {
+    s.accounts
+        .list(s)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|a| a["id"] == id)
+        .unwrap()
+}
+async fn reset_usage_backoff(s: &Service, id: &str) {
+    let mut account = s.accounts.get(s, id).await.unwrap();
+    account["usage"]["attemptedAt"] = 0.into();
+    s.store.put(KIND, account).await.unwrap();
+}
 #[tokio::test]
-async fn official_login_cancellation_failure_retry_identity_and_logout() {
+async fn sign_in_cancellation_failure_retry_identity_and_removal() {
     let root = TempDir::new().unwrap();
     let s = Service::new(config(&root)).await.unwrap();
-    assert_eq!(
-        route(&s, "GET", "connection", Value::Null).await.unwrap()["connected"],
-        false
-    );
-    let login = route(&s, "POST", "login", json!({})).await.unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(8), async {
-        loop {
-            let connection = route(&s, "GET", "connection", Value::Null).await.unwrap();
-            if connection["login"]["url"].is_string() {
-                assert_eq!(
-                    connection["login"]["url"],
-                    "https://claude.com/oauth/authorize?fixture=1"
-                );
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-        }
-    })
-    .await
-    .unwrap();
-    assert!(route(&s, "POST", "login", json!({})).await.is_err());
-    assert!(
-        route(
-            &s,
-            "POST",
-            "login/code",
-            json!({"id":"stale","code":"fixture-code"})
-        )
+    let started = s
+        .accounts
+        .add(&s, Provider::Claude, "Personal")
         .await
-        .is_err()
-    );
-    route(&s, "DELETE", "login", json!({})).await.unwrap();
-    wait_login(&s, "cancelled").await;
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    let failed = route(&s, "POST", "login", json!({})).await.unwrap();
-    assert_ne!(login["id"], failed["id"]);
-    route(
-        &s,
-        "POST",
-        "login/code",
-        json!({"id":failed["id"],"code":"wrong"}),
-    )
-    .await
-    .unwrap();
-    let failed = wait_login(&s, "failed").await;
+        .unwrap();
+    assert_eq!(started["provider"], "claude");
+    sign_in_until(&s, |v| v["acceptsCode"] == true).await;
+    // One sign-in at a time, whichever the coding agent.
+    assert!(s.accounts.add(&s, Provider::Codex, "Other").await.is_err());
+    s.accounts.cancel(&s).await.unwrap();
+    assert!(s.accounts.sign_in().await.is_null());
+    assert!(s.accounts.list(&s).await.unwrap().is_empty());
+    assert!(s.accounts.submit_code("fixture-code").await.is_err());
+
+    let failed = s
+        .accounts
+        .add(&s, Provider::Claude, "Personal")
+        .await
+        .unwrap();
+    let id = failed["accountId"].as_str().unwrap().to_owned();
+    let failed = finish_sign_in(&s, "wrong").await;
+    assert_eq!(failed["state"], "failed");
     assert!(!failed.to_string().contains("never-return"));
-    let login = route(&s, "POST", "login", json!({})).await.unwrap();
-    route(
-        &s,
-        "POST",
-        "login/code",
-        json!({"id":login["id"],"code":"fixture-code"}),
-    )
-    .await
-    .unwrap();
-    let view = wait_login(&s, "completed").await;
-    assert_eq!(view["connected"], true);
-    assert!(!view.to_string().contains("never-return"));
-    assert_eq!(view["email"], "claude-fixture@example.test");
-    let catalog = route(&s, "GET", "models", Value::Null).await.unwrap();
+    assert_eq!(view(&s, &id).await["status"], "signIn");
+    s.accounts.reconnect(&s, &id).await.unwrap();
+    assert_eq!(
+        finish_sign_in(&s, "fixture-code").await["state"],
+        "complete"
+    );
+    let account = view(&s, &id).await;
+    assert_eq!(account["state"], "ready");
+    assert_eq!(account["email"], "claude-fixture@example.test");
+    assert_eq!(account["plan"], "max");
+    assert_eq!(account["usage"]["windows"][0]["usedPercent"], 25.0);
+    assert!(account.get("identity").is_none());
+    assert!(!account.to_string().contains("never-return"));
+    assert!(!account.to_string().contains("refresh"));
+    assert!(!s.config.data_dir.join("account-login").join(&id).exists());
+
+    let catalog = claude::model_catalog(&s).await.unwrap();
     assert_eq!(catalog["stale"], false);
     assert_eq!(catalog["models"][0]["model"], "sonnet");
     assert!(
@@ -118,24 +123,63 @@ async fn official_login_cancellation_failure_retry_identity_and_logout() {
         "Opus Fixture (1M context)"
     );
     assert_eq!(catalog["models"][2]["defaultReasoningEffort"], "medium");
-    // A catalog stored before these labels existed, served while refreshes are skipped.
+    // A catalog stored before these labels existed.
     s.store
         .set(
-            "claude-models",
-            json!({"models":[{"model":"default","displayName":"Default (recommended)","description":"Opus 5.5 with 1M context · Best for everyday tasks","isDefault":true,"defaultReasoningEffort":"","supportedReasoningEfforts":[]}],"checkedAt":chrono::Utc::now().timestamp_millis(),"stale":false,"error":""}),
+            claude::CATALOG,
+            json!({"models":[{"model":"default","displayName":"Default (recommended)","description":"Opus 5.5 with 1M context · Best for everyday tasks","isDefault":true,"defaultReasoningEffort":"","supportedReasoningEfforts":[]}],"checkedAt":now(),"stale":false,"error":""}),
             None,
         )
         .await
         .unwrap();
-    let catalog = route(&s, "GET", "models", Value::Null).await.unwrap();
+    let catalog = claude::model_catalog(&s).await.unwrap();
     assert_eq!(
         catalog["models"][0]["displayName"],
         "Opus 5.5 with 1M context"
     );
-    route(&s, "DELETE", "connection", json!({})).await.unwrap();
+
+    // The same Claude identity cannot be connected twice; another one can.
+    s.accounts
+        .add(&s, Provider::Claude, "Duplicate")
+        .await
+        .unwrap();
+    let duplicate = finish_sign_in(&s, "fixture-code").await;
+    assert_eq!(duplicate["state"], "failed");
+    assert!(
+        duplicate["error"]
+            .as_str()
+            .unwrap()
+            .contains("already connected")
+    );
+    let second = s
+        .accounts
+        .reconnect(&s, duplicate["accountId"].as_str().unwrap())
+        .await
+        .unwrap();
     assert_eq!(
-        route(&s, "GET", "connection", Value::Null).await.unwrap()["connected"],
-        false
+        finish_sign_in(&s, "fixture-code:work@example.test").await["state"],
+        "complete"
+    );
+    let second = second["accountId"].as_str().unwrap().to_owned();
+    assert_eq!(view(&s, &second).await["email"], "work@example.test");
+    assert_eq!(
+        s.accounts
+            .records(&s, Provider::Claude)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
+    s.accounts.remove(&s, &id).await.unwrap();
+    assert!(!accounts::claude::home(&s.config, &id).exists());
+    assert_eq!(
+        s.accounts
+            .records(&s, Provider::Claude)
+            .await
+            .unwrap()
+            .len(),
+        1
     );
 }
 fn plan(root: &TempDir, prompt: &str) -> Value {
@@ -339,7 +383,7 @@ async fn cancellation_and_provider_errors_do_not_complete_the_turn() {
 }
 #[test]
 fn provider_defaults_and_sandbox_arguments_preserve_boundaries() {
-    assert_eq!(claude::provider(&json!({})), "codex");
+    assert_eq!(Provider::of_agent(&json!({})), Provider::Codex);
     assert!(claude::validate_agent(&json!({"provider":"claude","reasoning":"ultra"})).is_err());
     let root = TempDir::new().unwrap();
     let mut p = plan(&root, "test");
@@ -489,113 +533,87 @@ async fn merged_prompts_need_only_one_correlated_result() {
 #[tokio::test]
 async fn usage_is_sanitized_cached_and_preserved_on_failure_without_changing_connection() {
     let root = TempDir::new().unwrap();
-    let c = config(&root);
-    let home = claude::home(&c);
-    std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".credentials.json"),json!({"claudeAiOauth":{"accessToken":"fixture-access","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
-    let s = Service::new(c).await.unwrap();
-    let first = route(&s, "GET", "connection", Value::Null).await.unwrap();
-    assert_eq!(first["connected"], true);
+    let s = Service::new(config(&root)).await.unwrap();
+    let id = connected(&s).await;
+    let home = accounts::claude::home(&s.config, &id);
+    s.accounts.refresh(&s, &id).await.unwrap();
+    let first = view(&s, &id).await;
+    assert_eq!(first["state"], "ready");
+    assert_eq!(first["status"], "next");
+    assert_eq!(first["remainingPercent"], 40.0);
     assert_eq!(first["usage"]["windows"][0]["usedPercent"], 25.0);
     assert_eq!(first["usage"]["windows"][0]["resetsAt"], 1893499200i64);
     assert_eq!(first["usage"]["windows"][2]["label"], "Weekly · Sonnet");
-    assert_eq!(first["usage"]["stale"], false);
+    assert_eq!(first["usage"]["windows"][2]["models"], json!(["sonnet"]));
+    assert_eq!(first["stale"], false);
     assert!(!first.to_string().contains("never-return"));
     assert!(
         !home.join("user-messages.jsonl").exists(),
         "Quota reads must not submit a prompt"
     );
-    let (a, b) = tokio::join!(
-        route(&s, "GET", "connection", Value::Null),
-        route(&s, "GET", "connection", Value::Null)
-    );
-    assert_eq!(a.unwrap()["usage"], first["usage"]);
-    assert_eq!(b.unwrap()["usage"], first["usage"]);
-    assert_eq!(
+    let requests = || {
         std::fs::read_to_string(home.join("usage-requests.jsonl"))
             .unwrap()
             .lines()
-            .count(),
-        1
-    );
+            .count()
+    };
+    // Usage is read at most every five minutes, even when the account is refreshed again.
+    s.accounts.refresh(&s, &id).await.unwrap();
+    assert_eq!(view(&s, &id).await["usage"], first["usage"]);
+    assert_eq!(requests(), 1);
     assert!(
         std::fs::read_to_string(home.join("usage-requests.jsonl"))
             .unwrap()
             .contains("\"skip_behaviors\":true")
     );
 
-    // A failed refresh keeps dated values, backs off, and does not disconnect.
-    let mut old = first["usage"].clone();
-    old["attemptedAt"] = 0.into();
-    s.store.set("claude-usage", old, None).await.unwrap();
+    // A failed read keeps dated values, backs off, and does not disconnect.
+    reset_usage_backoff(&s, &id).await;
     std::fs::write(home.join("fixture-usage.json"), "{\"fixtureError\":true}").unwrap();
-    let failed = route(&s, "GET", "connection", Value::Null).await.unwrap();
-    assert_eq!(failed["connected"], true);
-    assert_eq!(failed["usage"]["stale"], true);
+    s.accounts.refresh(&s, &id).await.unwrap();
+    let failed = view(&s, &id).await;
+    assert_eq!(failed["state"], "ready");
     assert_eq!(failed["usage"]["windows"], first["usage"]["windows"]);
     assert_eq!(failed["usage"]["checkedAt"], first["usage"]["checkedAt"]);
     assert!(failed["usage"]["error"].is_string());
     assert!(!failed.to_string().contains("never-return"));
-    route(&s, "GET", "connection", Value::Null).await.unwrap();
-    assert_eq!(
-        std::fs::read_to_string(home.join("usage-requests.jsonl"))
-            .unwrap()
-            .lines()
-            .count(),
-        2
-    );
+    s.accounts.refresh(&s, &id).await.unwrap();
+    assert_eq!(requests(), 2);
 
-    // Credential synchronization must block new CLI queries even when overdue.
-    let mut old = first["usage"].clone();
-    old["attemptedAt"] = 0.into();
-    s.store.set("claude-usage", old, None).await.unwrap();
-    s.store.write(|db| db.add_run(&json!({"id":"busy-claude","taskId":"fixture","status":"running","createdAt":1,"snapshot":{"agent":{"provider":"claude"}}}), None)).await.unwrap();
-    let busy = route(&s, "GET", "connection", Value::Null).await.unwrap();
-    assert_eq!(busy["busy"], true);
-    assert_eq!(busy["usage"]["stale"], true);
-    assert_eq!(busy["usage"]["windows"], first["usage"]["windows"]);
-    assert_eq!(
-        std::fs::read_to_string(home.join("usage-requests.jsonl"))
-            .unwrap()
-            .lines()
-            .count(),
-        2
-    );
-    s.store
-        .patch_run("busy-claude", json!({"status":"succeeded"}))
-        .await
-        .unwrap();
-    std::fs::write(home.join("sync-required"), "run").unwrap();
-    let blocked = route(&s, "GET", "connection", Value::Null).await.unwrap();
-    assert_eq!(blocked["usage"]["stale"], true);
-    assert_eq!(
-        std::fs::read_to_string(home.join("usage-requests.jsonl"))
-            .unwrap()
-            .lines()
-            .count(),
-        2
-    );
-    std::fs::remove_file(home.join("sync-required")).unwrap();
+    // Usage is read while the account runs: only the manager rotates its credentials.
+    reset_usage_backoff(&s, &id).await;
     std::fs::remove_file(home.join("fixture-usage.json")).unwrap();
-    let recovered = route(&s, "GET", "connection", Value::Null).await.unwrap();
-    assert_eq!(recovered["usage"]["stale"], false);
-    assert!(recovered["usage"]["error"].is_null());
-
-    route(&s, "DELETE", "connection", Value::Null)
+    let lease = s
+        .accounts
+        .acquire(
+            &s,
+            "11111111-1111-4111-8111-111111111111",
+            Provider::Claude,
+            "sonnet",
+        )
         .await
+        .unwrap()
         .unwrap();
-    assert!(s.store.kv("claude-usage").await.unwrap().is_none());
-    assert!(route(&s, "GET", "connection", Value::Null).await.unwrap()["usage"].is_null());
+    s.accounts.refresh(&s, &id).await.unwrap();
+    let running = view(&s, &id).await;
+    assert!(running["usage"]["error"].is_null());
+    assert_eq!(
+        running["activeRunIds"],
+        json!(["11111111-1111-4111-8111-111111111111"])
+    );
+    assert_eq!(requests(), 3);
+    s.accounts.release(&lease).await.unwrap();
+
+    s.accounts.remove(&s, &id).await.unwrap();
+    assert!(s.accounts.list(&s).await.unwrap().is_empty());
 }
 
 #[tokio::test]
-async fn usage_handles_partial_invalid_and_unavailable_windows_and_reconnect() {
+async fn usage_handles_partial_invalid_and_unavailable_windows() {
     let root = TempDir::new().unwrap();
-    let c = config(&root);
-    let home = claude::home(&c);
-    std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".credentials.json"),json!({"claudeAiOauth":{"accessToken":"fixture-access","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
-    let s = Service::new(c).await.unwrap();
+    let s = Service::new(config(&root)).await.unwrap();
+    let id = connected(&s).await;
+    let home = accounts::claude::home(&s.config, &id);
     let payload = json!({"rate_limits_available":true,"rate_limits":{
         "five_hour":{"utilization":0,"resets_at":null},
         "seven_day":{"utilization":105,"resets_at":"invalid"},
@@ -605,72 +623,101 @@ async fn usage_handles_partial_invalid_and_unavailable_windows_and_reconnect() {
         "unknown_secret":"never-return"
     }});
     std::fs::write(home.join("fixture-usage.json"), payload.to_string()).unwrap();
-    let view = route(&s, "GET", "connection", Value::Null).await.unwrap();
-    let windows = view["usage"]["windows"].as_array().unwrap();
+    s.accounts.refresh(&s, &id).await.unwrap();
+    let account = view(&s, &id).await;
+    let windows = account["usage"]["windows"].as_array().unwrap();
     assert_eq!(windows.len(), 3);
     assert_eq!(windows[0]["usedPercent"], 0.0);
     assert_eq!(windows[1]["usedPercent"], 105.0);
     assert!(windows[1]["resetsAt"].is_null());
     assert_eq!(windows[2]["label"], "Weekly · Fable");
-    assert!(!view.to_string().contains("never-return"));
+    assert!(!account.to_string().contains("never-return"));
+    // The weekly window is spent, so the account waits for its reset.
+    assert_eq!(account["status"], "waiting");
+    assert!(
+        s.accounts
+            .acquire(
+                &s,
+                "11111111-1111-4111-8111-111111111111",
+                Provider::Claude,
+                ""
+            )
+            .await
+            .unwrap_err()
+            .message
+            .contains("available usage")
+    );
 
     for payload in [
         json!({"rate_limits_available":false,"rate_limits":null}),
         json!({"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":"25"}}}),
     ] {
-        s.store.delete("claude-usage").await.unwrap();
+        let mut account = s.accounts.get(&s, &id).await.unwrap();
+        account["usage"] = Value::Null;
+        s.store.put(KIND, account).await.unwrap();
         std::fs::write(home.join("fixture-usage.json"), payload.to_string()).unwrap();
-        let view = route(&s, "GET", "connection", Value::Null).await.unwrap();
-        assert_eq!(view["connected"], true);
-        assert_eq!(view["usage"]["windows"], json!([]));
-        assert!(view["usage"]["checkedAt"].is_null());
-        assert_eq!(view["usage"]["stale"], true);
+        s.accounts.refresh(&s, &id).await.unwrap();
+        let account = view(&s, &id).await;
+        assert_eq!(account["state"], "ready");
+        assert_eq!(account["usage"]["windows"], json!([]));
+        assert!(account["usage"]["checkedAt"].is_null());
+        assert_eq!(account["stale"], true);
+        // Unknown Claude usage never blocks runs.
+        assert_eq!(account["status"], "next");
     }
-    route(&s, "POST", "login", json!({})).await.unwrap();
-    assert!(s.store.kv("claude-usage").await.unwrap().is_none());
-    let pending = route(&s, "GET", "connection", Value::Null).await.unwrap();
-    assert_eq!(pending["usage"]["windows"], json!([]));
-    route(&s, "DELETE", "login", json!({})).await.unwrap();
-    wait_login(&s, "cancelled").await;
 }
 
 #[tokio::test]
-async fn concurrency_setting_is_validated_persisted_and_available_during_runs() {
+async fn parallel_runs_are_validated_and_lowering_them_keeps_current_runs() {
     let root = TempDir::new().unwrap();
     let s = Service::new(config(&root)).await.unwrap();
-    assert_eq!(
-        route(&s, "GET", "connection", Value::Null).await.unwrap()["maxConcurrent"],
-        4
-    );
-    for limit in [
-        json!(0),
-        json!(33),
-        json!(-1),
-        json!(1.5),
-        json!("4"),
-        Value::Null,
-    ] {
+    let id = connected(&s).await;
+    assert_eq!(view(&s, &id).await["maxConcurrentRuns"], 4);
+    for limit in [json!(0), json!(-1), json!(1.5), json!("4"), Value::Null] {
         assert!(
-            route(&s, "PATCH", "connection", json!({"maxConcurrent":limit}))
+            s.accounts
+                .update(&s, &id, &json!({"maxConcurrentRuns":limit}))
                 .await
                 .is_err()
         );
     }
-    assert_eq!(
-        route(&s, "PATCH", "connection", json!({"maxConcurrent":2}))
-            .await
-            .unwrap()["maxConcurrent"],
-        2
-    );
-    assert_eq!(
-        s.store.kv("claude-concurrency").await.unwrap(),
-        Some(json!(2))
-    );
+    let leases = [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    ];
+    let mut held = Vec::new();
+    for run in leases {
+        held.push(
+            s.accounts
+                .acquire(&s, run, Provider::Claude, "sonnet")
+                .await
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    let updated = s
+        .accounts
+        .update(&s, &id, &json!({"maxConcurrentRuns":1}))
+        .await
+        .unwrap();
+    assert_eq!(updated["maxConcurrentRuns"], 1);
+    assert_eq!(updated["status"], "full");
+    assert_eq!(updated["activeRunIds"].as_array().unwrap().len(), 2);
     assert!(
-        !route(&s, "GET", "connection", Value::Null)
+        s.accounts
+            .acquire(
+                &s,
+                "33333333-3333-4333-8333-333333333333",
+                Provider::Claude,
+                ""
+            )
             .await
-            .unwrap()
-            .to_string()
-            .contains("refreshToken")
+            .unwrap_err()
+            .message
+            .contains("free Claude Code account slot")
     );
+    for lease in &held {
+        s.accounts.release(lease).await.unwrap();
+    }
+    assert!(!updated.to_string().contains("refreshToken"));
 }

@@ -1,5 +1,7 @@
 use leo_agent_manager::{
-    config::{Config, id},
+    accounts::{self, KIND},
+    config::{Config, id, now},
+    provider::Provider,
     service::Service,
     validation::text,
 };
@@ -15,6 +17,30 @@ struct Fixture {
     service: Arc<Service>,
     process: Option<Child>,
     url: String,
+}
+/// A signed-in Claude Code account whose CLI home holds fixture credentials.
+async fn claude_account(s: &Service, parallel_runs: u64) -> String {
+    let account = s
+        .accounts
+        .create(s, Provider::Claude, "Claude fixture")
+        .await
+        .unwrap();
+    let id = text(&account, "id").to_owned();
+    let home = accounts::claude::home(&s.config, &id);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join(".credentials.json"), json!({"claudeAiOauth":{"accessToken":"fixture-access","refreshToken":"private-refresh","expiresAt":now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
+    let mut account = account;
+    account["state"] = "ready".into();
+    account["maxConcurrentRuns"] = parallel_runs.into();
+    s.store.put(KIND, account).await.unwrap();
+    id
+}
+fn run_claude_home(s: &Service, run: &str) -> std::path::PathBuf {
+    s.config
+        .data_dir
+        .join("runs")
+        .join(run)
+        .join("home/.claude")
 }
 
 #[tokio::test]
@@ -92,9 +118,7 @@ async fn verbose_tools_do_not_hide_chat_answers_or_failures() {
 async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replaying_turns() {
     let mut fixture = Fixture::new().await;
     let s = &fixture.service;
-    let claude_home = leo_agent_manager::claude::home(&s.config);
-    std::fs::create_dir_all(&claude_home).unwrap();
-    std::fs::write(claude_home.join(".credentials.json"), json!({"claudeAiOauth":{"accessToken":"fixture-access","refreshToken":"fixture-refresh","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
+    claude_account(s, 4).await;
     let chat = s.chat_create(json!({})).await.unwrap();
     let chat_id = text(&chat, "id");
     s.chat_send(
@@ -126,6 +150,8 @@ async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replayi
         })
         .await;
     assert_eq!(second["snapshot"]["agent"]["provider"], "claude");
+    // The native session belongs to the run, not to the account.
+    let claude_home = run_claude_home(s, &run_id);
     assert_eq!(second["workspace"], first["workspace"]);
     assert_eq!(std::fs::read_to_string(&marker).unwrap(), "completed work");
     let messages = std::fs::read_to_string(claude_home.join("user-messages.jsonl")).unwrap();
@@ -351,20 +377,18 @@ async fn migration_resumes_a_checkpoint_written_by_the_node_backend() {
 
 #[tokio::test]
 async fn usage_exhaustion_switches_accounts_and_preserves_the_conversation() {
-    use leo_agent_manager::config::now;
     let mut fixture = Fixture::new().await;
     fixture.stop(false).await;
     let s = &fixture.service;
-    s.store
-        .set("codex-accounts-enabled", json!(true), None)
-        .await
-        .unwrap();
     let mut accounts = Vec::new();
     let mut usage = json!({});
     for (name, used) in [("More capacity", 10), ("Backup", 30)] {
-        let id = id();
+        let mut account = s.accounts.create(s, Provider::Codex, name).await.unwrap();
+        let id = text(&account, "id").to_owned();
         let limits = json!({"ordinaryUsageAllowed":true,"rateLimits":{"limitId":"codex","primary":{"usedPercent":used,"windowDurationMins":300,"resetsAt":now()/1000+7200}}});
-        s.store.put("codexAccounts", json!({"id":id,"name":name,"enabled":true,"email":format!("{id}@example.test"),"plan":"plus","identity":null,"createdAt":now(),"checkedAt":now(),"state":"ready","error":"","limits":limits,"lastUsedAt":null,"exhausted":null})).await.unwrap();
+        account["state"] = "ready".into();
+        account["usage"] = accounts::codex::normalize(&limits);
+        s.store.put(KIND, account).await.unwrap();
         s.vault.set(&format!("codex-account:{id}"), &json!({"tokens":{"account_id":id,"access_token":"synthetic-access","refresh_token":"synthetic-refresh"}})).await.unwrap();
         usage[&id] = limits;
         accounts.push(id);
@@ -379,7 +403,8 @@ async fn usage_exhaustion_switches_accounts_and_preserves_the_conversation() {
         .until(id, |r| ["succeeded", "failed"].contains(&text(r, "status")))
         .await;
     assert_eq!(completed["status"], "succeeded", "{completed}");
-    assert_eq!(completed["codexAccountId"], accounts[1]);
+    assert_eq!(completed["accountId"], accounts[1]);
+    assert_eq!(completed["accountName"], "Backup");
     assert_eq!(completed["sessionId"], "fixture-chat");
     fixture.stop(false).await;
 }
@@ -410,19 +435,20 @@ async fn native_worker_records_artifacts_and_completes_task() {
 async fn parallel_managed_tasks_resume_after_restart_without_refresh_credentials_in_runs() {
     let mut fixture = Fixture::new().await;
     fixture.stop(false).await;
-    let account = fixture
+    let mut account = fixture
         .service
         .accounts
-        .new_account(&fixture.service, "Shared")
+        .create(&fixture.service, Provider::Codex, "Shared")
         .await
         .unwrap();
-    let account_id = text(&account, "id");
+    account["state"] = "ready".into();
     fixture
         .service
         .store
-        .set("codex-accounts-enabled", json!(true), None)
+        .put(KIND, account.clone())
         .await
         .unwrap();
+    let account_id = text(&account, "id");
     fixture.service.vault.set(&format!("codex-account:{account_id}"), &json!({"tokens":{"access_token":"synthetic","refresh_token":"secret-refresh","account_id":"shared"}})).await.unwrap();
     fixture.start().await;
     let first = fixture.enqueue("fixture:chat-hang first task").await;
@@ -431,8 +457,7 @@ async fn parallel_managed_tasks_resume_after_restart_without_refresh_credentials
         let running = fixture
             .until(text(run, "id"), |r| r["sessionId"] == "fixture-chat")
             .await;
-        assert_eq!(running["codexAccountId"], account_id);
-        assert_eq!(running["codexAuthMode"], "external");
+        assert_eq!(running["accountId"], account_id);
         assert!(
             !fixture
                 .service
@@ -454,7 +479,7 @@ async fn parallel_managed_tasks_resume_after_restart_without_refresh_credentials
             .await;
         assert_eq!(completed["status"], "succeeded", "{completed}");
         assert_eq!(completed["sessionId"], "fixture-chat");
-        assert_eq!(completed["codexAccountId"], account_id);
+        assert_eq!(completed["accountId"], account_id);
     }
     assert_eq!(
         fixture
@@ -740,13 +765,7 @@ async fn controller_interruptions_resume_saved_threads_and_stop_after_three_reco
 async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_them() {
     let mut fixture = Fixture::new().await;
     let s = &fixture.service;
-    let home = leo_agent_manager::claude::home(&s.config);
-    std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".credentials.json"), json!({"claudeAiOauth":{"accessToken":"fixture-access","refreshToken":"private-refresh","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
-    s.store
-        .set("claude-concurrency", json!(2), None)
-        .await
-        .unwrap();
+    let account = claude_account(s, 2).await;
     let mut chats = Vec::new();
     let mut runs = Vec::new();
     for prompt in [
@@ -808,8 +827,8 @@ async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_th
         assert!(!credentials.contains("refresh"));
         assert!(credentials.contains("fixture-access"));
     }
-    s.store
-        .set("claude-concurrency", json!(1), None)
+    s.accounts
+        .update(s, &account, &json!({"maxConcurrentRuns":1}))
         .await
         .unwrap();
     for run in &runs[..2] {
@@ -831,7 +850,7 @@ async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_th
         .await;
     fixture
         .until(&runs[2], |r| {
-            text(r, "accountWaitReason").contains("1 simultaneous")
+            text(r, "accountWaitReason").contains("free Claude Code account slot")
         })
         .await;
     assert_eq!(s.store.run(&runs[1]).await.unwrap()["status"], "running");
@@ -852,7 +871,6 @@ async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_th
     fixture
         .until(&runs[2], |r| r["status"] == "succeeded")
         .await;
-    assert!(!home.join("sync-required").exists());
     fixture.stop(false).await;
 }
 
