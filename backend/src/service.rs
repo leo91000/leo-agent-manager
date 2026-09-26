@@ -190,7 +190,7 @@ impl Service {
                 Ok(agent)
             })
             .await?;
-        if existing_id.is_none() && self.avatars.configured() {
+        if existing_id.is_none() && self.avatars.configured(self).await? {
             // Creation remains successful even when portrait scheduling fails.
             return Ok(self
                 .avatars

@@ -71,7 +71,7 @@ async function upload(event: Event) {
         {{ configured ? 'A unique illustrated portrait will be created from the name and description after you save.' : 'Save your agent to upload a portrait.' }}
       </p>
       <p v-else class="mt-1 text-xs text-muted">
-        {{ configured ? 'An illustrated identity for your agent. Changes here are saved immediately.' : 'Upload an image to give your agent a face. Changes here are saved immediately.' }}
+        {{ configured ? 'Generation uses your connected Codex subscription quota. Changes are saved immediately.' : 'Upload an image to give your agent a face. Changes here are saved immediately.' }}
       </p>
       <div v-if="agentId" class="mt-3 flex flex-wrap gap-2">
         <UiButton v-if="configured" size="small" :disabled="disabled || busy || generating" @click="generate">
@@ -86,7 +86,7 @@ async function upload(event: Event) {
         PNG, JPEG or WebP · up to 5 MB · cropped to a square.
       </p>
       <p v-if="configured === false" class="mt-2 text-xs text-muted">
-        Automatic portraits are not configured on this server.
+        Connect and enable a Codex account in Connections to generate portraits.
       </p>
       <p v-if="error || agent?.avatar?.error" role="alert" class="mt-2 text-xs text-coral">
         {{ error || agent?.avatar?.error }}

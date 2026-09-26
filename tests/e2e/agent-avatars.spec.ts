@@ -16,6 +16,7 @@ test('uploads a persistent portrait, preserves it on edits and shows it in conve
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Name', { exact: true }).fill('Portrait reviewer')
   await expect(dialog).toContainText('Save your agent to upload a portrait.')
+  await expect(dialog).toContainText('Connect and enable a Codex account in Connections')
   await dialog.getByRole('button', { name: 'Save agent', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await page.getByRole('button', { name: 'Edit Portrait reviewer', exact: true }).click()
@@ -51,7 +52,7 @@ test('shows generation progress, refreshes the portrait and falls back if an ima
   const agent = await workspace.api('/api/agents', 'POST', { name: 'Generated identity' })
   await page.route('**/api/agent-avatars', route => route.fulfill({ json: { configured: true } }))
   // UI behavior uses a controlled completion; real provider requests and races are
-  // covered separately by the Rust HTTP tests without calling a paid provider.
+  // covered by Rust HTTP + Codex protocol tests with synthetic subscription accounts.
   await page.route(`**/api/agents/${agent.id}/avatar/generate`, async (route) => {
     const pending = { ...agent, avatar: { status: 'generating', revision: 'fixture-revision', url: null } }
     workspace.service.store.put('agents', pending)

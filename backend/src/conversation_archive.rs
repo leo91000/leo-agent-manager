@@ -97,7 +97,7 @@ async fn detach_worktrees(s: &Service, chat: &Value) -> Result<()> {
                     .args(["worktree", "remove", "--force", "--"])
                     .arg(target)
                     .env_clear()
-                    .envs(std::env::vars().filter(|(key, _)| !crate::process::server_only_key(key)))
+                    .envs(std::env::vars().filter(|(key, _)| !crate::process::archive_key(key)))
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())

@@ -42,7 +42,7 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
                 })
                 .await
         }
-        ("GET", ["agent-avatars"]) => Ok(json!({"configured":s.avatars.configured()})),
+        ("GET", ["agent-avatars"]) => Ok(json!({"configured":s.avatars.configured(s).await?})),
         ("POST", ["agents", id, "avatar", "generate"]) => s.avatars.generate(s, id).await,
         ("GET", [kind @ ("agents" | "projects" | "tasks")]) => Ok(s.store.list(kind).await?.into()),
         ("POST", [kind @ ("agents" | "projects" | "tasks")]) => save(s, kind, input.body.clone(), None).await,

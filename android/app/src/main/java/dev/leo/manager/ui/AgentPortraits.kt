@@ -95,6 +95,11 @@ internal fun AgentPortraitEditor(vm: LeoViewModel, state: Workspace, initial: Ag
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Portrait", style = MaterialTheme.typography.titleMedium)
         AgentAvatar(agent.name, agent.id, 64.dp)
+        Text(
+            if (configured) "La génération utilise le quota de votre abonnement Codex."
+            else "Connectez et activez un compte Codex dans Connexions pour générer des portraits.",
+            style = MaterialTheme.typography.bodySmall,
+        )
         if (agent.id.isBlank()) {
             Text(if (configured) "Un portrait illustré sera créé après l’enregistrement." else "Enregistrez l’agent pour importer un portrait.")
         } else {

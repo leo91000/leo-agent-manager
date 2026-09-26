@@ -198,24 +198,27 @@ retain their separate 2 MB limit.
 ## Agent portraits
 
 New persistent agents can receive an illustrated portrait automatically, regardless
-of whether they use Codex or Claude Code. Set `LEO_AVATAR_API_KEY` on the manager
-server (or in Compose's private `.env`) to enable generation through OpenAI's image
-API. This uses separate API billing, not your ChatGPT or Claude subscription.
-The key stays on the manager and is filtered out of agent execution environments.
-Only the agent's name and description are sent to the image provider; instructions,
-conversations and connected resources are not included.
+of whether they use Codex or Claude Code. Connect and enable a Codex account in
+**Connections** to use [Codex's built-in image generation](https://learn.chatgpt.com/docs/image-generation?surface=cli)
+through your ChatGPT subscription. Image generation consumes that account's included usage and depends
+on its plan and image quota. No OpenAI API key or separate API billing is used;
+Claude subscriptions do not provide this image generation path.
+Only the agent's name and description are sent; instructions, conversations and
+connected resources are not included. Generation uses an isolated, ephemeral
+Codex session with the built-in image tool and no project, shell or MCP tools.
+Authentication uses the existing account broker; refresh credentials stay in Leo.
 
-Portraits use `gpt-image-2`, low quality, one 1024 × 1024 image per request, then are
-normalized to a 256 × 256 PNG and stored in the application's database. Two
-requests can run at once. Creation never waits for generation; initials remain
-visible until the image is ready. Existing agents are not regenerated or billed
-on upgrade. Editing an agent's name, role or instructions preserves its portrait.
+The generated image is normalized to a 256 × 256 PNG and stored in the application's
+database. At most two requests run at once, within the connected accounts' shared
+quota and concurrency limits. Creation never waits for generation; initials remain
+visible until the image is ready. Existing agents are not regenerated on upgrade.
+Editing an agent's name, role or instructions preserves its portrait.
 
 In the web or Android agent editor, **Generate / Regenerate** requests a new
 portrait and **Upload** replaces it with a PNG, JPEG or WebP (up to 5 MB and
 4096 × 4096 pixels, cropped to a square). Portrait changes save immediately.
-Uploads also work without an API key. Uploading while generation is running wins
+Uploads also work without a connected Codex account. Uploading while generation is running wins
 over its eventual result. Failed or interrupted requests retain the previous
 portrait, if any, and can be retried explicitly; server restarts do not automatically
-repeat paid calls. Portraits are served only to signed-in users and are deleted
+consume quota again. Portraits are served only to signed-in users and are deleted
 with the agent. Temporary sub-agents do not get generated portraits.

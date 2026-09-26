@@ -47,20 +47,22 @@ impl Fixture {
         let config: Config = serde_json::from_value(json!({
             "dataDir":root.path().join("data"), "home":root.path().join("home"),
             "workspaceRoots":[root.path()], "publicUrl":"http://localhost:4310",
-            "host":"127.0.0.1", "port":0, "setupToken":"test", "codexBin":"codex",
+            "host":"127.0.0.1", "port":0, "setupToken":"test", "codexBin":std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/avatar-codex.mjs"),
             "ghBin":"gh", "concurrency":1, "logger":false, "workerEnabled":false, "runnerUrl":""
         }))
         .unwrap();
-        let mut s = Service::new(config).await.unwrap();
-        Arc::make_mut(&mut s).avatars = Arc::new(AgentAvatars {
-            api_key: if configured {
-                "fixture-key".into()
-            } else {
-                String::new()
-            },
-            endpoint,
-            slots: Semaphore::new(2),
-        });
+        let s = Service::new(config).await.unwrap();
+        s.accounts.initialize(&s).await.unwrap();
+        if configured {
+            let account = s
+                .accounts
+                .create(&s, Provider::Codex, "Portrait fixture")
+                .await
+                .unwrap();
+            s.vault.set(&format!("codex-account:{}", text(&account, "id")),
+                &json!({"tokens":{"access_token":"synthetic","refresh_token":"synthetic-refresh","account_id":endpoint}})).await.unwrap();
+            s.accounts.refresh(&s, text(&account, "id")).await.unwrap();
+        }
         let app = crate::http::router(s.clone()).await.unwrap();
         let response = app
             .clone()
@@ -156,7 +158,9 @@ fn png(color: [u8; 3]) -> Vec<u8> {
 fn generated(bytes: Vec<u8>) -> (StatusCode, Json<Value>) {
     (
         StatusCode::OK,
-        Json(json!({"data":[{"b64_json":STANDARD.encode(bytes)}]})),
+        Json(
+            json!({"type":"imageGeneration","id":"image-1","status":"completed","result":STANDARD.encode(bytes)}),
+        ),
     )
 }
 
@@ -167,9 +171,9 @@ async fn creation_is_nonblocking_and_portrait_survives_edits_with_private_authen
     let id = text(&agent, "id");
     assert_eq!(agent["avatar"]["status"], "generating");
     let (request, reply) = f.next().await;
-    assert_eq!(request["n"], 1);
-    assert!(text(&request, "prompt").contains("Ship tested software"));
-    assert!(!text(&request, "prompt").contains("PRIVATE INSTRUCTIONS"));
+    assert_eq!(request["threadId"], "portrait-thread");
+    assert!(text(&request["input"][0], "text").contains("Ship tested software"));
+    assert!(!text(&request["input"][0], "text").contains("PRIVATE INSTRUCTIONS"));
     assert_eq!(
         f.request("POST", &format!("/api/agents/{id}/avatar/generate"), vec![])
             .await
@@ -185,6 +189,9 @@ async fn creation_is_nonblocking_and_portrait_survives_edits_with_private_authen
     reply.send(generated(png([50, 100, 180]))).unwrap();
     let ready = f.wait(id, "ready").await;
     assert_eq!(ready["name"], "Renamed agent");
+    for account in f.s.accounts.list(&f.s).await.unwrap() {
+        assert!(f.s.accounts.active(text(&account, "id")).await.is_empty());
+    }
     let edited = f
         .json(
             "PUT",
@@ -375,4 +382,67 @@ async fn uploads_work_without_provider_configuration_and_restart_never_rebills()
             .is_some()
     );
     restarted.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn missing_or_invalid_images_fail_without_retry_and_release_the_account() {
+    let mut f = Fixture::new(true).await;
+    for item in [
+        json!({"type":"agentMessage","text":"Here is an SVG instead"}),
+        json!({"type":"imageGeneration","status":"completed","result":"not base64"}),
+        json!({"type":"imageGeneration","status":"completed","result":STANDARD.encode(b"not an image")}),
+        json!({"type":"imageGeneration","status":"failed","result":"","failure":{"type":"usageLimitExceeded"}}),
+    ] {
+        let agent = f.create().await;
+        f.next().await.1.send((StatusCode::OK, Json(item))).unwrap();
+        let failed = f.wait(text(&agent, "id"), "failed").await;
+        assert!(failed["avatar"]["url"].is_null());
+        assert!(f.requests.try_recv().is_err());
+        for account in f.s.accounts.list(&f.s).await.unwrap() {
+            assert!(f.s.accounts.active(text(&account, "id")).await.is_empty());
+        }
+    }
+}
+
+#[tokio::test]
+async fn shutdown_releases_the_account_and_does_not_retry_the_portrait() {
+    let mut f = Fixture::new(true).await;
+    let agent = f.create().await;
+    let (_, reply) = f.next().await;
+    f.s.shutdown.cancel();
+    let failed = f.wait(text(&agent, "id"), "failed").await;
+    assert_eq!(failed["avatar"]["error"], INTERRUPTED);
+    for account in f.s.store.list(crate::accounts::KIND).await.unwrap() {
+        assert!(f.s.accounts.active(text(&account, "id")).await.is_empty());
+    }
+    let _ = reply.send(generated(png([0, 0, 0])));
+    assert!(f.requests.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn occupied_account_capacity_does_not_start_a_second_codex_session() {
+    let mut f = Fixture::new(true).await;
+    let mut account =
+        f.s.store
+            .list(crate::accounts::KIND)
+            .await
+            .unwrap()
+            .remove(0);
+    account["maxConcurrentRuns"] = 1.into();
+    f.s.store
+        .put(crate::accounts::KIND, account.clone())
+        .await
+        .unwrap();
+    let foreground =
+        f.s.accounts
+            .acquire(&f.s, "foreground", Provider::Codex, "")
+            .await
+            .unwrap()
+            .unwrap();
+    let agent = f.create().await;
+    let failed = f.wait(text(&agent, "id"), "failed").await;
+    assert!(text(&failed["avatar"], "error").contains("No Codex account is available"));
+    assert!(f.requests.try_recv().is_err());
+    assert_eq!(f.s.accounts.active(text(&account, "id")).await.len(), 1);
+    f.s.accounts.release(&foreground).await.unwrap();
 }

@@ -8,7 +8,7 @@ static TOKEN: LazyLock<regex::Regex> = LazyLock::new(|| {
 static BEARER: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?i)(Bearer\s+)[\w.~-]+").unwrap());
 static CREDENTIAL: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r#"(?i)("?(?:access_token|refresh_token|id_token|OPENAI_API_KEY|LEO_AVATAR_API_KEY|CODEX_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|accessToken|refreshToken|OP_SERVICE_ACCOUNT_TOKEN)"?\s*[:=]\s*"?)[^"\s,}]+"#).unwrap()
+    regex::Regex::new(r#"(?i)("?(?:access_token|refresh_token|id_token|OPENAI_API_KEY|CODEX_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|accessToken|refreshToken|OP_SERVICE_ACCOUNT_TOKEN)"?\s*[:=]\s*"?)[^"\s,}]+"#).unwrap()
 });
 // Codex and Claude Code subscription limits. Claude Code reports them as the turn's result.
 static EXHAUSTED: LazyLock<regex::Regex> = LazyLock::new(|| {
