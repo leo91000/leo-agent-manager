@@ -24,6 +24,7 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
     mkdir -p backend/src && printf 'fn main() {}\n' > backend/src/main.rs \
     && printf '' > backend/src/lib.rs && cargo build --locked --release --bin leo
 COPY backend ./backend
+COPY deploy/nodes ./deploy/nodes
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
     touch backend/src/main.rs backend/src/lib.rs && \
     cargo build --locked --release --bin leo && cp target/release/leo /usr/local/bin/leo
@@ -127,4 +128,5 @@ COPY --from=guest-kernel /kernel/COPYING /opt/leo-vm/KERNEL-COPYING
 COPY --from=guest-kernel /kernel/LICENSES /opt/leo-vm/kernel-licenses
 COPY --from=guest-disk /root.ext4.zst /opt/leo-vm/root.ext4.zst
 COPY --chmod=755 deploy/microvm/init deploy/microvm/docker deploy/microvm/install-docker /opt/leo-vm/
+COPY --chmod=755 deploy/nodes /opt/leo-node
 USER node

@@ -21,7 +21,10 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -38,6 +41,7 @@ struct Attempt {
     socket: Arc<tokio::sync::OnceCell<PathBuf>>,
     plan: Value,
     imports: Arc<Mutex<()>>,
+    control: Arc<Mutex<()>>,
 }
 #[derive(Clone)]
 struct Broker {
@@ -46,6 +50,7 @@ struct Broker {
     pool: Arc<crate::microvm::pool::Pool>,
     active: Arc<Mutex<HashMap<String, Attempt>>>,
     stop: CancellationToken,
+    leases: Arc<Mutex<HashMap<String, u64>>>,
 }
 
 fn normalized(path: &Path) -> bool {
@@ -122,6 +127,19 @@ impl Broker {
         }
         let plan: Value = serde_json::from_slice(&bytes)?;
         validate(&plan, id, &self.data)?;
+        if plan["nodeLeaseRequired"] == true
+            && self
+                .leases
+                .lock()
+                .await
+                .get(id)
+                .is_none_or(|until| *until <= crate::nodes::boot_ms())
+        {
+            return Err(Error::new(
+                409,
+                "Node execution lease is missing or expired.",
+            ));
+        }
         // Imports must resolve to regular directories in this run; a symlink is not a scope grant.
         for import in plan["imports"].as_array().unwrap() {
             let path = Path::new(text(import, "source"));
@@ -161,6 +179,7 @@ impl Broker {
             ));
         }
         let socket = Arc::new(tokio::sync::OnceCell::new());
+        let control = Arc::new(Mutex::new(()));
         let stop = self.stop.child_token();
         let (done, receiver) = watch::channel(false);
         atomic_write(
@@ -177,6 +196,7 @@ impl Broker {
                 socket: socket.clone(),
                 plan: plan.clone(),
                 imports: Default::default(),
+                control: control.clone(),
             },
         );
         let broker = self.clone();
@@ -184,9 +204,33 @@ impl Broker {
         tokio::spawn(async move {
             let deadline = plan["expires"].as_i64();
             let expiry = stop.clone();
+            let leased = plan["nodeLeaseRequired"] == true;
+            let owner = broker.clone();
+            let attempt = id.clone();
+            let lease_expired = Arc::new(AtomicBool::new(false));
+            let expired = lease_expired.clone();
             let timer = tokio::spawn(async move {
-                crate::run_limits::wait_until(deadline).await;
-                expiry.cancel();
+                loop {
+                    let lost_lease = leased
+                        && owner
+                            .leases
+                            .lock()
+                            .await
+                            .get(&attempt)
+                            .is_none_or(|d| *d <= crate::nodes::boot_ms());
+                    if deadline.is_some_and(|d| now() >= d) || lost_lease {
+                        expired.store(lost_lease, Ordering::SeqCst);
+                        if leased {
+                            let _guard = control.lock().await;
+                            let _ = host::pause_attempt(&owner.state, &attempt).await;
+                            expiry.cancel();
+                        } else {
+                            expiry.cancel();
+                        }
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
             });
             let result = reservation.execute(plan, socket, stop).await;
             timer.abort();
@@ -204,6 +248,11 @@ impl Broker {
                     }
                     1
                 }
+            };
+            let code = if lease_expired.load(Ordering::SeqCst) {
+                CONTROLLER_INTERRUPTED
+            } else {
+                code
             };
             let _ = atomic_write(
                 &broker.state.join(format!("{id}.exit")),
@@ -336,7 +385,16 @@ async fn erase_attempt_content(broker: &Broker, run: &str) -> Result<()> {
 
 async fn handler(State(broker): State<Broker>, request: Request) -> Result<Response> {
     if request.uri().path() == "/health" {
-        return Ok(Json(json!({"status":"ok","backend":"firecracker","runtimeId":std::env::var("APP_RUNTIME_ID").unwrap_or_else(|_|"development".into()),"activeRuns":broker.active.lock().await.len(),"pool":broker.pool.health().await})).into_response());
+        let mut runtimes = Vec::new();
+        if let Ok(mut entries) = tokio::fs::read_dir(broker.state.join("images")).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if entry.path().join("root.ext4").exists() && entry.path().join("vmlinux").exists()
+                {
+                    runtimes.push(entry.file_name().to_string_lossy().into_owned());
+                }
+            }
+        }
+        return Ok(Json(json!({"status":"ok","backend":"firecracker","runtimeId":std::env::var("APP_RUNTIME_ID").unwrap_or_else(|_|"development".into()),"nodeProtocol":2,"runtimes":runtimes,"dataRoot":broker.data,"activeRuns":broker.active.lock().await.len(),"capabilities":crate::nodes::connector::capabilities(&broker.state).ok(),"pool":broker.pool.health().await})).into_response());
     }
     let credential = tokio::fs::read_to_string(broker.data.join("runner-secret")).await?;
     let authorization = request
@@ -353,10 +411,80 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
         .trim_start_matches('/')
         .split('/')
         .collect::<Vec<_>>();
+    if segments.first() == Some(&"archive-transfers") {
+        return crate::nodes::archive::controller(&broker.data, request).await;
+    }
+    if let ["snapshots", snapshot, hash] = segments.as_slice() {
+        uuid(snapshot)?;
+        let directory = broker.state.join("snapshots").join(snapshot);
+        if request.method() == "DELETE" && *hash == "discard" {
+            tokio::fs::remove_dir_all(directory).await?;
+            return Ok(Json(json!({"ok":true})).into_response());
+        }
+        if request.method() != "GET" {
+            return Err(Error::new(405, "Method not allowed."));
+        }
+        let manifest: Value =
+            serde_json::from_slice(&tokio::fs::read(directory.join("manifest.json")).await?)?;
+        let bytes =
+            crate::nodes::snapshots::block(&directory.join("disk"), &manifest, hash).await?;
+        return Ok(([("content-length", bytes.len().to_string())], bytes).into_response());
+    }
+    if let ["disks", run, "snapshot"] = segments.as_slice() {
+        uuid(run)?;
+        if request.method() != "POST" {
+            return Err(Error::new(405, "Method not allowed."));
+        }
+        if broker
+            .active
+            .lock()
+            .await
+            .values()
+            .any(|a| a.plan["runId"] == *run)
+        {
+            return Err(Error::new(
+                409,
+                "Use the active attempt for a running VM snapshot.",
+            ));
+        }
+        let state = broker.state.clone();
+        let run = (*run).to_owned();
+        let stop = broker.stop.child_token();
+        let task = tokio::spawn(async move {
+            crate::nodes::checkpoint::capture(
+                &state,
+                &run,
+                None,
+                Arc::new(Mutex::new(())),
+                stop,
+                &run,
+            )
+            .await
+        });
+        return Ok(Json(task.await.map_err(Error::internal)??).into_response());
+    }
+    if let ["disks", run, "restore"] = segments.as_slice() {
+        let run = (*run).to_owned();
+        if request.method() != "POST" {
+            return Err(Error::new(405, "Method not allowed."));
+        }
+        let bytes = axum::body::to_bytes(
+            request.into_body(),
+            crate::nodes::snapshots::MAX_MANIFEST_BYTES,
+        )
+        .await
+        .map_err(|_| Error::bad("Restore manifest too large."))?;
+        let value = serde_json::from_slice(&bytes)?;
+        return Ok(
+            Json(crate::nodes::restore::controller(&broker.state, &run, value).await?)
+                .into_response(),
+        );
+    }
     if let ["disks", run, action] = segments.as_slice() {
         let run = (*run).to_owned();
         let action = (*action).to_owned();
-        if request.method() != "POST" || !["export", "import", "delete"].contains(&action.as_str())
+        if request.method() != "POST"
+            || !["export", "import", "delete", "prune"].contains(&action.as_str())
         {
             return Err(Error::new(405, "Invalid workspace operation."));
         }
@@ -371,17 +499,24 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
         }
         let directory = broker.state.join("disks").join(&run);
         private_dir(&directory).await?;
-        use std::os::fd::AsRawFd;
-        let lock = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(directory.join("lock"))?;
-        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err(Error::new(409, "The workspace is still in use."));
-        }
+        let _lock =
+            crate::file_lock::exclusive(&directory.join("lock"), "The workspace is still in use.")?;
         let disk = directory.join("data.ext4");
+        if action == "prune" {
+            // Older copies set aside when a recovery point replaced this disk.
+            let mut entries = tokio::fs::read_dir(&directory).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                if !entry.file_name().to_string_lossy().starts_with("stale-") {
+                    continue;
+                }
+                if entry.file_type().await?.is_dir() {
+                    tokio::fs::remove_dir_all(entry.path()).await?;
+                } else {
+                    tokio::fs::remove_file(entry.path()).await?;
+                }
+            }
+            return Ok(Json(json!({"pruned":true})).into_response());
+        }
         if action == "delete" {
             match tokio::fs::remove_file(&disk).await {
                 Ok(()) => {}
@@ -407,6 +542,7 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
         let transfer = text(&body, "transfer");
         uuid(transfer)?;
         let staging = broker.data.join("archive-transfers").join(transfer);
+        private_dir(&staging).await?;
         if tokio::fs::canonicalize(&staging).await? != staging {
             return Err(Error::bad("Invalid workspace transfer directory."));
         }
@@ -424,6 +560,25 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
                 std::fs::File::open(staging.join("workspace.tar.gz"))?.sync_all()?;
             }
         } else if !disk.exists() {
+            if let Some(runtime) = body["runtimeId"].as_str() {
+                if !crate::nodes::valid_runtime(runtime) {
+                    return Err(Error::bad("Invalid archived runtime."));
+                }
+                if !broker
+                    .state
+                    .join("images")
+                    .join(runtime)
+                    .join("root.ext4")
+                    .exists()
+                {
+                    return Err(Error::new(409, "Archived VM runtime is unavailable."));
+                }
+                atomic_write(
+                    &directory.join("runtime.json"),
+                    &serde_json::to_vec(&json!({"runtimeId":runtime}))?,
+                )
+                .await?;
+            }
             let target = directory.join(format!("restore-{transfer}"));
             if target.exists() {
                 tokio::fs::remove_dir_all(&target).await?;
@@ -448,7 +603,10 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
             std::fs::File::open(&directory)?.sync_all()?;
             tokio::fs::remove_dir_all(target).await?;
         }
-        Ok(Json(json!({"ready":true})).into_response())
+        Ok(
+            Json(json!({"ready":true,"archivePresent":staging.join("workspace.tar.gz").exists()}))
+                .into_response(),
+        )
     } else {
         let id = segments
             .get(1)
@@ -456,6 +614,56 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
             .ok_or_else(|| Error::new(404, "Not found"))?;
         uuid(id)?;
         match (request.method().as_str(), segments.as_slice()) {
+            ("POST", ["runs", id, "snapshot"]) => {
+                let id = (*id).to_owned();
+                let (run, socket, control, stop) = {
+                    let active = broker.active.lock().await;
+                    if let Some(attempt) = active.get(&id) {
+                        (
+                            text(&attempt.plan, "runId").to_owned(),
+                            attempt.socket.get().cloned(),
+                            attempt.control.clone(),
+                            attempt.stop.clone(),
+                        )
+                    } else {
+                        (
+                            tokio::fs::read_to_string(broker.state.join(format!("{id}.run")))
+                                .await?,
+                            None,
+                            Arc::new(Mutex::new(())),
+                            CancellationToken::new(),
+                        )
+                    }
+                };
+                let state = broker.state.clone();
+                let task = tokio::spawn(async move {
+                    crate::nodes::checkpoint::capture(&state, &run, socket, control, stop, &id)
+                        .await
+                });
+                Ok(Json(task.await.map_err(Error::internal)??).into_response())
+            }
+            ("POST", ["runs", id, "lease"]) => {
+                let id = (*id).to_owned();
+                let bytes = axum::body::to_bytes(request.into_body(), 1024)
+                    .await
+                    .map_err(|_| Error::bad("Invalid lease."))?;
+                let value: Value = serde_json::from_slice(&bytes)?;
+                let remaining = value["remainingMs"]
+                    .as_u64()
+                    .filter(|v| *v > 0 && *v <= 300000)
+                    .ok_or_else(|| Error::bad("Invalid lease duration."))?;
+                if broker.state.join(format!("{id}.stopped")).exists()
+                    || broker.state.join(format!("{id}.exit")).exists()
+                {
+                    return Err(Error::new(409, "Attempt stopped."));
+                }
+                broker
+                    .leases
+                    .lock()
+                    .await
+                    .insert((*id).to_owned(), crate::nodes::boot_ms() + remaining);
+                Ok(Json(json!({"ok":true})).into_response())
+            }
             ("POST", ["runs", id, "artifact"]) => {
                 let id = (*id).to_owned();
                 let bytes = axum::body::to_bytes(request.into_body(), 16384)
@@ -604,6 +812,10 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
     if unsafe { libc::flock(controller.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
         return Err(Error::new(503, "Another VM controller owns this storage."));
     }
+    // No snapshot transfer survives a controller restart; durable points live on the master/S3.
+    if state.join("snapshots").exists() {
+        tokio::fs::remove_dir_all(state.join("snapshots")).await?;
+    }
     let image = host::assets(&state).await?;
     // A controller container restart fences its entire PID namespace. Mark interrupted attempts
     // exited, but retain all guest disks so the manager can launch replacement attempts.
@@ -623,10 +835,12 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
         state,
         pool,
         active: Default::default(),
+        leases: Default::default(),
         stop: stop.clone(),
     };
     let draining = broker.clone();
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:4311").await?;
+    let address = std::env::var("RUNNER_BIND").unwrap_or_else(|_| "0.0.0.0:4311".into());
+    let listener = tokio::net::TcpListener::bind(address).await?;
     axum::serve(
         listener,
         Router::new().fallback(any(handler)).with_state(broker),
@@ -772,6 +986,7 @@ mod tests {
             state: state.clone(),
             pool,
             active: Default::default(),
+            leases: Default::default(),
             stop,
         };
         let app = Router::new().fallback(any(handler)).with_state(broker);
@@ -816,6 +1031,13 @@ mod tests {
                 .as_u16()
         }
         assert_eq!(request(&app, &run, "export", &transfer, "wrong").await, 401);
+        std::fs::write(directory.join("stale-older.ext4"), "older copy").unwrap();
+        assert_eq!(
+            request(&app, &run, "prune", &transfer, "synthetic-runner-secret").await,
+            200
+        );
+        assert!(!directory.join("stale-older.ext4").exists());
+        assert!(directory.join("data.ext4").exists());
         assert_eq!(
             request(&app, &run, "export", &transfer, "synthetic-runner-secret").await,
             200
@@ -834,6 +1056,7 @@ mod tests {
             409
         );
         let inode = lock.metadata().unwrap().ino();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
         drop(lock);
         assert_eq!(
             request(&app, &run, "delete", &transfer, "synthetic-runner-secret").await,

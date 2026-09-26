@@ -719,6 +719,7 @@ internal fun ChatPage(
                         "${live.state?.artifacts?.size ?: 0} fichiers · ${questions.size} questions en attente"
                     )
                     chat?.run?.let {
+                        NodePlacement(vm, it)
                         Text(
                             "Dernière activité : ${date(it.finishedAt ?: it.startedAt ?: it.createdAt)}"
                         )
