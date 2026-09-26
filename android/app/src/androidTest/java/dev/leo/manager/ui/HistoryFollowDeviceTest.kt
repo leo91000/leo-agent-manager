@@ -29,21 +29,21 @@ class HistoryFollowDeviceTest : HistoryFollowCases() {
 
     // Reuse the active Compose rule so CI's existing device selection also checks paging.
     @Test
-    fun olderPageDoesNotCascadeWhileTheHeaderIsVisible() {
+    fun olderPagesChainUntilEnoughHistoryIsBuffered() {
         object : HistoryPagingCases(compose) {}
-            .visibleHeaderWithMorePagesDoesNotLoadTheEntireHistory()
+            .shortRowsKeepLoadingUntilSeveralScreensAreBuffered()
     }
 
     @Test
     fun olderPageKeepsTheTextUnderAnActiveFinger() {
         object : HistoryPagingCases(compose) {}
-            .pageArrivingDuringAHeldDragPreservesTextAndDoesNotCascade()
+            .pageArrivingDuringAHeldDragKeepsTheTextAndTheGesture()
     }
 
     @Test
-    fun cachedPagePreservesMovementFromTheSameFrame() {
+    fun olderPageAtTheVeryStartKeepsTheFirstParagraph() {
         object : HistoryPagingCases(compose) {}
-            .responseInTheSameFrameAsReachingTheHeaderKeepsTheLatestText()
+            .pageArrivingAtTheVeryStartKeepsTheFirstParagraph()
     }
 
     // The existing CI device entry point also exercises the complete native app.

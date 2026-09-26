@@ -1,4 +1,11 @@
-# Leo Android 0.39.1 — Suivi des réponses
+# Leo Android 0.39.2 — Historique en défilement infini
+
+- Remonter dans une conversation charge l’historique plus ancien automatiquement, plusieurs écrans à l’avance : plus de bouton « Messages précédents ». Les pages qui ne contiennent presque que des actions de l’agent s’enchaînent jusqu’à ce qu’il y ait assez de texte au-dessus.
+- Le texte affiché ne bouge plus quand une page arrive, même pendant un défilement ou un geste rapide. Le groupe d’actions le plus ancien garde sa place quand la page suivante le complète, et une courte conversation reste collée au-dessus du champ de saisie.
+- Les réponses de l’agent s’affichent directement à leur hauteur finale en entrant à l’écran, au lieu de s’agrandir après coup.
+- Un indicateur discret n’apparaît qu’en haut de l’historique pendant un chargement ; en cas d’erreur, « Réessayer » relance la page.
+
+## Leo Android 0.39.1 — Suivi des réponses
 
 - En suivant un agent qui travaille, un geste vers le haut en bas de la conversation pouvait laisser l’étirement de fin de liste bloqué : les fichiers ne s’ouvraient plus et le balayage vers les conversations voisines ne répondait plus, alors que le défilement vertical fonctionnait. L’étirement revient maintenant toujours en place, et les touchers atteignent de nouveau les fichiers et le changement de conversation. Le journal d’une exécution suivie bénéficie de la même correction.
 
