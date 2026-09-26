@@ -1,4 +1,8 @@
-# Leo Android 0.39.0 — Comptes des agents de code
+# Leo Android 0.39.1 — Suivi des réponses
+
+- En suivant un agent qui travaille, un geste vers le haut en bas de la conversation pouvait laisser l’étirement de fin de liste bloqué : les fichiers ne s’ouvraient plus et le balayage vers les conversations voisines ne répondait plus, alors que le défilement vertical fonctionnait. L’étirement revient maintenant toujours en place, et les touchers atteignent de nouveau les fichiers et le changement de conversation. Le journal d’une exécution suivie bénéficie de la même correction.
+
+## Leo Android 0.39.0 — Comptes des agents de code
 
 - Codex et Claude Code partagent maintenant les mêmes comptes : plusieurs comptes Claude Code sont possibles, avec les mêmes réglages que Codex (pause, exécutions parallèles, reconnexion).
 - Connexions présente une carte par agent de code et une ligne compacte par compte : usage restant, un seul badge quand il est utile, et la comète quand le compte travaille. Une fiche détaille l’usage, les réinitialisations en réserve, les exécutions en cours et les réglages.
