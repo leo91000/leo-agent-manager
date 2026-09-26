@@ -27,7 +27,6 @@ fun rememberLive(
     vm: LeoViewModel,
     workspace: Workspace,
     path: String,
-    beforeOlderPage: () -> Unit = {},
     streaming: Boolean = true,
 ): LiveSnapshot {
     val owner = LocalLifecycleOwner.current
@@ -133,8 +132,6 @@ fun rememberLive(
                             require(page.oldest < before || !page.hasOlder) {
                                 "Page d’historique invalide."
                             }
-                            // Capture the reader synchronously before any response state is applied.
-                            beforeOlderPage()
                             older = mergeHistory(page.events, older)
                             olderHistory = history
                             boundary = page.oldest
@@ -177,165 +174,166 @@ fun rememberLive(
     )
 }
 
-/** The response boundary can capture a layout before snapshotFlow observes its final movement. */
-internal class HistoryPageAnchor {
-    var capture: (() -> Unit)? = null
-    fun beforeApply() { capture?.invoke() }
-}
-
 /**
- * Keep Compose's key-based anchor: requesting an index here overrides the reader's current position
- * and may target a layout measured before the page was inserted.
+ * Inverted infinite scroll: prepend older pages ahead of the reader, several screens before the
+ * start, and let Compose keep the first visible row in place by its key. A scrolled history never
+ * gets a requested position, so a drag or fling in progress is never interrupted.
  */
 @Composable
-internal fun rememberHistoryPaging(
-    live: LiveSnapshot,
-    list: LazyListState,
-    ready: Boolean,
-    follow: Boolean,
-    keys: List<String>,
-    rendering: MarkdownRendering? = null,
-    pageAnchor: HistoryPageAnchor? = null,
-    stopFollowing: () -> Unit,
-): () -> Unit {
+internal fun rememberHistoryPaging(live: LiveSnapshot, list: LazyListState, ready: Boolean): () -> Unit {
     val current by rememberUpdatedState(live)
-    var headerAnchor by remember(list) { mutableStateOf<Pair<String, Int>?>(null) }
-    var settling by remember(list) { mutableStateOf(false) }
-    var requested by remember(list) { mutableStateOf<Pair<String?, Long>?>(null) }
-    var capturedBeforeApply by remember(list) { mutableStateOf(false) }
-    DisposableEffect(pageAnchor, list) {
-        val capture = {
-            val visible = list.layoutInfo.visibleItemsInfo
-            headerAnchor =
-                if (visible.firstOrNull()?.key == "history:older")
-                    visible.firstOrNull { it.key != "history:older" }
-                        ?.let { it.key.toString() to -it.offset }
-                else null
-            // A null anchor is intentional when the reader has left the header.
-            capturedBeforeApply = true
-        }
-        pageAnchor?.capture = capture
-        onDispose {
-            pageAnchor?.let { if (it.capture === capture) it.capture = null }
+    val load = { if (current.hasOlder && !current.loadingOlder) current.loadOlder() }
+    val page = remember(list) { longArrayOf(live.oldest) }
+    SideEffect {
+        if (live.oldest != page[0]) {
+            page[0] = live.oldest
+            // A history shorter than the screen has no scrolled row to anchor on: keep its end in
+            // place instead. Nothing can be scrolling, and the index is clamped to the last row.
+            val info = list.layoutInfo
+            if (info.totalItemsCount > 0 && !list.canScrollBackward && !list.canScrollForward)
+                list.requestScrollToItem(Int.MAX_VALUE)
         }
     }
-    LaunchedEffect(list, live.loadingOlder) {
-        val before = live.oldest
-        if (live.loadingOlder)
-            snapshotFlow { list.layoutInfo.visibleItemsInfo }
-                .collect { visible ->
-                    // Ignore the new page's layout if it arrives before this collector is
-                    // cancelled.
-                    if (capturedBeforeApply || current.oldest != before) return@collect
-                    // Follow the reader during the request; never restore its initial position.
-                    headerAnchor =
-                        if (visible.firstOrNull()?.key == "history:older") {
-                            visible
-                                .firstOrNull { it.key != "history:older" }
-                                ?.let { it.key.toString() to -it.offset }
-                        } else null
-                }
-    }
-    LaunchedEffect(live.loadingOlder, live.oldest, keys) {
-        // A loading request can start before this effect from the previous frame runs.
-        // Do not consume its anchor until a response (or an error) is actually present.
-        val responseArrived =
-            requested != (live.history to live.oldest) || live.olderError != null || !live.hasOlder
-        if (!live.loadingOlder && settling && responseArrived) {
-            val saved = headerAnchor
-            headerAnchor = null
-            if (saved != null) {
-                val index = keys.indexOf(saved.first)
-                if (index >= 0) {
-                    val header = live.hasOlder || live.olderError != null
-                    val target = index + if (header) 1 else 0
-                    // Keep the content anchor even when a finger is still dragging.
-                    // Discarding it leaves the persistent header pinned at index zero.
-                    list.requestScrollToItem(target, saved.second)
-                    rendering?.awaitLayout()
-                    // An idle list can measure the final position immediately. While a
-                    // finger owns scrolling, request its next layout without taking the gesture.
-                    if (list.isScrollInProgress) list.requestScrollToItem(target, saved.second)
-                    else list.scrollToItem(target, saved.second)
-                }
-            }
-            rendering?.awaitLayout()
-            settling = false
-        }
-    }
-    val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 640.dp.toPx() }
-    val load = {
-        if (current.hasOlder && !current.loadingOlder) {
-            // Fast cached/local responses may finish before a loading frame exists.
-            // Capture here as well; the observer refreshes this if the reader moves.
-            val visible = list.layoutInfo.visibleItemsInfo
-            headerAnchor =
-                if (visible.firstOrNull()?.key == "history:older") {
-                    visible
-                        .firstOrNull { it.key != "history:older" }
-                        ?.let { it.key.toString() to -it.offset }
-                } else null
-            settling = true
-            requested = current.history to current.oldest
-            capturedBeforeApply = false
-            stopFollowing()
-            current.loadOlder()
-        }
-    }
-    val currentLoad by rememberUpdatedState(load)
-    LaunchedEffect(list, ready, follow, threshold) {
-        // Re-arm only after leaving the top zone, never just because a response
-        // changed the cursor. The old layout can still show index zero then.
-        var armed = true
-        if (ready && !follow)
+    LaunchedEffect(list, ready) {
+        if (ready)
             snapshotFlow {
                     val snapshot = current
-                    val nearStart =
-                        list.layoutInfo.visibleItemsInfo.isNotEmpty() &&
-                            list.firstVisibleItemIndex <= 1 &&
-                            list.firstVisibleItemScrollOffset < threshold
-                    val available = !settling && !snapshot.loadingOlder
-                    Triple(
-                        nearStart,
-                        available,
-                        snapshot.hasOlder &&
-                            snapshot.olderError == null &&
-                            requested != (snapshot.history to snapshot.oldest),
-                    )
+                    val info = list.layoutInfo
+                    // Pages can fold into only a few rows; keep loading until enough is buffered.
+                    val near = info.visibleItemsInfo.isNotEmpty() &&
+                        list.distanceToStart() < HISTORY_PREFETCH_SCREENS * info.viewportSize.height
+                    // The boundary changes with each page, even when a fast response is applied
+                    // before a loading frame was ever observed.
+                    (near && snapshot.hasOlder && !snapshot.loadingOlder && snapshot.olderError == null) to snapshot.oldest
                 }
-                .collect { (nearStart, available, canLoad) ->
-                    if (available) {
-                        if (!nearStart) armed = true
-                        else if (armed && canLoad) {
-                            armed = false
-                            currentLoad()
-                        }
-                    }
-                }
+                .collect { (load) -> if (load) current.loadOlder() }
     }
     return load
 }
 
-internal fun androidx.compose.foundation.lazy.LazyListScope.historyHeader(
-    live: LiveSnapshot,
-    load: () -> Unit,
-) {
-    if (live.hasOlder || live.loadingOlder || live.olderError != null)
-        item(key = "history:older") {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.height(48.dp), contentAlignment = Alignment.Center) {
-                    if (live.loadingOlder) CircularProgressIndicator(Modifier.size(20.dp))
-                    else TextButton(onClick = load) { Text("Messages précédents") }
-                }
-                live.olderError?.let {
+internal const val HISTORY_PREFETCH_SCREENS = 3
+
+/** Estimated pixels above the viewport; unmeasured rows are assumed to be as tall as visible ones. */
+internal fun LazyListState.distanceToStart(): Int {
+    val info = layoutInfo
+    val visible = info.visibleItemsInfo
+    val first = visible.firstOrNull() ?: return 0
+    val average = visible.sumOf { it.size + info.mainAxisItemSpacing } / visible.size
+    return first.index * average + (info.viewportStartOffset - first.offset).coerceAtLeast(0)
+}
+
+/**
+ * Connection and paging states are shown over the list rather than above it or as a row: a line
+ * above would resize the list on every reconnect, and a row at the start would become Compose's
+ * scroll anchor and push the reader's text down when a page arrives.
+ */
+@Composable
+internal fun BoxScope.HistoryStatus(live: LiveSnapshot, list: LazyListState, retry: () -> Unit, connection: String? = null) {
+    val atStart by remember(list) { derivedStateOf { !list.canScrollBackward } }
+    val error = live.olderError
+    Column(
+        Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // Keep the last text while fading out, so the pill does not empty before it disappears.
+        var shown by remember { mutableStateOf(connection.orEmpty()) }
+        if (connection != null) shown = connection
+        androidx.compose.animation.AnimatedVisibility(
+            connection != null,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            StatusPill {
+                Text(
+                    shown,
+                    Modifier.widthIn(max = 280.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            live.loadingOlder && atStart || error != null,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            StatusPill {
+                if (error == null) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("Chargement des messages précédents…", style = MaterialTheme.typography.labelMedium)
+                } else {
                     Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
+                        error,
+                        Modifier.widthIn(max = 220.dp),
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.error,
+                        maxLines = 2,
                     )
+                    TextButton(onClick = retry) { Text("Réessayer") }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StatusPill(content: @Composable RowScope.() -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 2.dp,
+    ) {
+        Row(
+            Modifier.heightIn(min = 32.dp).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            content = content,
+        )
+    }
+}
+
+/**
+ * A page that ends inside the oldest activity group extends it, and its first event (the natural
+ * key) changes. Reuse the key the group already had, so the list keeps anchoring on that row.
+ */
+internal class TimelineKeys {
+    private var history: String? = null
+    private var owners = mapOf<String, String>()
+
+    fun stabilize(history: String?, entries: List<TimelineEntry>): List<TimelineEntry> {
+        if (history != this.history) {
+            this.history = history
+            owners = emptyMap()
+        }
+        val used = entries.filter { !it.key.startsWith("activity:") }.mapTo(mutableSetOf()) { it.key }
+        val keys = arrayOfNulls<String>(entries.size)
+        // Event ids are unique; item ids only help when a folded update replaced the known event.
+        for (identity in listOf<(RunEvent) -> String?>({ "event:${it.id}" }, { it.itemIdentity() })) {
+            entries.forEachIndexed { index, entry ->
+                if (keys[index] == null && entry.key.startsWith("activity:"))
+                    entry.events.firstNotNullOfOrNull { event -> identity(event)?.let(owners::get)?.takeIf { it !in used } }
+                        ?.let { keys[index] = it; used.add(it) }
+            }
+        }
+        val result = entries.mapIndexed { index, entry ->
+            val key = keys[index] ?: entry.key.takeIf { it !in used || !it.startsWith("activity:") }
+                ?: "${entry.key}:$index"
+            used.add(key)
+            if (key == entry.key) entry else entry.copy(key = key)
+        }
+        owners = buildMap {
+            for (entry in result) if (entry.key.startsWith("activity:")) for (event in entry.events) {
+                put("event:${event.id}", entry.key)
+                event.itemIdentity()?.let { put(it, entry.key) }
+            }
+        }
+        return result
+    }
+
+    private fun RunEvent.itemIdentity(): String? =
+        item().string("id").takeIf { it.isNotBlank() }?.let { "item:${item().string("type")}:$it" }
 }
 
 /** Restore once the feed exists; background resumes retain the existing list state. */

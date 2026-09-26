@@ -24,6 +24,14 @@ data class AccessPolicy(
 )
 
 @Serializable
+data class AgentPortrait(
+    val status: String = "ready",
+    val revision: String = "",
+    val url: String? = null,
+    val error: String? = null,
+)
+
+@Serializable
 data class Agent(
     val id: String = "",
     val name: String = "",
@@ -34,6 +42,7 @@ data class Agent(
     val timeoutMinutes: Int = 0,
     val access: AccessPolicy = AccessPolicy(),
     val provider: String = "codex",
+    val avatar: AgentPortrait? = null,
 )
 
 @Serializable

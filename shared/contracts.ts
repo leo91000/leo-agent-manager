@@ -62,7 +62,14 @@ export const taskInput = z.object({
   archived: z.boolean().default(false),
   worktree: z.boolean().default(true),
 })
+export interface AgentAvatar {
+  status: 'generating' | 'ready' | 'failed'
+  revision: string
+  url?: string | null
+  error?: string
+}
 export type Agent = z.infer<typeof agentInput> & {
+  avatar?: AgentAvatar
   id: string
   createdAt: number
 }

@@ -300,6 +300,9 @@ fun Confirm(
     )
 }
 
+/** Larger messages render off the main thread first, behind a reserved placeholder. */
+private const val MARKDOWN_SYNC_RENDER = 8 * 1024
+
 @Composable
 fun Markdown(content: String) {
     val openArtifact by rememberUpdatedState(LocalArtifactLinks.current)
@@ -347,15 +350,21 @@ fun Markdown(content: String) {
         onDispose { initial.finish() }
     }
     val currentContent by rememberUpdatedState(content)
-    var blocks by remember(markwon) { mutableStateOf(emptyList<MarkdownBlock>()) }
+    val renderer = remember(markwon) { MarkdownBlocks(markwon) }
+    // A row scrolled into view must be measured at its real height at once: an estimated
+    // placeholder resizes after rendering and moves the text the reader is looking at.
+    var rendered by remember(markwon) { mutableStateOf(content.takeIf { it.length <= MARKDOWN_SYNC_RENDER }) }
+    var blocks by remember(markwon) { mutableStateOf(rendered?.let(renderer::render).orEmpty()) }
     LaunchedEffect(markwon, rendering) {
-        val renderer = MarkdownBlocks(markwon)
         // Keep displaying the last complete render while working. Conflation applies
         // to whole texts, after the stream accumulator has accepted every delta.
         snapshotFlow { currentContent }
             .conflate()
             .collect { text ->
-                blocks = withContext(Dispatchers.Default) { renderer.render(text) }
+                if (text != rendered) {
+                    blocks = withContext(Dispatchers.Default) { renderer.render(text) }
+                    rendered = text
+                }
                 withFrameNanos {}
                 withFrameNanos {}
                 initial.finish()

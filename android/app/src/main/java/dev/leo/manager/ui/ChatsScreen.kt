@@ -255,9 +255,8 @@ internal fun ChatPage(
     create: () -> Unit = back,
     openConnections: () -> Unit = {},
 ) {
-    val pageAnchor = remember(id) { HistoryPageAnchor() }
     val live = if (id == null) conversations else
-        rememberLive(vm, state, "/chats/${segment(id)}/stream", pageAnchor::beforeApply, streaming = selected)
+        rememberLive(vm, state, "/chats/${segment(id)}/stream", streaming = selected)
     val chat = live.state?.chat?.takeIf { it.id == id }
     var createdId by rememberSaveable(id) { mutableStateOf<String?>(null) }
     var agent by rememberSaveable(id) { mutableStateOf(initialAgent) }
@@ -317,10 +316,11 @@ internal fun ChatPage(
                 outgoing = null
         }
     }
+    val timelineKeys = remember(id) { TimelineKeys() }
     val timeline =
         remember(live.events, live.state?.artifacts) {
             deliveryTimeline(
-                timelineEntries(live.events, chat = true),
+                timelineKeys.stabilize(live.history, timelineEntries(live.events, chat = true)),
                 live.state?.artifacts.orEmpty(),
             )
         }
@@ -342,18 +342,7 @@ internal fun ChatPage(
         ) {
             follow = it
         }
-    val loadOlder =
-        rememberHistoryPaging(
-            live,
-            listState,
-            positionReady && !gallery,
-            follow,
-            timeline.map { it.key },
-            rendering,
-            pageAnchor,
-        ) {
-            follow = false
-        }
+    val loadOlder = rememberHistoryPaging(live, listState, positionReady && !gallery)
     val active = chat?.run?.active == true
     val selectedAgent = state.agents.find { it.id == (chat?.agentId ?: agent) }
     val currentProvider = chat?.run?.snapshot?.agent?.provider ?: selectedAgent?.provider ?: "codex"
@@ -736,13 +725,6 @@ internal fun ChatPage(
                         )
                     }
                 }
-            if (live.status != "En direct")
-                Text(
-                    live.error ?: live.status,
-                    Modifier.padding(horizontal = 20.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             chat?.error?.let {
                 Text(
                     it,
@@ -808,8 +790,17 @@ internal fun ChatPage(
                     }
                 }
                 if (live.catchingUp && id != null) {
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                         CircularProgressIndicator(Modifier.size(28.dp))
+                        Text(
+                            live.error ?: live.status,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 } else {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -818,8 +809,10 @@ internal fun ChatPage(
                                 .testTag("conversation-history")
                                 .historyFollowGesture(followGesture),
                             state = listState,
+                            overscrollEffect = rememberHistoryOverscroll(),
                             contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            // A short history sits above the composer, so older pages appear above it.
+                            verticalArrangement = Arrangement.spacedBy(12.dp, if (id == null) Alignment.Top else Alignment.Bottom),
                         ) {
                             if (id == null)
                                 item(key = "new-conversation") {
@@ -836,7 +829,6 @@ internal fun ChatPage(
                                         chooseProject = { project = it },
                                     )
                                 }
-                            historyHeader(live, loadOlder)
                             items(timeline, key = { it.key }) {
                                 TimelineRow(vm, it, chat?.agentName ?: "Leo", rendering, hideRunning = chat?.run?.status == "running")
                             }
@@ -882,6 +874,7 @@ internal fun ChatPage(
                                     )
                                 }
                         }
+                        HistoryStatus(live, listState, loadOlder, (live.error ?: live.status).takeIf { live.status != "En direct" })
                         HistoryBottomButton(listState, follow, "Derniers messages") { follow = true }
                     }
                 }

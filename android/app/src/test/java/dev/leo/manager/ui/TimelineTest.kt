@@ -188,4 +188,38 @@ class TimelineTest {
         assertTrue(result.last().message)
         assertEquals("file", deliveryTimeline(emptyList(), listOf(file)).single().files.single().id)
     }
+
+    @Test
+    fun `an older page extending the first activity group keeps its row key`() {
+        val keys = TimelineKeys()
+        val window = listOf(
+            event(10, "item.completed", "cmd-2", status = "completed"),
+            event(11, "item.completed", "cmd-3", status = "completed"),
+            event(12, "item.completed", "answer", "agent_message"),
+        )
+        val first = keys.stabilize("v1:run:1", timelineEntries(window, chat = true))
+        val group = first.first().key
+        // The page ends inside the same group and folds the start of a command already shown.
+        val page = listOf(
+            event(5, "chat.user"),
+            event(6, "item.started", "cmd-1"),
+            event(7, "item.started", "cmd-2"),
+        )
+        val extended = keys.stabilize("v1:run:1", timelineEntries(page + window, chat = true))
+        assertEquals(listOf("message:5", group, "message:12"), extended.map { it.key })
+        assertEquals(3, extended[1].events.size)
+        assertEquals("Keys stay unique", extended.size, extended.map { it.key }.distinct().size)
+        // A different history starts from natural keys again.
+        assertEquals(timelineEntries(page + window, chat = true).map { it.key },
+            keys.stabilize("v1:other:1", timelineEntries(page + window, chat = true)).map { it.key })
+    }
+
+    @Test
+    fun `a folded command that was the only row of the first group keeps its key`() {
+        val keys = TimelineKeys()
+        val window = listOf(event(20, "item.completed", "cmd", status = "completed"), event(21, "item.completed", "answer", "agent_message"))
+        val group = keys.stabilize("h", timelineEntries(window, chat = true)).first().key
+        val extended = keys.stabilize("h", timelineEntries(listOf(event(19, "item.started", "cmd")) + window, chat = true))
+        assertEquals(group, extended.first().key)
+    }
 }

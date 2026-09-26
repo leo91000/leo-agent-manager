@@ -424,6 +424,9 @@ async fn lease(State(app): State<App>, request: Request) -> Result<Json<Value>> 
 async fn api(State(app): State<App>, request: Request) -> Result<Response> {
     let path = request.uri().path().to_owned();
     let segments: Vec<_> = path.split('/').collect();
+    if let ["", "api", "agents", agent, "avatar"] = segments.as_slice() {
+        return crate::agent_avatars::http(&app.service, agent, request).await;
+    }
     if let ["", "api", "public", "artifacts", token] = segments.as_slice() {
         return crate::artifacts::sharing::http(&app.service, token, request).await;
     }

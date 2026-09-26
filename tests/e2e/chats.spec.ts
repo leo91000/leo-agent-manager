@@ -311,8 +311,17 @@ test('task outcomes stay with the reply and expose evidence without crowding the
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.screenshot({ path: test.info().outputPath('outcome-collapsed-desktop-dark.png'), animations: 'disabled' })
   // The next turn must never inherit the previous reply's completion report.
-  await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: randomUUID(), text: 'Another reply without a completion report' })
-  await expect.poll(() => workspace.service.chats.detail(chat.id).run?.status).toBe('succeeded')
+  // The run is reused and already succeeded, so wait for this turn to be delivered and finish;
+  // otherwise its completion can overwrite the outcomes written below.
+  const previousFinish = workspace.service.chats.detail(chat.id).run?.finishedAt ?? 0
+  const nextId = randomUUID()
+  await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: nextId, text: 'Another reply without a completion report' })
+  await expect.poll(() => {
+    const detail = workspace.service.chats.detail(chat.id)
+    return !detail.messages.some(message => message.id === nextId && message.status !== 'delivered')
+      && detail.run?.status === 'succeeded'
+      && (detail.run.finishedAt ?? 0) > previousFinish
+  }).toBe(true)
   await page.reload()
   await expect(panel).toHaveCount(0)
   // Outcomes without evidence still expose their reason; attention stays visible.

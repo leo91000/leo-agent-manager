@@ -55,6 +55,7 @@ class CacheMissReproductionTest {
             MockWebServer().use { server ->
                 val requests = CopyOnWriteArrayList<String>()
                 val olderRequested = CountDownLatch(1)
+                val olderRequests = CopyOnWriteArrayList<String>()
                 val releaseOlder = CountDownLatch(1)
                 val output = "x".repeat(if (large) 2200 * 1024 else 100)
                 fun message(n: Int) = RunEvent(n.toLong(), n.toLong(), "chat.user", if (n == 40) "Message témoin" else "Message %03d".format(n))
@@ -102,6 +103,12 @@ class CacheMissReproductionTest {
                                 .setHeader("Content-Type", "text/event-stream")
                                 .setBody(frame + ": waiting\n\n".repeat(1000))
                                 .throttleBody(frame.toByteArray().size.toLong(), 1, TimeUnit.DAYS)
+                        }
+                        if (request.path.orEmpty().contains("/history?") && !paged) {
+                            // The trimmed cache still has older history: it is prefetched, not offered as a button.
+                            olderRequests.add(request.requestUrl?.queryParameter("before").orEmpty())
+                            return MockResponse().setHeader("Content-Type", "application/json")
+                                .setBody(wireJson.encodeToString(HistoryPage(emptyList(), "v1:fixture:1", 1, false)))
                         }
                         if (request.path.orEmpty().contains("/history?")) {
                             assertEquals("21", request.requestUrl?.queryParameter("before"))
@@ -158,11 +165,10 @@ class CacheMissReproductionTest {
                     assertEquals("/api/chats/diagnostic/stream?after=$accepted&history=v1%3Afixture%3A1&window=1", requests[1])
                     compose.onNodeWithText("Diagnostic cache").assertIsDisplayed()
                     compose.onNodeWithText("Message témoin").assertIsDisplayed()
-                    if (large) compose.onNodeWithText("Messages précédents").assertExists()
+                    if (large) compose.waitUntil(10000) { "2" in olderRequests }
                     if (paged) {
-                        // Explicit accessibility scrolling also enables automatic paging.
-                        // Hold the response so the real reading anchor can be measured;
-                        // the transient load button may already have become a spinner.
+                        // A short history is prefetched as soon as it is shown. Hold the
+                        // response so the real reading position can be measured.
                         compose.onNode(hasScrollAction() and hasTestTag("conversation-history")).performScrollToNode(hasText("Message 021"))
                         compose.waitUntil(10000) { olderRequested.count == 0L }
                         compose.waitForIdle()
@@ -172,8 +178,8 @@ class CacheMissReproductionTest {
                             compose.onNodeWithTag("conversation-history").fetchSemanticsNode()
                                 .config[SemanticsProperties.CollectionInfo].rowCount == 40
                         }
-                        // Receiving the page removes the loader before the asynchronous
-                        // reading-anchor restoration has finished its next layout.
+                        // The page is prepended above the row Compose anchors on; asynchronous
+                        // Markdown may need one more layout before the bounds are final.
                         compose.waitUntil(10000) {
                             val bounds = compose.onAllNodesWithText("Message 021")
                                 .fetchSemanticsNodes().firstOrNull()?.boundsInRoot

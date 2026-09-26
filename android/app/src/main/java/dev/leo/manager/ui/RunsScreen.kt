@@ -132,15 +132,14 @@ fun RunScreen(
     back: () -> Unit = {},
     openRun: (String) -> Unit,
 ) {
-    val pageAnchor = remember(id) { HistoryPageAnchor() }
-    val live =
-        rememberLive(vm, state, "/runs/${segment(id)}/stream", pageAnchor::beforeApply)
+    val live = rememberLive(vm, state, "/runs/${segment(id)}/stream")
     val run = live.state?.run
     val events = live.events
     val more = live.catchingUp
+    val timelineKeys = remember(id) { TimelineKeys() }
     val timeline =
         remember(events, live.state?.artifacts) {
-            deliveryTimeline(timelineEntries(events), live.state?.artifacts.orEmpty())
+            deliveryTimeline(timelineKeys.stabilize(live.history, timelineEntries(events)), live.state?.artifacts.orEmpty())
         }
     var menu by remember { mutableStateOf(false) }
     var details by rememberSaveable(id) { mutableStateOf(false) }
@@ -170,18 +169,7 @@ fun RunScreen(
         ) {
             follow = it
         }
-    val loadOlder =
-        rememberHistoryPaging(
-            live,
-            logState,
-            positionReady && tab == 1,
-            follow,
-            timeline.map { it.key },
-            rendering,
-            pageAnchor,
-        ) {
-            follow = false
-        }
+    val loadOlder = rememberHistoryPaging(live, logState, positionReady && tab == 1)
     LaunchedEffect(run?.id, live.synced) {
         if (autoTab && run != null && live.synced) {
             autoTab = false
@@ -355,22 +343,15 @@ fun RunScreen(
                                 ArtifactStrip(vm, latestArtifacts(live.state.artifacts))
                         }
                     1 -> {
-                        if (live.status != "En direct")
-                            Text(
-                                live.status,
-                                Modifier.padding(horizontal = 20.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         if (more) LinearProgressIndicator(Modifier.fillMaxWidth())
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             LazyColumn(
                                 Modifier.fillMaxSize().historyFollowGesture(followGesture),
                                 state = logState,
+                                overscrollEffect = rememberHistoryOverscroll(),
                                 contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Bottom),
                             ) {
-                                historyHeader(live, loadOlder)
                                 items(timeline, key = { it.key }) { entry ->
                                     TimelineRow(
                                         vm,
@@ -399,6 +380,7 @@ fun RunScreen(
                                     }
                                 if (events.isEmpty()) item { Text("L’activité apparaîtra ici.") }
                             }
+                            HistoryStatus(live, logState, loadOlder, live.status.takeIf { it != "En direct" })
                             HistoryBottomButton(logState, follow, "Dernière activité") { follow = true }
                         }
                     }

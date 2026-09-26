@@ -76,13 +76,15 @@ internal fun AgentAvatar(
             Modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(identityColor(key)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                initial(name),
-                style = MaterialTheme.typography.titleMedium,
-                fontSize = (size.value * 0.42f).sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-            )
+            AgentPortraitImage(key) {
+                Text(
+                    initial(name),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = (size.value * 0.42f).sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
         }
         if (badge != null)
             Box(

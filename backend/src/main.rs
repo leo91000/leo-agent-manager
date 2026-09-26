@@ -291,6 +291,7 @@ async fn entry(args: Vec<String>) -> Result<i32> {
             .with_graceful_shutdown(closing)
             .await?;
             service.shutdown.cancel();
+            service.avatars.close().await;
             service.worker.close().await;
             service.connections.cancel().await;
             let _ = service.accounts.cancel(&service).await;

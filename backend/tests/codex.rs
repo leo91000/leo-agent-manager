@@ -35,6 +35,27 @@ fn config(root: &TempDir) -> Config {
 }
 
 #[tokio::test]
+async fn failed_initialization_waits_for_the_codex_process_to_exit() {
+    let root = TempDir::new().unwrap();
+    let config = config(&root);
+    let home = config.home.join(".codex");
+    std::fs::create_dir_all(&home).unwrap();
+    let marker = home.join("fixture-initialize-error");
+    std::fs::write(&marker, "").unwrap();
+    let result = Session::codex(&config, &home, &[], Some(root.path())).await;
+    assert!(result.is_err());
+    let pid: i32 = std::fs::read_to_string(marker).unwrap().parse().unwrap();
+    let alive = unsafe { libc::kill(pid, 0) } == 0;
+    if alive {
+        // Leave no fixture process behind when checking the pre-fix failure.
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+    assert!(!alive, "failed initialization returned before Codex exited");
+}
+
+#[tokio::test]
 async fn long_chat_history_preserves_steered_messages_without_repeating_completed_work() {
     let root = TempDir::new().unwrap();
     let config = config(&root);

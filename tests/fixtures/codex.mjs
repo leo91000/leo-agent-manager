@@ -21,6 +21,14 @@ async function main() {
       const request = JSON.parse(line)
       if (request.id === undefined)
         continue
+      const initializationFailure = path.join(process.env.CODEX_HOME, 'fixture-initialize-error')
+      if (request.method === 'initialize' && existsSync(initializationFailure)) {
+        process.on('SIGTERM', () => {})
+        setInterval(() => {}, 1000)
+        writeFileSync(initializationFailure, String(process.pid))
+        process.stdout.write(`${JSON.stringify({ id: request.id, error: { code: -32000, message: 'Initialization failed' } })}\n`)
+        continue
+      }
       if (chat(request))
         continue
       let result = {}

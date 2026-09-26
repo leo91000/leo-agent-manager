@@ -1,11 +1,18 @@
 package dev.leo.manager.ui
 
+import androidx.compose.foundation.OverscrollEffect
+import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.node.DelegatableNode
+import androidx.compose.ui.node.DelegatingNode
+import androidx.compose.ui.node.DrawModifierNode
+import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -183,6 +190,51 @@ internal fun Modifier.historyFollowGesture(gesture: HistoryFollowGesture): Modif
             }
         }
     }
+
+/**
+ * Android's stretch overscroll only relaxes while its node keeps drawing, and it asks for those
+ * frames through a state write that, on device, stopped redrawing the history's layer: the stretch
+ * froze mid-release. A scrollable with overscroll in progress starts dragging on every down, so taps
+ * and horizontal swipes over the history would never reach its items or the chat pager.
+ */
+@Composable
+internal fun rememberHistoryOverscroll(): OverscrollEffect? {
+    val effect = rememberOverscrollEffect() ?: return null
+    return remember(effect) { RelaxingOverscroll(effect) }
+}
+
+internal class RelaxingOverscroll(private val effect: OverscrollEffect) : OverscrollEffect by effect {
+    override val node: DelegatableNode = RelaxingOverscrollNode(effect)
+}
+
+private class RelaxingOverscrollNode(effect: OverscrollEffect) : DelegatingNode() {
+    init {
+        // A delegating node that also drew itself would hide the effect's own draw node.
+        delegate(RelaxDrawNode(effect))
+        delegate(effect.node)
+    }
+}
+
+private class RelaxDrawNode(private val effect: OverscrollEffect) : Modifier.Node(), DrawModifierNode {
+    private var frameRequested = false
+
+    override fun ContentDrawScope.draw() {
+        drawContent()
+        // Ask for the next frame from the overscroll's own layer, outside this draw pass,
+        // until the effect has settled.
+        if (effect.isInProgress && !frameRequested) {
+            frameRequested = true
+            coroutineScope.launch {
+                try {
+                    withFrameNanos { }
+                    invalidateDraw()
+                } finally {
+                    frameRequested = false
+                }
+            }
+        }
+    }
+}
 
 /** Follow measured content, while allowing the user's touch or fling to take over immediately. */
 @Composable

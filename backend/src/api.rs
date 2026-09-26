@@ -45,6 +45,8 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
                 })
                 .await
         }
+        ("GET", ["agent-avatars"]) => Ok(json!({"configured":s.avatars.configured(s).await?})),
+        ("POST", ["agents", id, "avatar", "generate"]) => s.avatars.generate(s, id).await,
         ("GET", [kind @ ("agents" | "projects" | "tasks")]) => Ok(s.store.list(kind).await?.into()),
         ("POST", [kind @ ("agents" | "projects" | "tasks")]) => save(s, kind, input.body.clone(), None).await,
         ("PUT", [kind @ ("agents" | "projects" | "tasks"), id]) => save(s, kind, input.body.clone(), Some(id)).await,
@@ -238,7 +240,7 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
         _ => Err(Error::new(404, "Not found")),
     }
 }
-async fn save(s: &Service, kind: &str, input: Value, id: Option<&str>) -> Result<Value> {
+async fn save(s: &Arc<Service>, kind: &str, input: Value, id: Option<&str>) -> Result<Value> {
     match kind {
         "agents" => s.agent(input, id).await,
         "projects" => s.project(input, id).await,

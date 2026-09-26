@@ -1,4 +1,22 @@
-# Android 0.36.0 — live step and agent actions
+# Android 0.39.2 — inverted infinite history scroll
+
+`HistoryPagingCases` (Robolectric and Android 16) prepends real pages to the production lazy list
+with async Markdown: the visible paragraph keeps its pixel offset while reading, at the very start
+of the loaded history, during a held drag (the drag keeps scrolling), and for a short history
+that does not fill the screen. Folded pages chain until three screens are buffered, then stop;
+a failure stops automatic loading until « Réessayer ». `TimelineTest` checks that an older page
+extending the first activity group, or folding its only command, keeps the row key.
+
+`HistoryScrollDeviceTest` drives the real chat screen on a device against a mock server: 60
+tool-heavy turns, 100-event pages with a 700 ms round trip. Swiping from the last to the first
+question requests each of the five pages once, and no visible question moves while a page lands.
+On an API 36 emulator it passes; frame traces showed 0 px movement on every page arrival and no
+row resizing once Markdown renders synchronously (before, each agent answer entering at the top
+grew from 169 to 211 px and pushed the view by up to 42 px). The recorded run is the demo video.
+Positions are compared on screen: the mock stream ends every few seconds, and the resulting
+« Reconnexion… » status used to shift the conversation by 29 px; it is now an overlay pill.
+
+## Previous validation: Android 0.36.0 — live step and agent actions
 
 `WorkingIndicatorTest` covers the step choice (running step with its command, last finished
 step otherwise, earlier turns and session notices ignored, failed steps never shown as
