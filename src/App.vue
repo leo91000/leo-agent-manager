@@ -2,6 +2,7 @@
 import type { IconName } from './icons'
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAgentPortraits } from './agent-avatars'
 import { api, refresh, session, signOut, state } from './api'
 import { useChatList } from './chat-list'
 import CommandPalette from './components/CommandPalette.vue'
@@ -16,6 +17,7 @@ import { modifier, typingTarget } from './shortcuts'
 import { filOf } from './signal'
 import { workspaceActionsKey } from './workspace-actions'
 
+useAgentPortraits()
 const router = useRouter()
 const route = useRoute()
 const password = ref('')

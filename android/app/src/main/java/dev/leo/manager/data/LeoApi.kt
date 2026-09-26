@@ -177,6 +177,23 @@ class LeoApi(val origin: HttpUrl, vault: SessionVault, client: OkHttpClient = Ok
         }
     }
 
+    suspend fun agentPortrait(id: String, revision: String): ByteArray =
+        exchange(builder("/agents/${segment(id)}/avatar?v=${segment(revision)}").get().build()) { response ->
+            checkResponse(response)
+            val bytes = response.body.byteStream().use { readPortraitBytes(it, 512 * 1024) }
+            require(bytes.size <= 512 * 1024) { "Le portrait est trop volumineux." }
+            bytes
+        }
+
+    suspend fun uploadAgentPortrait(id: String, bytes: ByteArray): Agent {
+        require(bytes.size <= 5 * 1024 * 1024) { "Choisissez une image de moins de 5 Mo." }
+        return exchange(builder("/agents/${segment(id)}/avatar")
+            .put(bytes.toRequestBody("application/octet-stream".toMediaType())).build()) { response ->
+            checkResponse(response)
+            wireJson.decodeFromString<Agent>(response.body.string())
+        }
+    }
+
     suspend fun download(
         path: String,
         destination: java.io.File,
@@ -246,4 +263,16 @@ internal fun checkResponse(response: Response) {
         }
             .getOrNull() ?: "Le serveur a répondu avec le code ${response.code}."
     throw ApiException(response.code, message)
+}
+
+internal fun readPortraitBytes(input: java.io.InputStream, maxBytes: Int): ByteArray {
+    val output = java.io.ByteArrayOutputStream()
+    val buffer = ByteArray(8192)
+    while (true) {
+        val count = input.read(buffer)
+        if (count < 0) break
+        require(output.size() + count <= maxBytes) { "L’image est trop volumineuse." }
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
 }

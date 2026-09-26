@@ -189,7 +189,7 @@ async function copy() {
             </p>
           </div>
         </div>
-        <ActivityFeed v-else-if="tab === 'events'" ref="activity" :key="run.id" :compact-toolbar="embedded" :cache-key="`/runs/${run.id}/stream`" :position="live.position.value" :deliverables="deliverables" :events="events" :active="!!active" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="loading" :trimmed="0" :preview="embedded" @load="live.loadOlder" @position="live.savePosition" />
+        <ActivityFeed v-else-if="tab === 'events'" ref="activity" :key="run.id" :compact-toolbar="embedded" :cache-key="`/runs/${run.id}/stream`" :position="live.position.value" :deliverables="deliverables" :events="events" :active="!!active" :agent-id="run.snapshot.agent.id" :agent="run.snapshot.agent.name" :task="run.snapshot.task.name" :more="live.hasOlder.value" :loading-older="live.loadingOlder.value" :older-error="live.olderError.value" :loading="loading" :trimmed="0" :preview="embedded" @load="live.loadOlder" @position="live.savePosition" />
         <div v-else-if="tab === 'files'" class="result-content flex-1 min-h-0 overflow-auto p-5">
           <ArtifactGallery v-if="deliverables.length" :items="latestArtifacts(deliverables)" @open="artifactViewer = $event.id" />
           <p v-else class="text-sm text-muted">

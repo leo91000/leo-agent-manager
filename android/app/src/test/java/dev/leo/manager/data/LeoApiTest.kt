@@ -21,6 +21,34 @@ class MemoryVault : SessionVault {
 
 class LeoApiTest {
     @Test
+    fun `portraits use authenticated bounded transfers and preserve old agent compatibility`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"authenticated":true,"csrf":"test-csrf"}""")
+                .addHeader("Set-Cookie", "leo_session=portrait-session; Path=/; HttpOnly; Max-Age=3600"))
+            server.enqueue(MockResponse().setBody("portrait-bytes"))
+            server.enqueue(MockResponse().setBody("""{"id":"agent-1","name":"Reviewer","avatar":{"status":"ready","revision":"new","url":"/api/agents/agent-1/avatar?v=new"}}"""))
+            server.start()
+            val api = LeoApi(server.url("/"), MemoryVault())
+            api.csrf = api.send<Session>("POST", "/login").csrf
+            server.takeRequest()
+            assertArrayEquals("portrait-bytes".toByteArray(), api.agentPortrait("agent-1", "revision"))
+            val get = server.takeRequest()
+            assertEquals("/api/agents/agent-1/avatar?v=revision", get.path)
+            assertEquals("leo_session=portrait-session", get.getHeader("Cookie"))
+            val saved = api.uploadAgentPortrait("agent-1", byteArrayOf(1, 2, 3))
+            assertEquals("ready", saved.avatar?.status)
+            val put = server.takeRequest()
+            assertEquals("PUT", put.method)
+            assertEquals("test-csrf", put.getHeader("X-CSRF-Token"))
+            assertArrayEquals(byteArrayOf(1, 2, 3), put.body.readByteArray())
+            assertNull(wireJson.decodeFromString<Agent>("""{"id":"legacy","name":"Legacy"}""").avatar)
+            assertThrows(IllegalArgumentException::class.java) {
+                readPortraitBytes(java.io.ByteArrayInputStream(ByteArray(20)), 10)
+            }
+        }
+    }
+
+    @Test
     fun `production requires a clean HTTPS origin`() {
         assertEquals("https://leo.example/", serverOrigin("https://leo.example").toString())
         listOf(

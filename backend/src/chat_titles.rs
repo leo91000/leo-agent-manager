@@ -1,9 +1,8 @@
 //! Best-effort titles, outside the conversation's execution and model session.
 use crate::{
-    accounts::{broker, codex::Client},
+    codex_background,
     config::{id, now},
     error::{Error, Result},
-    provider::Provider,
     rpc::Session,
     service::Service,
     store::Db,
@@ -181,113 +180,38 @@ async fn exchange(
           "features.computer_use":false,"features.code_mode":false,"features.code_mode_host":false,
           "project_doc_max_bytes":0,"mcp_servers":{}}
     })).await?;
-    let thread_id = text(&thread["thread"], "id");
-    if thread_id.is_empty() {
-        return Err(Error::bad("Missing title thread."));
-    }
-    // Unlike Session::request, keep notifications arriving before the RPC response.
-    let rpc = session.rpc.clone();
-    let request = rpc.request("turn/start", json!({
-        "threadId":thread_id,"model":MODEL,"effort":"xhigh",
+    let mut output = String::new();
+    codex_background::turn(session, json!({
+        "threadId":thread["thread"]["id"],"model":MODEL,"effort":"xhigh",
         "input":[{"type":"text","text":input.to_string()}],
         "outputSchema":{"type":"object","properties":{(field):{"type":"string"}},"required":[field],"additionalProperties":false}
-    }));
-    tokio::pin!(request);
-    let mut acknowledged = false;
-    let mut output = String::new();
-    loop {
-        tokio::select! {
-            result = &mut request, if !acknowledged => { result?; acknowledged = true; }
-            incoming = session.incoming.recv() => {
-                let incoming = incoming.ok_or_else(|| Error::bad("Title session disconnected."))?;
-                if session.handle_auth(&incoming).await? { continue }
-                if let Some(id) = incoming.id { rpc.reject(id).await?; continue }
-                if incoming.params["threadId"] != thread_id { continue }
-                if incoming.method == "item/completed" && incoming.params["item"]["type"] == "agentMessage" {
-                    let body = text(&incoming.params["item"], "text");
-                    if body.len() > 64_000 { return Err(Error::bad("Invalid generated title.")) }
-                    output = body.to_owned();
-                }
-                if incoming.method == "turn/completed" {
-                    if incoming.params["turn"]["status"] != "completed" {
-                        return Err(Error::bad("Title generation failed."));
-                    }
-                    if summary {
-                        let value: Value = serde_json::from_str(&output).map_err(|_| Error::bad("Invalid conversation summary."))?;
-                        let summary = text(&value, "summary").trim();
-                        if summary.is_empty() || summary.len() > SUMMARY_BYTES || summary.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
-                            return Err(Error::bad("Invalid conversation summary."));
-                        }
-                        return Ok(summary.to_owned());
-                    }
-                    return valid_title(&output);
-                }
-            }
+    }), |incoming| {
+        if incoming.method == "item/completed" && incoming.params["item"]["type"] == "agentMessage" {
+            let body = text(&incoming.params["item"], "text");
+            if body.len() > 64_000 { return Err(Error::bad("Invalid generated title.")) }
+            output = body.to_owned();
         }
-    }
+        if incoming.method != "turn/completed" { return Ok(None) }
+        if incoming.params["turn"]["status"] != "completed" {
+            return Err(Error::bad("Title generation failed."));
+        }
+        if summary {
+            let value: Value = serde_json::from_str(&output).map_err(|_| Error::bad("Invalid conversation summary."))?;
+            let summary = text(&value, "summary").trim();
+            if summary.is_empty() || summary.len() > SUMMARY_BYTES || summary.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+                return Err(Error::bad("Invalid conversation summary."));
+            }
+            return Ok(Some(summary.to_owned()));
+        }
+        valid_title(&output).map(Some)
+    }).await
 }
 
 async fn title(s: &Service, input: Value) -> Result<String> {
-    // A normal account lease respects quotas and concurrency and keeps refresh
-    // credentials in the manager, using the existing external-token broker.
-    let lease_id = id();
-    let mut lease = s
-        .accounts
-        .acquire(s, &lease_id, Provider::Codex, MODEL)
-        .await?
-        .ok_or_else(|| Error::new(503, "No Codex account for titles."))?;
-    let result = async {
-        // Short path for Unix sockets, separate empty workspace and Codex home.
-        let directory = tempfile::Builder::new().prefix("leo-title-").tempdir()?;
-        let home = directory.path().join("codex");
-        let cwd = directory.path().join("work");
-        crate::skills::private_dir(&cwd).await?;
-        s.accounts.relocate(s, &mut lease, &home).await?;
-        let _broker = broker::serve(s, &lease).await?;
-        let mut config = s.config.clone();
-        config.home = directory.path().to_owned();
-        let mut session = Session::codex(&config, &home, &[], Some(&cwd)).await?;
-        let operation = async {
-            let mut auth = Client::from_socket(home.join(broker::SOCKET))
-                .ok_or_else(|| Error::bad("Missing title authentication."))?;
-            auth.login(&mut session).await?;
-            session.auth = Some(auth);
-            generate(&mut session, &cwd, input).await
-        };
-        let result = tokio::select! {
-            _ = s.shutdown.cancelled() => Err(Error::new(503, "Title generation stopped.")),
-            _ = foreground_waiting(s) => Err(Error::new(503, "Title generation yielded to a conversation.")),
-            result = operation => result,
-        };
-        session.close().await;
-        result
-    }
-    .await;
-    s.accounts.release(&lease).await?;
-    let _ = tokio::fs::remove_dir_all(s.config.data_dir.join("runs").join(&lease_id)).await;
-    result
-}
-
-async fn foreground_queued(s: &Service) -> Result<bool> {
-    s.store
-        .read(|db| {
-            Ok(db.0.query_row(
-                "SELECT EXISTS(SELECT 1 FROM runs WHERE status='queued'
-         AND COALESCE(json_extract(data,'$.snapshot.agent.provider'),'codex')!='claude')",
-                [],
-                |row| row.get(0),
-            )?)
-        })
-        .await
-}
-
-async fn foreground_waiting(s: &Service) -> Result<()> {
-    loop {
-        if foreground_queued(s).await? {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
+    codex_background::run(s, MODEL, &s.shutdown, move |session, cwd| {
+        Box::pin(generate(session, cwd, input))
+    })
+    .await
 }
 
 fn apply(db: &Db<'_>, chat: &Value, pending: &Value, title: &str) -> Result<bool> {
@@ -320,10 +244,7 @@ fn apply(db: &Db<'_>, chat: &Value, pending: &Value, title: &str) -> Result<bool
 }
 
 pub async fn tick(s: &Service) -> Result<()> {
-    if s.shutdown.is_cancelled()
-        || s.store.kv("deployment-lease").await?.is_some()
-        || foreground_queued(s).await?
-    {
+    if s.shutdown.is_cancelled() || codex_background::should_yield(s).await? {
         return Ok(());
     }
     for (key, pending) in s.store.keys(PREFIX).await? {
@@ -387,6 +308,7 @@ pub async fn run(s: Arc<Service>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::Provider;
 
     async fn service(root: &tempfile::TempDir, identity: &str) -> Arc<Service> {
         let config = crate::config::Config {

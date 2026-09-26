@@ -252,6 +252,16 @@ constructor(
         }
     }
 
+    suspend fun refreshAgentPortraits() {
+        val target = api
+        val before = state.value.agents.associate { it.id to it.avatar }
+        val portraits = target.get<List<Agent>>("/agents").associateBy { it.id }
+        if (connection === target && state.value.session.authenticated)
+            mutable.update { current -> current.copy(agents = current.agents.map {
+                if (it.avatar == before[it.id]) it.copy(avatar = portraits[it.id]?.avatar) else it
+            }) }
+    }
+
     suspend fun refreshModels(provider: String) {
         require(provider in listOf("codex", "claude"))
         val target = api

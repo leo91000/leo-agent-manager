@@ -75,39 +75,49 @@ impl Session {
         );
         command.stdin(Stdio::piped());
         let mut session = Self::spawn(command).await?;
-        // Initialization does not require interactive requests. Reject them while negotiating.
-        let rpc = session.rpc.clone();
-        let initialize = rpc.request(
-            "initialize",
-            json!({
-            "clientInfo":{
-            "name":"leo_agent_manager","version":env!("CARGO_PKG_VERSION")}
-            ,"capabilities":{
-            "experimentalApi":true}
+        let initialized = async {
+            // Initialization does not require interactive requests. Reject them while negotiating.
+            let rpc = session.rpc.clone();
+            let initialize = rpc.request(
+                "initialize",
+                json!({
+                "clientInfo":{
+                "name":"leo_agent_manager","version":env!("CARGO_PKG_VERSION")}
+                ,"capabilities":{
+                "experimentalApi":true}
+                }
+                ),
+            );
+            tokio::pin!(initialize);
+            loop {
+                tokio::select! {
+                                result=&mut initialize=>{
+                result?;
+                break;
+                }
+                ,
+                                incoming=session.incoming.recv()=>{
+                if let Some(incoming)=incoming {
+                if let Some(id)=incoming.id {
+                rpc.reject(id).await?;
+                }
+                }
+                else{
+                return Err(unavailable());
+                }
+                }
+                            }
             }
-            ),
-        );
-        tokio::pin!(initialize);
-        loop {
-            tokio::select! {
-                            result=&mut initialize=>{
-            result?;
-            break;
-            }
-            ,
-                            incoming=session.incoming.recv()=>{
-            if let Some(incoming)=incoming {
-            if let Some(id)=incoming.id {
-            rpc.reject(id).await?;
-            }
-            }
-            else{
-            return Err(unavailable());
-            }
-            }
-                        }
+            rpc.notify("initialized", json!({})).await?;
+            Ok::<_, Error>(())
         }
-        rpc.notify("initialized", json!({})).await?;
+        .await;
+        if let Err(error) = initialized {
+            // The caller cannot close a session that failed to initialize. Reap its
+            // process here before relinquishing ownership (and its account lease).
+            session.close().await;
+            return Err(error);
+        }
         Ok(session)
     }
     pub async fn spawn(command: tokio::process::Command) -> Result<Self> {

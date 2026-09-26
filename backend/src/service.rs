@@ -12,6 +12,7 @@ use std::{path::Path, sync::Arc};
 use tokio_util::sync::CancellationToken;
 #[derive(Clone)]
 pub struct Service {
+    pub avatars: Arc<crate::agent_avatars::AgentAvatars>,
     pub artifacts: Arc<crate::artifacts::Artifacts>,
     pub worker: Arc<crate::worker::Worker>,
     pub mcps: Arc<crate::mcps::Mcps>,
@@ -43,6 +44,7 @@ impl Service {
         let store = Store::open(&config.data_dir)?;
         let vault = Vault::new(store.clone(), &config.data_dir)?;
         let service = Arc::new(Self {
+            avatars: Default::default(),
             artifacts: Default::default(),
             worker: Default::default(),
             mcps: Default::default(),
@@ -103,13 +105,18 @@ impl Service {
             })
             .await?;
         service.store.transaction(crate::accounts::migrate).await?;
+        service.avatars.recover(&service).await?;
         tokio::spawn(crate::artifacts::preview::recover(service.clone()));
         Ok(service)
     }
     pub async fn get(&self, kind: &str, id: &str) -> Result<Value> {
         required(self.store.get(kind, id).await?, "Record not found")
     }
-    pub async fn agent(&self, mut input: Value, existing_id: Option<&str>) -> Result<Value> {
+    pub async fn agent(
+        self: &Arc<Self>,
+        mut input: Value,
+        existing_id: Option<&str>,
+    ) -> Result<Value> {
         let existing = if let Some(id) = existing_id {
             Some(self.get("agents", id).await?)
         } else {
@@ -168,7 +175,30 @@ impl Service {
                 }
             }
         }
-        self.store.save("agents", agent, "agent.saved").await
+        let agent = self
+            .store
+            .transaction(move |db| {
+                // Read the latest portrait inside the save transaction: editing an agent
+                // must not overwrite an upload or background generation that just finished.
+                if let Some(existing) = db.get("agents", text(&agent, "id"))?
+                    && let Some(avatar) = existing.get("avatar")
+                {
+                    agent["avatar"] = avatar.clone();
+                }
+                db.put("agents", &agent)?;
+                db.audit("agent.saved", &json!({"id":agent["id"]}))?;
+                Ok(agent)
+            })
+            .await?;
+        if existing_id.is_none() && self.avatars.configured(self).await? {
+            // Creation remains successful even when portrait scheduling fails.
+            return Ok(self
+                .avatars
+                .generate(self, text(&agent, "id"))
+                .await
+                .unwrap_or(agent));
+        }
+        Ok(agent)
     }
     pub async fn project(&self, input: Value, existing: Option<&str>) -> Result<Value> {
         let mut project = parse("project", input)?;
@@ -280,6 +310,7 @@ impl Service {
                 }
                 if kind == "agents" {
                     db.delete(&format!("agent-github:{id}"))?;
+                    db.delete(&format!("agent-avatar:{id}"))?;
                     for mut account in db.list("onepassword")? {
                         if let Some(agents) = account["agentIds"].as_array_mut() {
                             agents.retain(|agent| agent != &id);
