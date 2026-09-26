@@ -12,6 +12,13 @@ use std::{path::Path, sync::Arc};
 use tokio_util::sync::CancellationToken;
 #[derive(Clone)]
 pub struct Service {
+    pub node_maintenance_tasks: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    pub node_lease_deadlines:
+        Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::time::Instant>>>,
+    pub started: tokio::time::Instant,
+    pub node_backup_operation: Arc<tokio::sync::Mutex<()>>,
+    pub node_backup_lock: Arc<tokio::sync::Mutex<()>>,
+    pub node_transport: Arc<crate::nodes::transport::Transport>,
     pub artifacts: Arc<crate::artifacts::Artifacts>,
     pub worker: Arc<crate::worker::Worker>,
     pub mcps: Arc<crate::mcps::Mcps>,
@@ -46,6 +53,12 @@ impl Service {
         let store = Store::open(&config.data_dir)?;
         let vault = Vault::new(store.clone(), &config.data_dir)?;
         let service = Arc::new(Self {
+            node_maintenance_tasks: Default::default(),
+            node_lease_deadlines: Default::default(),
+            started: tokio::time::Instant::now(),
+            node_backup_operation: Default::default(),
+            node_backup_lock: Default::default(),
+            node_transport: Default::default(),
             artifacts: Default::default(),
             worker: Default::default(),
             mcps: Default::default(),
@@ -409,7 +422,7 @@ impl Service {
         let run = self
             .snapshot(self.get("tasks", task_id).await?, trigger)
             .await?;
-        crate::nodes::require_local(&run["snapshot"]["agent"])?;
+        crate::nodes::require_node(&run["snapshot"]["agent"])?;
         let result = self
             .store
             .transaction(move |db| {
