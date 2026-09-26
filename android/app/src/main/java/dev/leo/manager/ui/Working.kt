@@ -155,8 +155,9 @@ internal fun WorkingIndicator(step: WorkingStep, modifier: Modifier = Modifier) 
 }
 
 /**
- * List avatar of an agent at work: a comet travels along the edge of the avatar while its live
- * badge breathes. The ring itself stays still, so the rounded square never appears to spin.
+ * List avatar of an agent at work, as on the web: a comet with a glowing head travels along the
+ * edge of the avatar over a faint outline that breathes. The ring itself stays still, so the
+ * rounded square never appears to spin.
  * Follows the system animation scale like the conversation indicator.
  */
 @Composable
@@ -165,7 +166,7 @@ internal fun WorkingAvatar(name: String, key: String, size: Dp) {
     val transition = rememberInfiniteTransition(label = "avatar-working")
     val travel by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing)), label = "orbit")
     val glow by transition.animateFloat(
-        0.25f, 0.6f,
+        0.09f, 0.22f,
         infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "glow",
     )
@@ -179,8 +180,9 @@ internal fun WorkingAvatar(name: String, key: String, size: Dp) {
             val inset = stroke / 2
             val corner = CornerRadius((size * 0.3f + 4.dp).toPx())
             ring.reset()
-            ring.addRoundRect(RoundRect(inset, inset, this.size.width - inset, this.size.height - inset, corner))
-            drawPath(ring, primary.copy(alpha = glow * 0.35f), style = Stroke(stroke))
+            // Clockwise, like the web orbit.
+            ring.addRoundRect(RoundRect(inset, inset, this.size.width - inset, this.size.height - inset, corner), Path.Direction.Clockwise)
+            drawPath(ring, primary.copy(alpha = glow), style = Stroke(stroke))
             measure.setPath(ring, false)
             val length = measure.length
             val head = travel * length
@@ -203,8 +205,12 @@ internal fun WorkingAvatar(name: String, key: String, size: Dp) {
                 // Flat ends keep the overlapping pieces from beading; only the head is rounded.
                 drawPath(piece, primary.copy(alpha = fade * fade), style = Stroke(stroke * (0.55f + 0.45f * fade), cap = if (index == 0) StrokeCap.Round else StrokeCap.Butt))
             }
+            // A soft halo marks the head of the comet.
+            val position = measure.getPosition(head)
+            drawCircle(Brush.radialGradient(listOf(primary.copy(alpha = 0.55f), primary.copy(alpha = 0f)), position, stroke * 3.2f), stroke * 3.2f, position)
+            drawCircle(primary, stroke * 0.9f, position)
         }
-        AgentAvatar(name, key, size, AvatarBadge.LIVE)
+        AgentAvatar(name, key, size)
     }
 }
 

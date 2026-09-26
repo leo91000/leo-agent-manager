@@ -134,6 +134,22 @@ class WorkingIndicatorTest {
         capture("working-list-dark")
     }
 
+    @Test
+    fun `the comet travels along the avatar edge while the frame stays still`() {
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            LeoTheme("light") {
+                Box(Modifier.background(MaterialTheme.colorScheme.background).padding(24.dp)) { WorkingAvatar("Leo", "leo", 96.dp) }
+            }
+        }
+        // One orbit takes 1.8 s; eight frames show the head going round the rounded frame.
+        repeat(8) { frame ->
+            compose.mainClock.advanceTimeBy(225)
+            capture("comet-$frame")
+        }
+        compose.onNodeWithTag("chat-working-avatar").assertWidthIsEqualTo(96.dp)
+    }
+
     private fun capture(name: String) {
         val dir = System.getProperty("leo.screenshots.dir") ?: return
         File(dir).mkdirs()
