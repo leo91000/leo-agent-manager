@@ -446,11 +446,11 @@ function key(event: KeyboardEvent) {
               </button>
             </UiAlert>
             <div v-if="waitNotice" class="mb-3 rounded-lg border border-line bg-soft px-4 py-3 text-sm" role="status">
-              <p v-if="waitNotice.reconnectClaude" class="mb-1 font-semibold">
-                Reconnect Claude Code
+              <p v-if="waitNotice.account" class="mb-1 font-semibold">
+                {{ waitNotice.account }} account needed
               </p>
               <p>{{ waitNotice.message }}</p>
-              <RouterLink v-if="waitNotice.reconnectClaude" to="/connections" class="mt-2 inline-flex font-semibold text-accent underline">
+              <RouterLink v-if="waitNotice.account" to="/connections" class="mt-2 inline-flex font-semibold text-accent underline">
                 Open Connections
               </RouterLink>
             </div>

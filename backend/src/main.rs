@@ -293,8 +293,7 @@ async fn entry(args: Vec<String>) -> Result<i32> {
             service.shutdown.cancel();
             service.worker.close().await;
             service.connections.cancel().await;
-            service.cancel_account_login().await;
-            service.claude.cancel().await;
+            let _ = service.accounts.cancel(&service).await;
             for task in background {
                 let _ = task.await;
             }

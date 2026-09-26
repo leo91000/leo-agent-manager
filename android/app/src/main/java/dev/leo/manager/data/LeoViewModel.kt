@@ -100,6 +100,10 @@ constructor(
         mutable.update { it.copy(notice = null) }
     }
 
+    fun notify(message: String) {
+        mutable.update { it.copy(notice = message) }
+    }
+
     fun clearMessage() {
         mutable.update { it.copy(error = null, notice = null) }
     }

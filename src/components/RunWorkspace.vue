@@ -146,7 +146,7 @@ async function copy() {
             {{ run.snapshot.task.name }}
           </h1>
           <div class="run-title-meta flex items-center gap-3 mt-3.5 text-subtle text-xs phone:flex-wrap phone:text-xs">
-            <Status :status="run.status" /><Outcome :outcome="run.outcome" :status="run.status" /><span v-if="run.codexAccountName">{{ run.codexAccountName }}</span><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
+            <Status :status="run.status" /><Outcome :outcome="run.outcome" :status="run.status" /><span v-if="run.accountName">{{ run.accountName }}</span><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
           </div>
         </div>
       </div>
@@ -210,7 +210,7 @@ async function copy() {
       <Modal v-if="detailsOpen" title="Execution details" sheet @close="detailsOpen = false">
         <div class="task-details-body">
           <div class="run-title-meta flex flex-wrap gap-2">
-            <Status :status="run.status" /><Outcome :outcome="run.outcome" :status="run.status" /><span>{{ run.codexAccountName }}</span><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
+            <Status :status="run.status" /><Outcome :outcome="run.outcome" :status="run.status" /><span>{{ run.accountName }}</span><span>{{ run.snapshot.agent.name }} · {{ date(run.createdAt) }}</span>
           </div><RunDetails :run="run" :active="!!active" @cleanup="detailsOpen = false; confirmCleanup = true" />
         </div>
       </Modal>

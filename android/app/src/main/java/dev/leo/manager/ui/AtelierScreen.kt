@@ -26,24 +26,25 @@ import androidx.compose.ui.unit.dp
 import dev.leo.manager.data.*
 import kotlinx.coroutines.CancellationException
 
-/** What the Atelier shows about coding accounts, derived from the connection endpoints. */
+/** What the Atelier shows about coding-agent accounts. */
 internal data class ConnectionSummary(
-    val claudeRequired: Boolean,
-    val claude: ClaudeConnectionState?,
-    val codex: List<CodexAccount>?,
+    /** Coding agents that at least one agent runs on. */
+    val used: Set<String>,
+    val view: AccountsView?,
 ) {
-    /** Claude agents exist but cannot run. */
-    val claudeMissing
-        get() = claudeRequired && claude != null && !claude.connected
+    val accounts
+        get() = view?.accounts
 
-    val claudeUsed: Double?
-        get() = claude?.usage?.windows?.maxOfOrNull { it.usedPercent }
+    fun ready(provider: String) =
+        accounts.orEmpty().filter { it.provider == provider && it.enabled && it.state == "ready" }
 
-    val codexReady
-        get() = codex.orEmpty().count { it.enabled && it.state == "ready" && !it.blocked }
+    fun total(provider: String) = accounts.orEmpty().count { it.provider == provider }
 
-    val codexRemaining: Double?
-        get() = codex.orEmpty().filter { it.enabled && it.state == "ready" }.mapNotNull { it.remainingPercent }.maxOrNull()
+    fun remaining(provider: String): Double? = ready(provider).mapNotNull { it.remainingPercent }.maxOrNull()
+
+    /** Coding agents in use whose runs wait for the user to connect, reconnect or resume an account. */
+    val missing: List<String>
+        get() = view?.required.orEmpty().filter { it in used }
 }
 
 private suspend fun <T> optional(vm: LeoViewModel, load: suspend () -> T): T? =
@@ -59,19 +60,17 @@ private suspend fun <T> optional(vm: LeoViewModel, load: suspend () -> T): T? =
 /** Atelier: what the agents can use, with health first and one tap to each resource. */
 @Composable
 fun AtelierScreen(vm: LeoViewModel, state: Workspace, navigate: (String) -> Unit) {
-    var claude by remember { mutableStateOf<ClaudeConnectionState?>(null) }
-    var codex by remember { mutableStateOf<List<CodexAccount>?>(null) }
+    var accounts by remember { mutableStateOf<AccountsView?>(null) }
     var onePassword by remember { mutableStateOf<List<OnePasswordAccount>?>(null) }
     var loaded by remember { mutableStateOf(false) }
     var signingOut by remember { mutableStateOf(false) }
     Poll("atelier", 30_000) {
-        claude = optional(vm) { vm.api.get<ClaudeConnectionState>("/claude/connection") }
-        codex = optional(vm) { vm.api.get<List<CodexAccount>>("/codex/accounts") }
+        accounts = optional(vm) { vm.api.get<AccountsView>("/accounts") }
         onePassword = optional(vm) { vm.api.get<List<OnePasswordAccount>>("/onepassword") }
         loaded = true
     }
     val pending = if (loaded) "Indisponible" else "…"
-    val summary = ConnectionSummary(state.agents.any { it.provider == "claude" }, claude, codex)
+    val summary = ConnectionSummary(state.agents.map { it.provider.ifBlank { "codex" } }.toSet(), accounts)
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("atelier")
             .padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 24.dp),
@@ -80,7 +79,7 @@ fun AtelierScreen(vm: LeoViewModel, state: Workspace, navigate: (String) -> Unit
         ScreenTitle("Atelier", "Ce que vos agents peuvent utiliser.", Modifier.padding(start = 4.dp, bottom = 8.dp)) {
             RoundAction("Paramètres", LeoIcons.Gear) { navigate("settings") }
         }
-        if (summary.claudeMissing)
+        summary.missing.forEach { provider ->
             Surface(
                 onClick = { navigate("connections") },
                 shape = RoundedCornerShape(22.dp),
@@ -88,22 +87,20 @@ fun AtelierScreen(vm: LeoViewModel, state: Workspace, navigate: (String) -> Unit
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(Modifier.padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface),
-                        contentAlignment = Alignment.Center,
-                    ) { ProviderMark("claude", 20.dp) }
+                    ProviderBrand(provider, 38.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Claude Code déconnecté", style = MaterialTheme.typography.titleSmall)
+                        Text("Compte ${providerLabel(provider)} requis", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Les agents Claude ne peuvent pas démarrer.",
+                            "Les agents ${providerLabel(provider)} ne peuvent pas démarrer.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    SignalButton("Reconnecter", height = 36.dp) { navigate("connections") }
+                    SignalButton("Connexions", height = 36.dp) { navigate("connections") }
                 }
             }
+        }
         Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Tile("Agents", state.agents.size, Modifier.weight(1f), { navigate("agents") }) {
                 Row(horizontalArrangement = Arrangement.spacedBy((-8).dp)) {
@@ -174,34 +171,24 @@ fun AtelierScreen(vm: LeoViewModel, state: Workspace, navigate: (String) -> Unit
                 Icon(LeoIcons.Right, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(12.dp))
-            UsageLine(
-                "codex",
-                "Codex",
-                when (val accounts = codex) {
-                    null -> pending
-                    else ->
-                        if (accounts.isEmpty()) "Aucun compte"
-                        else if (summary.codexReady == 0) "Aucun compte disponible"
-                        else "${summary.codexReady}/${accounts.size} prêt${if (summary.codexReady > 1) "s" else ""}" +
-                            (summary.codexRemaining?.let { " · ${it.toInt()} % restant" } ?: "")
-                },
-                summary.codexRemaining?.let { (100 - it) / 100 },
-                if (codex != null && codex.orEmpty().isNotEmpty() && summary.codexReady == 0) signal.attention else signal.success,
-            )
-            Spacer(Modifier.height(12.dp))
-            UsageLine(
-                "claude",
-                "Claude Code",
-                when (val account = claude) {
-                    null -> pending
-                    else ->
-                        if (!account.connected) "Non connecté"
-                        else summary.claudeUsed?.let { "${it.toInt()} % utilisé" } ?: "Connecté"
-                },
-                summary.claudeUsed?.let { it / 100 },
-                if (claude?.connected == false || (summary.claudeUsed ?: 0.0) >= 80) signal.attention else signal.success,
-            )
-            Spacer(Modifier.height(12.dp))
+            codingAgents.forEach { (provider, _) ->
+                val ready = summary.ready(provider).size
+                val total = summary.total(provider)
+                val remaining = summary.remaining(provider)
+                UsageLine(
+                    provider,
+                    providerLabel(provider),
+                    when {
+                        accounts == null -> pending
+                        total == 0 -> "Aucun compte"
+                        ready == 0 -> "Aucun compte disponible"
+                        else -> "$ready/$total prêt${if (ready > 1) "s" else ""}" + (remaining?.let { " · ${it.toInt()} % restant" } ?: "")
+                    },
+                    remaining?.let { (100 - it) / 100 },
+                    if (provider in summary.missing || (remaining ?: 100.0) < LowPercent) signal.attention else signal.success,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(LeoIcons.Key, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(10.dp))

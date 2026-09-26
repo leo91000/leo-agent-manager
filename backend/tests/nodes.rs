@@ -929,7 +929,7 @@ async fn native_auth_relays_refresh_both_protocols_and_stop_after_grant_revocati
         std::fs::create_dir_all(&plans).unwrap();
         std::fs::write(
             plans.join(format!("{attempt}.json")),
-            json!({"runId":run,"chat":{"claudeManagedAuth":claude}}).to_string(),
+            json!({"runId":run,"chat":{"provider":if claude {"claude"} else {"codex"},"claudeManagedAuth":claude}}).to_string(),
         )
         .unwrap();
         let home = owner
@@ -946,7 +946,7 @@ async fn native_auth_relays_refresh_both_protocols_and_stop_after_grant_revocati
             for generation in 1..=2 {
                 let (stream, _) = provider.accept().await.unwrap();
                 let mut stream = BufReader::new(stream);
-                if !claude {
+                {
                     assert_eq!(
                         wire::read(&mut stream).await.unwrap().unwrap()["method"],
                         "refresh"
@@ -971,7 +971,6 @@ async fn native_auth_relays_refresh_both_protocols_and_stop_after_grant_revocati
             token,
             attempt,
             stop.clone(),
-            claude,
         ));
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             while !path.exists() {
@@ -982,7 +981,7 @@ async fn native_auth_relays_refresh_both_protocols_and_stop_after_grant_revocati
         .unwrap();
         for generation in 1..=2 {
             let mut stream = BufReader::new(UnixStream::connect(&path).await.unwrap());
-            if !claude {
+            {
                 wire::write(stream.get_mut(), &json!({"method":"refresh"}))
                     .await
                     .unwrap();
@@ -1003,7 +1002,7 @@ async fn native_auth_relays_refresh_both_protocols_and_stop_after_grant_revocati
             .await
             .unwrap();
         let mut stream = BufReader::new(UnixStream::connect(&path).await.unwrap());
-        if !claude {
+        {
             wire::write(stream.get_mut(), &json!({"method":"refresh"}))
                 .await
                 .unwrap();
@@ -1135,7 +1134,7 @@ async fn encrypted_recovery_points_cross_the_outbound_relay_and_reject_incomplet
         .await
         .unwrap();
     let source = owner._root.path().join("source-disk");
-    let mut original = vec![0u8; 8 * 1024 * 1024];
+    let mut original = vec![0u8; 4 * 1024 * 1024 + 128];
     original[..27].copy_from_slice(b"private-untracked-contents!");
     original[4 * 1024 * 1024] = 1;
     std::fs::write(&source, &original).unwrap();
@@ -1187,8 +1186,38 @@ async fn encrypted_recovery_points_cross_the_outbound_relay_and_reject_incomplet
         "controller-fixture".into(),
         stop.clone(),
     ));
+    // Optional external integration: the real AWS CLI talks only to the selected
+    // loopback S3 fixture, with synthetic credentials and no inherited AWS config.
+    let s3 = std::env::var("LEO_NODE_TEST_S3_ENDPOINT").ok();
+    if let Some(endpoint) = &s3 {
+        use std::os::unix::fs::PermissionsExt;
+        let parsed: url::Url = endpoint.parse().unwrap();
+        assert_eq!(parsed.host_str(), Some("127.0.0.1"));
+        assert_eq!(parsed.scheme(), "http");
+        let wrapper = owner._root.path().join("aws-fixture-client");
+        let script = format!(
+            "#!/usr/bin/env python3\nimport os,subprocess,sys\nenv={{k:v for k,v in os.environ.items() if not k.startswith('AWS_')}}\nenv.update(AWS_ACCESS_KEY_ID='node-fixture',AWS_SECRET_ACCESS_KEY='node-fixture-secret',AWS_DEFAULT_REGION='us-east-1',AWS_EC2_METADATA_DISABLED='true',AWS_CONFIG_FILE='/dev/null',AWS_SHARED_CREDENTIALS_FILE='/dev/null')\nsys.exit(subprocess.run(['aws','--endpoint-url',{}]+sys.argv[1:],env=env).returncode)\n",
+            serde_json::to_string(endpoint).unwrap()
+        );
+        std::fs::write(&wrapper, script).unwrap();
+        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(
+            owner.service.config.data_dir.join("archive-s3.json"),
+            json!({"bucket":"leo-node-test","awsBinary":wrapper}).to_string(),
+        )
+        .unwrap();
+        let (status, value) = owner
+            .call(
+                "PUT",
+                "/api/nodes/settings",
+                json!({"destination":"s3","intervalSeconds":60,"retention":2,"budgetMiB":128}),
+                None,
+            )
+            .await;
+        assert_eq!(status, 200, "{value}");
+    }
     let first = backups::capture(&owner.service, &record).await.unwrap();
-    assert_eq!(first["uploadedBytes"], 8 * 1024 * 1024);
+    assert_eq!(first["uploadedBytes"], 4 * 1024 * 1024 + 128);
     let retained = owner
         .service
         .store
@@ -1197,6 +1226,18 @@ async fn encrypted_recovery_points_cross_the_outbound_relay_and_reject_incomplet
         .unwrap()
         .unwrap();
     let first_manifest = backups::manifest(&owner.service, &retained).await.unwrap();
+    if s3.is_some() {
+        std::fs::remove_dir_all(
+            owner
+                .service
+                .config
+                .data_dir
+                .join("node-backups")
+                .join(&run)
+                .join("blocks"),
+        )
+        .unwrap();
+    }
     let restored = owner._root.path().join("restored-disk");
     snapshots::restore(&restored, &first_manifest, |hash| {
         let (service, backup) = (owner.service.clone(), retained.clone());
@@ -1246,9 +1287,133 @@ async fn encrypted_recovery_points_cross_the_outbound_relay_and_reject_incomplet
     );
     corrupt.store(false, Ordering::SeqCst);
     let second = backups::capture(&owner.service, &record).await.unwrap();
-    assert_eq!(second["uploadedBytes"], 4 * 1024 * 1024);
+    assert_eq!(second["uploadedBytes"], 128);
+    let filler = owner
+        .service
+        .config
+        .data_dir
+        .join("node-backups/quota-fixture");
+    std::fs::File::create(&filler)
+        .unwrap()
+        .set_len(128 * 1024 * 1024)
+        .unwrap();
+    let settings = json!({"destination":if s3.is_some() {"s3"} else {"master"},"intervalSeconds":60,"retention":2,"budgetMiB":128});
+    owner
+        .service
+        .store
+        .set("node-backup-settings", settings, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        backups::capture(&owner.service, &record)
+            .await
+            .unwrap_err()
+            .status,
+        507
+    );
+    assert_eq!(
+        owner.service.store.run(&run).await.unwrap()["backup"]["id"],
+        second["id"]
+    );
+    std::fs::remove_file(filler).unwrap();
     stop.cancel();
     relay_task.await.unwrap().unwrap();
     controller_task.abort();
     master_task.abort();
+}
+
+#[tokio::test]
+async fn an_unreachable_owner_is_fenced_only_after_its_last_lease_and_cannot_renew_after_release() {
+    use leo_agent_manager::{auth, config::id, recovery};
+    let owner = Owner::at("127.0.0.1:1".into()).await;
+    let node = id();
+    let run = id();
+    let attempt = id();
+    let token = auth::token();
+    let main = "00000000-0000-4000-8000-000000000001";
+    owner
+        .service
+        .store
+        .put("nodes", json!({"id":node,"revoked":false}))
+        .await
+        .unwrap();
+    owner
+        .service
+        .store
+        .put("agents", json!({"id":main,"access":{"nodes":[node]}}))
+        .await
+        .unwrap();
+    owner
+        .service
+        .store
+        .set(
+            &format!("node-token:{}", auth::digest(&token)),
+            json!(node),
+            None,
+        )
+        .await
+        .unwrap();
+    owner
+        .service
+        .store
+        .put(
+            "node-attempts",
+            json!({"id":attempt,"nodeId":node,"runId":run,"released":false}),
+        )
+        .await
+        .unwrap();
+    let record = json!({"id":run,"taskId":"fixture","createdAt":0,"status":"running","isolated":true,"snapshot":{"agent":{"id":main}}});
+    let saved = record.clone();
+    owner
+        .service
+        .store
+        .write(move |db| db.add_run(&saved, None))
+        .await
+        .unwrap();
+    owner
+        .service
+        .store
+        .set(
+            &format!("run-checkpoint:{run}"),
+            json!({"nodeId":node,"runnerId":attempt,"launched":true,"prepared":{"isolated":true}}),
+            None,
+        )
+        .await
+        .unwrap();
+    owner.service.node_lease_deadlines.lock().await.insert(
+        attempt.clone(),
+        tokio::time::Instant::now() + std::time::Duration::from_secs(60),
+    );
+    assert_eq!(
+        recovery::fence(&owner.service, &record)
+            .await
+            .unwrap_err()
+            .status,
+        503
+    );
+    assert_eq!(
+        owner
+            .service
+            .store
+            .get("node-attempts", &attempt)
+            .await
+            .unwrap()
+            .unwrap()["released"],
+        false
+    );
+    owner.service.node_lease_deadlines.lock().await.insert(
+        attempt.clone(),
+        tokio::time::Instant::now() - std::time::Duration::from_secs(21),
+    );
+    recovery::fence(&owner.service, &record).await.unwrap();
+    let (status, heartbeat) = owner
+        .call(
+            "POST",
+            "/internal/nodes/heartbeat",
+            json!({"runtimeId":"fixture"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert!(heartbeat["leases"].as_array().unwrap().is_empty());
 }

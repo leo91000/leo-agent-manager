@@ -1,8 +1,9 @@
 //! Best-effort titles, outside the conversation's execution and model session.
 use crate::{
-    account_tokens::{self, Client},
+    accounts::{broker, codex::Client},
     config::{id, now},
     error::{Error, Result},
+    provider::Provider,
     rpc::Session,
     service::Service,
     store::Db,
@@ -232,7 +233,7 @@ async fn title(s: &Service, input: Value) -> Result<String> {
     let lease_id = id();
     let mut lease = s
         .accounts
-        .acquire(s, &lease_id, MODEL)
+        .acquire(s, &lease_id, Provider::Codex, MODEL)
         .await?
         .ok_or_else(|| Error::new(503, "No Codex account for titles."))?;
     let result = async {
@@ -242,12 +243,12 @@ async fn title(s: &Service, input: Value) -> Result<String> {
         let cwd = directory.path().join("work");
         crate::skills::private_dir(&cwd).await?;
         s.accounts.relocate(s, &mut lease, &home).await?;
-        let _broker = account_tokens::serve(s, &lease).await?;
+        let _broker = broker::serve(s, &lease).await?;
         let mut config = s.config.clone();
         config.home = directory.path().to_owned();
         let mut session = Session::codex(&config, &home, &[], Some(&cwd)).await?;
         let operation = async {
-            let mut auth = Client::from_socket(home.join(account_tokens::SOCKET))
+            let mut auth = Client::from_socket(home.join(broker::SOCKET))
                 .ok_or_else(|| Error::bad("Missing title authentication."))?;
             auth.login(&mut session).await?;
             session.auth = Some(auth);
@@ -262,7 +263,7 @@ async fn title(s: &Service, input: Value) -> Result<String> {
         result
     }
     .await;
-    s.accounts.release(s, &lease).await?;
+    s.accounts.release(&lease).await?;
     let _ = tokio::fs::remove_dir_all(s.config.data_dir.join("runs").join(&lease_id)).await;
     result
 }
@@ -409,7 +410,11 @@ mod tests {
         };
         let s = Service::new(config).await.unwrap();
         s.accounts.initialize(&s).await.unwrap();
-        let account = s.accounts.new_account(&s, "Title fixture").await.unwrap();
+        let account = s
+            .accounts
+            .create(&s, Provider::Codex, "Title fixture")
+            .await
+            .unwrap();
         s.vault.set(&format!("codex-account:{}", text(&account,"id")), &json!({"tokens":{"access_token":"synthetic","refresh_token":"synthetic-refresh","account_id":identity}})).await.unwrap();
         s.accounts.refresh(&s, text(&account, "id")).await.unwrap();
         s.store.transaction(|db| {
@@ -534,7 +539,7 @@ mod tests {
     async fn background_generation_releases_capacity_when_foreground_work_arrives() {
         let root = tempfile::TempDir::new().unwrap();
         let s = service(&root, "hang").await;
-        let account = s.store.list("codexAccounts").await.unwrap().remove(0);
+        let account = s.store.list(crate::accounts::KIND).await.unwrap().remove(0);
         let task = tokio::spawn({
             let s = s.clone();
             async move { tick(&s).await }

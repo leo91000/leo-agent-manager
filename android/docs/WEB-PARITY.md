@@ -20,7 +20,7 @@ It does not assert pixel equality between a browser and Material components.
 | Agents | Existing configuration and access controls, project-scoped GitHub behavior, dedicated token on creation, permitted skills and MCP tools | Form/API comparison; existing account/MCP suite |
 | Projects | Remote branch or committed local snapshot, path and base branch, starting revision in run details | Contract decoding; form/API comparison |
 | Skills and MCPs | Skill content/files, scopes and validation, MCP configuration/authentication/discovery/tool restrictions | Existing API and MCP/Compose cases; form/API comparison |
-| Connections and access | OAuth, GitHub, Codex accounts/quotas, token grants, authorization, logout and encrypted sessions | Existing network/authorization/cache suite |
+| Connections and access | OAuth, GitHub, Codex and Claude Code accounts/usage, token grants, authorization, logout and encrypted sessions | Existing network/authorization/cache suite |
 | Artifacts | Authenticated previews, versions, groups, images/PDF/Markdown, save/share and deep links from replies | Chat journey; artifact and link gesture regressions |
 | Reading | Wrapped long text/URLs, selectable native Markdown, history pagination, stable reading anchors during drag/streaming, jump to latest | Markdown/history suite; real device gesture tests |
 | Appearance | Android-specific « Signal » palette since 0.32.0 (paper/ink with the Leo blue accent, coral for attention), agent/project identity colours, light/dark/system themes, font scaling, touch-sized labelled actions | Native captures; large-text/keyboard device checks |

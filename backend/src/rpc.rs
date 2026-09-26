@@ -36,7 +36,7 @@ pub struct Rpc {
     failure: Arc<Mutex<Option<(u16, String)>>>,
 }
 pub struct Session {
-    pub auth: Option<crate::account_tokens::Client>,
+    pub auth: Option<crate::accounts::codex::Client>,
     pub rpc: Rpc,
     pub incoming: mpsc::Receiver<Incoming>,
     stop: CancellationToken,

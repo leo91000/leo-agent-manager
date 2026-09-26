@@ -287,7 +287,7 @@ async fn builtin_mcp_endpoint_exposes_scoped_workspace_tools_and_checks_the_run_
         let value: Value = response.json().await.unwrap();
         assert!(value["error"].is_null(), "{value}");
         if method == "tools/list" {
-            assert_eq!(value["result"]["tools"].as_array().unwrap().len(), 5);
+            assert_eq!(value["result"]["tools"].as_array().unwrap().len(), 6);
             assert_eq!(value["result"]["tools"][1]["name"], "publish_artifact");
             assert_eq!(value["result"]["tools"][0]["name"], "open_project");
         }
@@ -509,10 +509,11 @@ async fn github_sign_in_requests_workflow_and_releases_the_startup_fence() {
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     Arc::get_mut(&mut s).unwrap().config.gh_bin = script.to_string_lossy().into();
     let status = s.connections.status(&s, true).await.unwrap();
-    assert_eq!(status[1]["connected"], true);
-    assert_eq!(status[1]["workflowPermission"], false);
-    assert_eq!(status[1]["account"], "fixture");
-    s.connections.start(&s, "github").await.unwrap();
+    assert_eq!(status[0]["provider"], "github");
+    assert_eq!(status[0]["connected"], true);
+    assert_eq!(status[0]["workflowPermission"], false);
+    assert_eq!(status[0]["account"], "fixture");
+    s.connections.start(&s).await.unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while s.store.kv("deployment-lease").await.unwrap().is_some() {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -533,10 +534,7 @@ async fn github_sign_in_requests_workflow_and_releases_the_startup_fence() {
         )
         .await
         .unwrap();
-    assert_eq!(
-        s.connections.start(&s, "github").await.unwrap_err().status,
-        409
-    );
+    assert_eq!(s.connections.start(&s).await.unwrap_err().status, 409);
     assert!(s.store.kv("deployment-lease").await.unwrap().is_none());
 }
 

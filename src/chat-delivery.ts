@@ -1,5 +1,6 @@
 import type { ChatDetail, ChatMessage } from '../shared/chats'
 import type { Run, RunEvent } from '../shared/contracts'
+import { providers } from '../shared/accounts'
 
 export interface SendingMessage {
   message: ChatMessage
@@ -10,13 +11,11 @@ export function chatWaitNotice(run: Run | null | undefined) {
   const reason = run?.status === 'queued' ? run.accountWaitReason?.trim() : ''
   if (!reason)
     return null
-  const reconnectClaude = reason === 'Reconnect Claude Code after an interrupted credential synchronization.'
-    || reason === 'Connect Claude Code in Connections before running this agent.'
+  // Set when the user must connect, reconnect or resume an account of the run's coding agent.
+  const provider = run?.accountRequired ?? null
   return {
-    reconnectClaude,
-    message: reconnectClaude
-      ? 'Reconnect Claude Code in Connections to continue. Your message is saved and will be sent when the connection is restored.'
-      : reason,
+    account: provider && providers[provider].label,
+    message: provider ? `${reason} Your message is saved and will be sent then.` : reason,
   }
 }
 
@@ -43,7 +42,8 @@ export function chatDelivery(chat: ChatDetail | null, events: RunEvent[], outgoi
       if (message.questionId)
         continue
       const waiting = chat?.run?.status === 'queued'
-      sending.push({ message, label: waiting ? (chatWaitNotice(chat.run)?.reconnectClaude ? 'Waiting for Claude Code sign-in' : 'Waiting for the agent…') : starting ? 'Starting agent…' : steering ? 'Sending to agent…' : 'Sending…' })
+      const account = waiting ? chatWaitNotice(chat.run)?.account : undefined
+      sending.push({ message, label: waiting ? (account ? `Waiting for a ${account} account` : 'Waiting for the agent…') : starting ? 'Starting agent…' : steering ? 'Sending to agent…' : 'Sending…' })
     }
     else {
       queued.push(message)

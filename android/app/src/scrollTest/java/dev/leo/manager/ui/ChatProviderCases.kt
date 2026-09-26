@@ -22,7 +22,8 @@ abstract class ChatProviderCases {
         MockWebServer().use { server ->
             val agent = Agent(MAIN_AGENT_ID, "Agent principal", provider = "claude")
             val run = Run("run", status = "queued", snapshot = Snapshot(agent = agent),
-                accountWaitReason = "Reconnect Claude Code after an interrupted credential synchronization.",
+                accountWaitReason = "Reconnect your Claude Code account in Connections to continue.",
+                accountRequired = "claude",
                 chatExecution = ChatExecution("message"))
             val chat = Chat("chat", title = "Conversation en attente", runId = "run", run = run,
                 messages = listOf(ChatMessage("message", text = "Améliore cette interface", status = "sending")))
@@ -53,9 +54,9 @@ abstract class ChatProviderCases {
                 LaunchedEffect(Unit) { vm.state.first { it.ready }; if (!vm.state.value.session.authenticated) vm.connect(server.url("/").toString()) }
                 LeoTheme { if (state.session.authenticated) ChatScreen(vm, state, "chat", openChat = {}, openRun = {}, openConnections = { openedConnections = true }) }
             }
-            compose.waitUntil(20000) { compose.onAllNodesWithText("Reconnectez Claude Code", substring = false).fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Reconnectez Claude Code", substring = false).assertIsDisplayed()
-            compose.onNodeWithText("En attente de connexion à Claude Code").assertIsDisplayed()
+            compose.waitUntil(20000) { compose.onAllNodesWithText("Compte Claude Code requis", substring = false).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Compte Claude Code requis", substring = false).assertIsDisplayed()
+            compose.onNodeWithText("En attente d’un compte Claude Code").assertIsDisplayed()
             compose.onNodeWithText("Améliore cette interface").assertIsDisplayed()
             compose.onNodeWithTag("agent-working").assertDoesNotExist()
             compose.onNodeWithText("Démarrage de l’agent…").assertDoesNotExist()

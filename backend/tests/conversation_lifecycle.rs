@@ -369,6 +369,10 @@ async fn incompatible_restored_session_requires_consent_and_never_restarts_on_it
 }
 
 fn configure_archive(app: &App) -> std::path::PathBuf {
+    configure_archive_with(app, json!({}))
+}
+
+fn configure_archive_with(app: &App, settings: Value) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let binary = app._root.path().join("aws-fixture");
     let objects = app._root.path().join("objects");
@@ -377,19 +381,30 @@ fn configure_archive(app: &App) -> std::path::PathBuf {
 import sys,json,pathlib,shutil
 args=sys.argv[1:]
 root=pathlib.Path(ARCHIVE_ROOT)
+compatible=(root/'compatible').exists()
+if compatible:
+ with open(root/'calls','a') as log: log.write(json.dumps(args)+'\n')
+ if '--endpoint-url' in args: i=args.index('--endpoint-url'); args=args[:i]+args[i+2:]
 def obj(uri): return root / uri.split('/',3)[3]
+def unsupported(op): sys.stderr.write(f'An error occurred (NotImplemented) when calling the {op} operation: Not implemented.'); sys.exit(254)
 if args[:2]==['s3api','get-public-access-block']:
+ if compatible: unsupported('GetPublicAccessBlock')
  print(json.dumps({'PublicAccessBlockConfiguration':dict.fromkeys(['BlockPublicAcls','IgnorePublicAcls','BlockPublicPolicy','RestrictPublicBuckets'],True)}))
+elif args[:2]==['s3api','get-bucket-acl']:
+ grants=[{'Grantee':{'Type':'CanonicalUser'},'Permission':'FULL_CONTROL'}]
+ if (root/'public-acl').exists(): grants.append({'Grantee':{'Type':'Group','URI':'http://acs.amazonaws.com/groups/global/AllUsers'},'Permission':'READ'})
+ print(json.dumps({'Grants':grants}))
+elif args[:2]==['s3api','get-bucket-policy']: unsupported('GetBucketPolicy')
 elif args[:2]==['s3','cp']:
  src,dst=args[2:4]; src=obj(src) if src.startswith('s3://') else pathlib.Path(src); dst=obj(dst) if dst.startswith('s3://') else pathlib.Path(dst)
  dst.parent.mkdir(parents=True,exist_ok=True)
  if src != dst: shutil.copyfile(src,dst)
  if args[3].startswith('s3://') and (root/'corrupt-upload').exists(): dst.write_bytes(b'corrupt')
- if '--storage-class' in args: (root/'cold').touch()
+ if '--storage-class' in args: (root/'cold').write_text(args[args.index('--storage-class')+1])
 elif args[:2]==['s3api','head-object']:
  value={}
  if (root/'cold').exists():
-  value['StorageClass']='GLACIER'
+  value['StorageClass']=(root/'cold').read_text() or 'GLACIER'
   if (root/'ready').exists(): value['Restore']='ongoing-request="false"'
   elif (root/'requested').exists(): value['Restore']='ongoing-request="true"'
  print(json.dumps(value))
@@ -399,10 +414,14 @@ elif args[:2]==['s3','rm']: shutil.rmtree(obj(args[2]),ignore_errors=True)
 "#.replace("ARCHIVE_ROOT", &serde_json::to_string(objects.to_str().unwrap()).unwrap());
     std::fs::write(&binary, script).unwrap();
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
-    std::fs::write(
-        app.service.config.data_dir.join("archive-s3.json"),
-        json!({"bucket":"fixture-bucket","awsBinary":binary}).to_string(),
-    )
+    std::fs::write(app.service.config.data_dir.join("archive-s3.json"), {
+        let mut config = json!({"bucket":"fixture-bucket","awsBinary":binary});
+        config
+            .as_object_mut()
+            .unwrap()
+            .extend(settings.as_object().unwrap().clone());
+        config.to_string()
+    })
     .unwrap();
     objects
 }
@@ -641,4 +660,70 @@ async fn public_deliverable_stays_warm_when_archived_and_trash_revocation_is_per
     );
     app.service.retention_tick().await.unwrap();
     assert_eq!(public_status(&app, &public_path).await, 404);
+}
+
+#[tokio::test]
+async fn s3_compatible_provider_archives_to_its_cold_class_through_its_endpoint() {
+    let app = App::new().await;
+    let settings = json!({"endpoint":"https://s3.eu-west-par.io.cloud.ovh.net","coldStorageClass":"DEEP_ARCHIVE"});
+    let objects = configure_archive_with(&app, settings);
+    // OVHcloud implements neither public access blocks nor bucket policies.
+    std::fs::write(objects.join("compatible"), "").unwrap();
+    let retention =
+        json!({"enabled":true,"inactivityDays":30,"coldAfterDays":90,"confirmExisting":true});
+    std::fs::write(objects.join("public-acl"), "").unwrap();
+    assert_eq!(
+        app.request("PUT", "/api/conversation-retention", retention.clone())
+            .await
+            .0,
+        400
+    );
+    std::fs::remove_file(objects.join("public-acl")).unwrap();
+    assert_eq!(
+        app.request("PUT", "/api/conversation-retention", retention)
+            .await
+            .0,
+        200
+    );
+    let (_, mut chat) = app.request("POST", "/api/chats", json!({})).await;
+    let cid = chat["id"].as_str().unwrap().to_owned();
+    let path = format!("/api/chats/{cid}");
+    chat["updatedAt"] = 1.into();
+    app.service.store.put("chats", chat).await.unwrap();
+    app.service.retention_tick().await.unwrap();
+    let mut archived = app.service.get("chats", &cid).await.unwrap();
+    assert_eq!(archived["lifecycle"], "archived", "{archived}");
+    archived["archivedAt"] = 1.into();
+    app.service.store.put("chats", archived).await.unwrap();
+    app.service.retention_tick().await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(objects.join("cold")).unwrap(),
+        "DEEP_ARCHIVE"
+    );
+    assert_eq!(
+        app.request("POST", &format!("{path}/restore"), json!({}))
+            .await
+            .0,
+        200
+    );
+    app.service.retention_tick().await.unwrap();
+    assert!(objects.join("requested").exists());
+    std::fs::write(objects.join("ready"), "").unwrap();
+    // Retrieval is polled once a minute.
+    let mut waiting = app.service.get("chats", &cid).await.unwrap();
+    waiting["retryAfter"] = 0.into();
+    app.service.store.put("chats", waiting).await.unwrap();
+    app.service.retention_tick().await.unwrap();
+    assert_eq!(
+        app.request("GET", &path, Value::Null).await.1["lifecycle"],
+        "active"
+    );
+    let calls = std::fs::read_to_string(objects.join("calls")).unwrap();
+    assert!(calls.lines().count() > 5);
+    for call in calls.lines() {
+        assert!(
+            call.contains(r#""--endpoint-url", "https://s3.eu-west-par.io.cloud.ovh.net""#),
+            "{call}"
+        );
+    }
 }

@@ -15,6 +15,16 @@ use tokio::process::Command;
 pub struct Storage {
     pub bucket: String,
     binary: String,
+    /// S3-compatible providers (OVHcloud, Scaleway…) need an explicit endpoint.
+    endpoint: Option<String>,
+    /// AWS names its cold tier GLACIER; OVHcloud Cold Archive is DEEP_ARCHIVE.
+    cold_class: String,
+}
+fn setting(config: &Value, env: &str, key: &str) -> String {
+    std::env::var(env)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| config[key].as_str().unwrap_or("").into())
 }
 impl Storage {
     pub fn configured(s: &Service) -> Result<Self> {
@@ -24,10 +34,7 @@ impl Storage {
         } else {
             json!({})
         };
-        let bucket = std::env::var("ARCHIVE_S3_BUCKET")
-            .ok()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| config["bucket"].as_str().unwrap_or("").into());
+        let bucket = setting(&config, "ARCHIVE_S3_BUCKET", "bucket");
         if bucket.is_empty()
             || !bucket
                 .bytes()
@@ -38,9 +45,29 @@ impl Storage {
                 "Configure a valid ARCHIVE_S3_BUCKET on the server.",
             ));
         }
+        let endpoint = setting(&config, "ARCHIVE_S3_ENDPOINT", "endpoint");
+        if !endpoint.is_empty() && !endpoint.starts_with("https://") {
+            return Err(Error::new(
+                409,
+                "ARCHIVE_S3_ENDPOINT must be an https:// URL.",
+            ));
+        }
+        let cold_class =
+            match setting(&config, "ARCHIVE_S3_COLD_STORAGE_CLASS", "coldStorageClass").as_str() {
+                "" | "GLACIER" => "GLACIER",
+                "DEEP_ARCHIVE" => "DEEP_ARCHIVE",
+                _ => {
+                    return Err(Error::new(
+                        409,
+                        "ARCHIVE_S3_COLD_STORAGE_CLASS must be GLACIER or DEEP_ARCHIVE.",
+                    ));
+                }
+            };
         Ok(Self {
             bucket,
             binary: config["awsBinary"].as_str().unwrap_or("aws").into(),
+            endpoint: Some(endpoint).filter(|e| !e.is_empty()),
+            cold_class: cold_class.into(),
         })
     }
     async fn call(&self, args: Vec<String>) -> Result<Value> {
@@ -48,9 +75,11 @@ impl Storage {
     }
     async fn optional(&self, args: Vec<String>, missing: Option<&str>) -> Result<Value> {
         let mut command = Command::new(&self.binary);
+        command.args(args).args(["--output", "json"]);
+        if let Some(endpoint) = &self.endpoint {
+            command.args(["--endpoint-url", endpoint]);
+        }
         command
-            .args(args)
-            .args(["--output", "json"])
             .env("AWS_PAGER", "")
             .env("AWS_CLI_AUTO_PROMPT", "off")
             .stdin(Stdio::null())
@@ -82,14 +111,19 @@ impl Storage {
     }
     pub async fn validate(&self) -> Result<()> {
         let block = self
-            .call(vec![
-                "s3api".into(),
-                "get-public-access-block".into(),
-                "--bucket".into(),
-                self.bucket.clone(),
-            ])
+            .optional(
+                vec![
+                    "s3api".into(),
+                    "get-public-access-block".into(),
+                    "--bucket".into(),
+                    self.bucket.clone(),
+                ],
+                Some("NotImplemented"),
+            )
             .await?;
-        if [
+        if block.is_null() {
+            self.validate_private().await?;
+        } else if [
             "BlockPublicAcls",
             "IgnorePublicAcls",
             "BlockPublicPolicy",
@@ -148,6 +182,45 @@ impl Storage {
         .await?;
         Ok(())
     }
+    /// Providers without public access blocks (OVHcloud) must show a private ACL and no bucket policy.
+    async fn validate_private(&self) -> Result<()> {
+        let acl = self
+            .call(vec![
+                "s3api".into(),
+                "get-bucket-acl".into(),
+                "--bucket".into(),
+                self.bucket.clone(),
+            ])
+            .await?;
+        if acl["Grants"].as_array().into_iter().flatten().any(|grant| {
+            let uri = grant["Grantee"]["URI"].as_str().unwrap_or("");
+            uri.ends_with("/AllUsers") || uri.ends_with("/AuthenticatedUsers")
+        }) {
+            return Err(Error::bad(
+                "The archive bucket must not grant public access.",
+            ));
+        }
+        let policy = self
+            .optional(
+                vec![
+                    "s3api".into(),
+                    "get-bucket-policy".into(),
+                    "--bucket".into(),
+                    self.bucket.clone(),
+                ],
+                Some("NoSuchBucketPolicy"),
+            )
+            .await;
+        match policy {
+            Ok(Value::Null) => Ok(()),
+            Ok(_) => Err(Error::bad(
+                "Use a dedicated archive bucket without a bucket policy; grant access through the server's credentials.",
+            )),
+            // Providers without bucket policies (OVHcloud) cannot expose the bucket through one.
+            Err(_) if self.endpoint.is_some() => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
     fn uri(&self, key: &str) -> String {
         format!("s3://{}/{key}", self.bucket)
     }
@@ -187,14 +260,14 @@ impl Storage {
                 key.into(),
             ])
             .await?;
-        if head["StorageClass"] != "GLACIER" {
+        if head["StorageClass"] != self.cold_class.as_str() {
             self.call(vec![
                 "s3".into(),
                 "cp".into(),
                 self.uri(key),
                 self.uri(key),
                 "--storage-class".into(),
-                "GLACIER".into(),
+                self.cold_class.clone(),
                 "--metadata-directive".into(),
                 "REPLACE".into(),
                 "--only-show-errors".into(),
@@ -244,7 +317,7 @@ impl Storage {
                 key.into(),
             ])
             .await?;
-        if head["StorageClass"] != "GLACIER" {
+        if head["StorageClass"] != self.cold_class.as_str() {
             return Ok(true);
         }
         if let Some(restore) = head["Restore"].as_str() {

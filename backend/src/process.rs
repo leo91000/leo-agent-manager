@@ -8,8 +8,11 @@ use tokio::{
     process::Command,
 };
 pub type Environment = HashMap<String, String>;
+pub fn archive_key(key: &str) -> bool {
+    key.starts_with("AWS_") || key.starts_with("ARCHIVE_")
+}
 pub fn remove_archive_environment(env: &mut Environment) {
-    env.retain(|key, _| !key.starts_with("AWS_") && !key.starts_with("ARCHIVE_"));
+    env.retain(|key, _| !archive_key(key));
 }
 pub fn codex_environment(config: &Config, home: &Path) -> Environment {
     let mut env = std::env::vars().collect::<Environment>();
@@ -26,7 +29,8 @@ pub fn command(binary: &str, args: &[String], env: &Environment, cwd: Option<&Pa
     command
         .args(args)
         .env_clear()
-        .envs(env)
+        // Archive credentials stay with the archive storage's own AWS CLI calls.
+        .envs(env.iter().filter(|(key, _)| !archive_key(key)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -87,4 +91,23 @@ pub async fn read_bounded(reader: impl AsyncRead + Unpin, limit: usize) -> Resul
         ));
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn spawned_processes_never_receive_archive_credentials() {
+        let env = Environment::from([
+            ("AWS_SECRET_ACCESS_KEY".into(), "secret".into()),
+            ("ARCHIVE_S3_BUCKET".into(), "bucket".into()),
+            ("KEPT".into(), "visible".into()),
+        ]);
+        let output = command("env", &[], &env, None).output().await.unwrap();
+        let printed = String::from_utf8(output.stdout).unwrap();
+        assert!(printed.contains("KEPT=visible"));
+        assert!(!printed.contains("AWS_"), "{printed}");
+        assert!(!printed.contains("ARCHIVE_"), "{printed}");
+    }
 }

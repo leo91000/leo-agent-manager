@@ -1,6 +1,7 @@
 use crate::{
     config::now,
     error::{Error, Result},
+    provider::Provider,
     rpc::Session,
     service::Service,
     validation::text,
@@ -94,18 +95,17 @@ impl Models {
         let _guard = self.refresh.lock().await;
         s.accounts.initialize(s).await?;
         let accounts = s
-            .store
-            .list("codexAccounts")
+            .accounts
+            .records(s, Provider::Codex)
             .await?
             .into_iter()
             .filter(|a| a["enabled"] == true)
             .collect::<Vec<_>>();
-        let sources =
-            if accounts.is_empty() && s.store.kv("codex-accounts-enabled").await?.is_none() {
-                vec![String::new()]
-            } else {
-                accounts.iter().map(|a| text(a, "id").to_owned()).collect()
-            };
+        let sources = if accounts.is_empty() && !Provider::Codex.driver().managed(s).await? {
+            vec![String::new()]
+        } else {
+            accounts.iter().map(|a| text(a, "id").to_owned()).collect()
+        };
         let mut models = BTreeMap::<String, Value>::new();
         let mut stale = false;
         let mut checked_at: Option<i64> = None;
@@ -124,7 +124,7 @@ impl Models {
                     }
                     .await
                 } else {
-                    s.accounts.discover_models(s, source).await
+                    crate::accounts::codex::discover_models(s, source).await
                 };
                 cached = record(s, &key, cached, result).await?;
             }
@@ -192,7 +192,7 @@ pub async fn account_supports(s: &Service, account: &str, model: &str) -> Result
     }
     // Preserve provider aliases absent from every catalog. Restrict routing only
     // for a model actually discovered on another enabled account.
-    for source in s.store.list("codexAccounts").await? {
+    for source in s.accounts.records(s, Provider::Codex).await? {
         if source["enabled"] != true {
             continue;
         }

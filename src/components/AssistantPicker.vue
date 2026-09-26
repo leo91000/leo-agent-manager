@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
+import type { Provider } from '../../shared/accounts'
 import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
+import { providers as codingAgents } from '../../shared/accounts'
 import { effortLabel } from '../../shared/models'
-import { BrandClaude, BrandOpenAI, Check, ChevronDown, Info, LoaderCircle, RefreshCw, Search, X } from '../icons'
+import { brands } from '../accounts'
+import { Check, ChevronDown, Info, LoaderCircle, RefreshCw, Search, X } from '../icons'
 import { claudeCatalog, modelCatalog as codexCatalog, loadClaudeModels, loadModels } from '../models'
 import { iconButton } from '../ui'
 import Icon from './Icon.vue'
 
-type Provider = 'codex' | 'claude'
 // One menu for the coding agent, its model and the reasoning effort. Empty model and reasoning
 // values keep inheriting the agent's (or provider's) defaults.
 const props = withDefaults(defineProps<{ inherit?: boolean, defaultModel?: string, defaultReasoning?: string, disabled?: boolean, switching?: boolean, variant?: 'pill' | 'field' }>(), { defaultModel: '', defaultReasoning: '', variant: 'pill' })
@@ -15,10 +17,7 @@ const provider = defineModel<Provider>('provider', { default: 'codex' })
 const model = defineModel<string>('model', { default: '' })
 const reasoning = defineModel<string>('reasoning', { default: '' })
 
-const providers = [
-  { value: 'codex', label: 'Codex', vendor: 'OpenAI', icon: BrandOpenAI },
-  { value: 'claude', label: 'Claude Code', vendor: 'Anthropic', icon: BrandClaude },
-] as const
+const providers = (Object.keys(codingAgents) as Provider[]).map(value => ({ value, ...codingAgents[value], ...brands[value] }))
 const order = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 const id = useId()
 const trigger = ref<HTMLButtonElement>()
@@ -145,7 +144,7 @@ onBeforeUnmount(() => removeEventListener('resize', place))
     @click="show"
   >
     <span class="grid shrink-0 place-items-center" :class="variant === 'field' ? 'size-10 rounded-xl bg-hover/70' : 'size-5'">
-      <Icon :name="current.icon" :size="variant === 'field' ? 20 : 14" :class="provider === 'claude' ? 'text-[#d97757]' : 'text-ink'" />
+      <Icon :name="current.icon" :size="variant === 'field' ? 20 : 14" :class="current.text" />
     </span>
     <template v-if="variant === 'field'">
       <span class="flex min-w-0 flex-1 flex-col">
@@ -202,11 +201,11 @@ onBeforeUnmount(() => removeEventListener('resize', place))
               :aria-checked="provider === item.value"
               :aria-label="item.label"
               class="provider-tile flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-[border-color,background,box-shadow] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              :class="provider === item.value ? (item.value === 'claude' ? 'border-[#d97757] bg-[#d97757]/8 shadow-[0_0_0_1px_#d97757]' : 'border-accent bg-accent/8 shadow-[0_0_0_1px_var(--color-accent)]') : 'border-line hover:border-control hover:bg-hover/40'"
+              :class="provider === item.value ? item.chosen : 'border-line hover:border-control hover:bg-hover/40'"
               :disabled="disabled"
               @click="chooseProvider(item.value)"
             >
-              <Icon :name="item.icon" :size="22" :class="item.value === 'claude' ? 'text-[#d97757]' : 'text-ink'" />
+              <Icon :name="item.icon" :size="22" :class="item.text" />
               <span class="flex min-w-0 flex-col">
                 <span class="text-sm leading-tight font-semibold">{{ item.label }}</span>
                 <span class="text-3xs text-muted">{{ item.vendor }}</span>

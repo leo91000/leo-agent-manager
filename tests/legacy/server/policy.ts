@@ -1,4 +1,4 @@
-import type { Agent, Project, Run, Task } from '../../../shared/contracts.ts'
+import type { Agent, Project, Run, Task } from './contracts.ts'
 import { accessPolicy, MAIN_AGENT_ID } from '../../../shared/contracts.ts'
 import { AppError } from './errors.ts'
 

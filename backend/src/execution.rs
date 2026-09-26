@@ -375,7 +375,7 @@ pub async fn prepare(
     }
     let home = directory.join("home");
     private_dir(&home.join(".codex")).await?;
-    if !crate::claude::is_claude(run) {
+    if crate::provider::Provider::of_run(run) == crate::provider::Provider::Codex {
         let auth = codex_home
             .map(Path::to_owned)
             .unwrap_or_else(|| config.home.join(".codex"))

@@ -21,6 +21,18 @@ and reversing the gesture lets you stay in the current chat. Drafts and reading
 positions stay with each chat. The composer retains its editing gestures. List
 updates wait until a swipe settles, and navigation stops at either end. New
 conversations and archives do not participate.
+
+Artifact previews also slide under the finger, revealing the neighboring file
+before release. The gallery opens from Files, inline files and artifact links;
+Files follows the displayed group/filter/version order, while links use the latest
+versions and retain the exact linked version when it is older. The browsing list
+stays fixed until the viewer is closed. Arrows animate the same pager, and a
+position counter indicates the current file. Only immediate neighbors are kept
+ready; files with a known size up to 10 MiB are prefetched, except audio/video.
+Larger files, unknown sizes and media load when selected. Images pan while zoomed
+and resume page swiping at their original scale. Media playback stops when its
+page is left. No additional live connection is opened for this gallery.
+
 Version 0.15.0 adds a configurable limit for simultaneous Claude conversations in Connections (server 0.29.0). The default is four; lowering the limit lets active conversations finish.
 Version 0.14.0 displays Claude Code usage limits and reset dates in Connections (server 0.28.0).
 Version 0.13.0 adds the GitHub repository picker and automatic project imports (server 0.27.0).

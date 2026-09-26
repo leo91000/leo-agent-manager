@@ -20,6 +20,8 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,6 +32,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -44,6 +51,7 @@ import androidx.core.graphics.createBitmap
 import dev.leo.manager.data.*
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -85,22 +93,7 @@ fun ArtifactsPanel(vm: LeoViewModel, artifacts: List<Deliverable>) {
         }
     }
     opening?.let { item ->
-        val index = shown.indexOfFirst { it.id == item.id }
-        key(item.id) {
-            FilePreview(
-                vm,
-                item.path(),
-                item.name,
-                item.mediaType,
-                item.kind,
-                previous = shown.getOrNull(index - 1)?.let { previous -> { opening = previous } },
-                next = shown.getOrNull(index + 1)?.let { next -> { opening = next } },
-                version = item.version,
-                artifact = item,
-            ) {
-                opening = null
-            }
-        }
+        ArtifactGallery(vm, shown.groupBy { it.group }.values.flatten(), item) { opening = null }
     }
 }
 
@@ -160,19 +153,7 @@ internal fun ArtifactStrip(vm: LeoViewModel, artifacts: List<Deliverable>) {
         }
     }
     opening?.let { artifact ->
-        key(artifact.id) {
-            FilePreview(
-                vm,
-                artifact.path(),
-                artifact.name,
-                artifact.mediaType,
-                artifact.kind,
-                version = artifact.version,
-                artifact = artifact,
-            ) {
-                opening = null
-            }
-        }
+        ArtifactGallery(vm, artifacts, artifact) { opening = null }
     }
 }
 
@@ -274,8 +255,73 @@ fun AttachmentList(
     }
 }
 
+/** Freeze the browsing order for this opening, even if the conversation publishes new files. */
+@Composable
+internal fun ArtifactGallery(
+    vm: LeoViewModel,
+    artifacts: List<Deliverable>,
+    initial: Deliverable,
+    close: () -> Unit,
+) {
+    key(initial.id) {
+        val pages = remember {
+            (if (artifacts.any { it.id == initial.id }) artifacts else artifacts + initial)
+                .distinctBy { it.id }
+        }
+        val pager = rememberPagerState(initialPage = pages.indexOfFirst { it.id == initial.id }) { pages.size }
+        val scope = rememberCoroutineScope()
+        var zoomedId by remember { mutableStateOf<String?>(null) }
+        Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            HorizontalPager(
+                state = pager,
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                    .testTag("artifact-pager"),
+                key = { pages[it].id },
+                beyondViewportPageCount = 1,
+                userScrollEnabled = pages.size > 1 && zoomedId != pages[pager.settledPage].id,
+            ) { page ->
+                val item = pages[page]
+                val active = page == pager.settledPage
+                Box(Modifier.fillMaxSize().clipToBounds()
+                    .testTag("artifact-page:${item.id}").semantics { selected = active }) {
+                    Box(Modifier.fillMaxSize().focusProperties { canFocus = active }
+                        .then(if (active) Modifier else Modifier.clearAndSetSemantics {})) {
+                        FilePreviewPage(
+                            vm, item.path(), item.name, item.mediaType, item.kind,
+                            version = item.version, artifact = item, active = active,
+                            previous = if (page > 0) ({ scope.launch { pager.animateScrollToPage(page - 1) }; Unit }) else null,
+                            next = if (page < pages.lastIndex) ({ scope.launch { pager.animateScrollToPage(page + 1) }; Unit }) else null,
+                            position = "${page + 1} / ${pages.size}",
+                            zoomChanged = { zoomed ->
+                                if (zoomed) zoomedId = item.id
+                                else if (zoomedId == item.id) zoomedId = null
+                            },
+                            close = close,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 internal fun FilePreview(
+    vm: LeoViewModel,
+    path: String,
+    name: String,
+    mime: String,
+    kind: String,
+    localPath: String? = null,
+    close: () -> Unit,
+) {
+    Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        FilePreviewPage(vm, path, name, mime, kind, localPath, close = close)
+    }
+}
+
+@Composable
+private fun FilePreviewPage(
     vm: LeoViewModel,
     path: String,
     name: String,
@@ -286,6 +332,9 @@ internal fun FilePreview(
     next: (() -> Unit)? = null,
     version: Int? = null,
     artifact: Deliverable? = null,
+    active: Boolean = true,
+    position: String? = null,
+    zoomChanged: (Boolean) -> Unit = {},
     close: () -> Unit,
 ) {
     var sharing by remember { mutableStateOf(false) }
@@ -300,8 +349,12 @@ internal fun FilePreview(
         ) { uri ->
             if (uri != null && file != null) vm.perform { files.save(file!!, uri) }
         }
-    LaunchedEffect(path, localPath, retry) {
+    val load = active || (artifact != null && artifact.size in 1..10L * 1024 * 1024 &&
+        kind !in listOf("video", "audio") && !mime.startsWith("video/") && !mime.startsWith("audio/"))
+    LaunchedEffect(path, localPath, retry, load) {
+        if (!load) return@LaunchedEffect
         error = null
+        if (file != null) return@LaunchedEffect
         try {
             file = localPath?.let { File(it) } ?: vm.files.fetch(vm.api, path, name)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -327,152 +380,151 @@ internal fun FilePreview(
             error = "Aucune application ne peut ouvrir ce fichier : ${e.message}"
         }
     }
-    Dialog(
-        onDismissRequest = close,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                name,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            if (version != null)
-                                Text(
-                                    "Version $version",
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                        }
-                    },
-                    actions = {
-                        if (artifact != null) ActionIcon("Lien public", Icons.Default.Share) { sharing = true }
-                        ActionIcon("Enregistrer", LeoIcons.Download, file != null) {
-                            save.launch(name)
-                        }
-                        Box {
-                            var menu by remember { mutableStateOf(false) }
-                            ActionIcon("Options du fichier", Icons.Default.MoreVert) { menu = true }
-                            DropdownMenu(menu, { menu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Partager") },
-                                    enabled = file != null,
-                                    onClick = {
-                                        menu = false
-                                        launch(Intent.ACTION_SEND)
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Ouvrir avec") },
-                                    enabled = file != null,
-                                    onClick = {
-                                        menu = false
-                                        launch(Intent.ACTION_VIEW)
-                                    },
-                                )
-                            }
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = close) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Fermer le fichier")
-                        }
-                    },
-                )
-            }
-        ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                if (previous != null || next != null)
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ActionIcon(
-                            "Précédent",
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            previous != null,
-                        ) {
-                            previous?.invoke()
-                        }
+    // Read once at this scope so the toolbar and body receive the same loading state,
+    // including when the pager precomposes a page before its download finishes.
+    val currentFile = file
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
                         Text(
-                            "Parcourir les fichiers",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            name,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleMedium,
                         )
-                        ActionIcon("Suivant", LeoIcons.Right, next != null) { next?.invoke() }
+                        if (version != null)
+                            Text(
+                                "Version $version",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
                     }
-                error?.let { message ->
-                    Text(message, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = { retry++ }) { Text("Réessayer") }
-                }
-                file?.let { current ->
-                    when {
-                        kind == "image" || mime.startsWith("image/") -> NativeImage(current, name)
-                        kind == "pdf" || mime == "application/pdf" -> NativePdf(current)
-                        kind in listOf("video", "audio") ||
-                            mime.startsWith("video/") ||
-                            mime.startsWith("audio/") -> NativeMedia(current)
-                        kind in listOf("markdown", "code") ||
-                            mime.startsWith("text/") ||
-                            mime == "application/json" -> {
-                            var text by remember(current) { mutableStateOf("") }
-                            LaunchedEffect(current) {
-                                text =
-                                    withContext(Dispatchers.IO) {
-                                        current.inputStream().bufferedReader().use { reader ->
-                                            val chars = CharArray(1024 * 1024)
-                                            val count = reader.read(chars)
-                                            if (count < 0) "" else String(chars, 0, count)
-                                        }
-                                    }
-                            }
-                            Page {
-                                if (kind == "markdown" || mime.contains("markdown")) Markdown(text)
-                                else if (
-                                    mime == "application/json" || name.endsWith(".json", true)
-                                ) {
-                                    if (text.length <= 500_000) ResultContent(text)
-                                    else
-                                        Text(
-                                            "Fichier volumineux : consultez la source ou enregistrez-le pour lire la suite."
-                                        )
-                                    Disclosure("Voir la source JSON") { Code(text) }
-                                } else Code(text)
-                                if (current.length() > 1024 * 1024)
-                                    Text(
-                                        "Aperçu limité à 1 Mo. Enregistrez le fichier pour lire la suite."
-                                    )
-                            }
-                        }
-                        else ->
-                            Page {
-                                Text("${fileSize(current.length())} · $mime")
-                                Text(
-                                    "Enregistrez ce fichier ou ouvrez-le dans une application compatible."
-                                )
-                            }
+                },
+                actions = {
+                    if (artifact != null) ActionIcon("Lien public", Icons.Default.Share) { sharing = true }
+                    ActionIcon("Enregistrer", LeoIcons.Download, currentFile != null) {
+                        save.launch(name)
                     }
-                }
-                    ?: if (error == null)
-                        Box(
-                            Modifier.fillMaxSize(),
-                            contentAlignment = androidx.compose.ui.Alignment.Center,
-                        ) {
-                            CircularProgressIndicator()
+                    Box {
+                        var menu by remember { mutableStateOf(false) }
+                        ActionIcon("Options du fichier", Icons.Default.MoreVert) { menu = true }
+                        DropdownMenu(menu, { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Partager") },
+                                enabled = currentFile != null,
+                                onClick = {
+                                    menu = false
+                                    launch(Intent.ACTION_SEND)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ouvrir avec") },
+                                enabled = currentFile != null,
+                                onClick = {
+                                    menu = false
+                                    launch(Intent.ACTION_VIEW)
+                                },
+                            )
                         }
-                    else Unit
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = close) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Fermer le fichier")
+                    }
+                },
+            )
+        }
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (previous != null || next != null)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ActionIcon(
+                        "Précédent",
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        previous != null,
+                    ) {
+                        previous?.invoke()
+                    }
+                    Text(
+                        position ?: "Parcourir les fichiers",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    ActionIcon("Suivant", LeoIcons.Right, next != null) { next?.invoke() }
+                }
+            error?.let { message ->
+                Text(message, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { retry++ }) { Text("Réessayer") }
             }
+            currentFile?.let { current ->
+                when {
+                    kind == "image" || mime.startsWith("image/") -> NativeImage(current, name, active, zoomChanged)
+                    kind == "pdf" || mime == "application/pdf" -> NativePdf(current)
+                    kind in listOf("video", "audio") ||
+                        mime.startsWith("video/") ||
+                        mime.startsWith("audio/") -> NativeMedia(current, active)
+                    kind in listOf("markdown", "code") ||
+                        mime.startsWith("text/") ||
+                        mime == "application/json" -> {
+                        var text by remember(current) { mutableStateOf("") }
+                        LaunchedEffect(current) {
+                            text =
+                                withContext(Dispatchers.IO) {
+                                    current.inputStream().bufferedReader().use { reader ->
+                                        val chars = CharArray(1024 * 1024)
+                                        val count = reader.read(chars)
+                                        if (count < 0) "" else String(chars, 0, count)
+                                    }
+                                }
+                        }
+                        Page {
+                            if (kind == "markdown" || mime.contains("markdown")) Markdown(text)
+                            else if (
+                                mime == "application/json" || name.endsWith(".json", true)
+                            ) {
+                                if (text.length <= 500_000) ResultContent(text)
+                                else
+                                    Text(
+                                        "Fichier volumineux : consultez la source ou enregistrez-le pour lire la suite."
+                                    )
+                                Disclosure("Voir la source JSON") { Code(text) }
+                            } else Code(text)
+                            if (current.length() > 1024 * 1024)
+                                Text(
+                                    "Aperçu limité à 1 Mo. Enregistrez le fichier pour lire la suite."
+                                )
+                        }
+                    }
+                    else ->
+                        Page {
+                            Text("${fileSize(current.length())} · $mime")
+                            Text(
+                                "Enregistrez ce fichier ou ouvrez-le dans une application compatible."
+                            )
+                        }
+                }
+            }
+                ?: if (error == null)
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center,
+                    ) {
+                        if (load) CircularProgressIndicator()
+                        else Text("Aperçu au relâchement", style = MaterialTheme.typography.labelMedium)
+                    }
+                else Unit
         }
     }
 }
 
 @Composable
-private fun NativeImage(file: File, description: String) {
+private fun NativeImage(file: File, description: String, active: Boolean, zoomChanged: (Boolean) -> Unit) {
     var bitmap by remember(file) { mutableStateOf<Bitmap?>(null) }
     var failed by remember(file) { mutableStateOf(false) }
     var scale by remember { mutableFloatStateOf(1f) }
@@ -495,13 +547,21 @@ private fun NativeImage(file: File, description: String) {
     }
     val transform = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 6f)
-        offset += pan
+        offset = if (scale == 1f) androidx.compose.ui.geometry.Offset.Zero else offset + pan
     }
+    LaunchedEffect(active, scale) { if (active) zoomChanged(scale > 1f) }
+    LaunchedEffect(active) {
+        if (!active) {
+            scale = 1f
+            offset = androidx.compose.ui.geometry.Offset.Zero
+        }
+    }
+    DisposableEffect(Unit) { onDispose { zoomChanged(false) } }
     bitmap?.let {
         Image(
             it.asImageBitmap(),
             description,
-            Modifier.fillMaxSize().transformable(transform).graphicsLayer {
+            Modifier.fillMaxSize().transformable(transform, canPan = { scale > 1f }).graphicsLayer {
                 scaleX = scale
                 scaleY = scale
                 translationX = offset.x
@@ -571,8 +631,14 @@ private fun NativePdf(file: File) {
 }
 
 @Composable
-private fun NativeMedia(file: File) {
+private fun NativeMedia(file: File, active: Boolean) {
     var video by remember { mutableStateOf<VideoView?>(null) }
+    if (!active) {
+        Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.PlayArrow, "Aperçu multimédia", Modifier.size(48.dp))
+        }
+        return
+    }
     AndroidView(
         factory = { context ->
             VideoView(context).apply {
@@ -637,12 +703,14 @@ internal fun ArtifactLinkHost(
     content: @Composable () -> Unit,
 ) {
     var opening by remember { mutableStateOf<Deliverable?>(null) }
+    var openingFiles by remember { mutableStateOf(emptyList<Deliverable>()) }
     var pending by remember { mutableStateOf<String?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(pending) {
         val path = pending ?: return@LaunchedEffect
         try {
             val files = vm.api.get<List<Deliverable>>(path.substringBeforeLast('/'))
+            openingFiles = latestArtifacts(files)
             opening = files.find { it.path().substringBefore('?') == path }
                 ?: error("Ce fichier n’est plus disponible.")
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -661,7 +729,11 @@ internal fun ArtifactLinkHost(
                 if (path == null) false
                 else {
                     failure = null
-                    if (item != null) { pending = null; opening = item }
+                    if (item != null) {
+                        pending = null
+                        openingFiles = latestArtifacts(artifacts)
+                        opening = item
+                    }
                     else { opening = null; pending = path }
                     true
                 }
@@ -677,19 +749,7 @@ internal fun ArtifactLinkHost(
             )
         }
         opening?.let { item ->
-            key(item.id) {
-                FilePreview(
-                    vm,
-                    item.path(),
-                    item.name,
-                    item.mediaType,
-                    item.kind,
-                    version = item.version,
-                    artifact = item,
-                ) {
-                    opening = null
-                }
-            }
+            ArtifactGallery(vm, openingFiles, item) { opening = null }
         }
     }
 }
