@@ -14,7 +14,9 @@ Version 0.30.0 adds in-app APK updates from stable Git tags. See [update distrib
 Native Kotlin / Jetpack Compose client for the Leo Agent Manager API in this repository.
 Swipe left or right across a conversation to slide between active chats in the
 selector's most-recent-first order. The full screens follow the finger, with the
-neighboring chat's real content prepared ahead of time; releasing snaps to a page,
+neighboring chat's real content prepared ahead of time. Only the settled chat keeps
+a live stream: neighbors show their cached history, or fetch one snapshot when
+nothing is cached, then disconnect. Releasing snaps to a page,
 and reversing the gesture lets you stay in the current chat. Drafts and reading
 positions stay with each chat. The composer retains its editing gestures. List
 updates wait until a swipe settles, and navigation stops at either end. New

@@ -17,6 +17,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
@@ -27,6 +28,7 @@ fun rememberLive(
     workspace: Workspace,
     path: String,
     beforeOlderPage: () -> Unit = {},
+    streaming: Boolean = true,
 ): LiveSnapshot {
     val owner = LocalLifecycleOwner.current
     val enabled = workspace.session.authenticated && !workspace.signingOut
@@ -55,18 +57,23 @@ fun rememberLive(
                 hasOlder = moreOlder,
             )
     }
-    LaunchedEffect(path, api, owner) {
+    LaunchedEffect(path, api, owner, streaming) {
         if (enabled && api != null) {
             var cacheGeneration = vm.historyCache.generation
             val key = vm.historyCache.key(workspace.origin, api.csrf, path)
-            vm.historyCache.read(key)?.let {
+            // A resumed session is already at least as recent as its cache.
+            if (session.path != path) vm.historyCache.read(key)?.let {
                 session.restore(it, path, api.streamGeneration.get())
                 value = session.snapshot
             }
             try {
                 owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     try {
-                        api.live(path, session).collect {
+                        // A preview settles on its first complete snapshot, then releases the stream:
+                        // a restored session emits it before connecting, so a cached preview never connects.
+                        api.live(path, session)
+                            .transformWhile { emit(it); streaming || (it.catchingUp && it.httpStatus == null) }
+                            .collect {
                             vm.acceptCacheRevision(it.state?.cacheRevision)
                             cacheGeneration = vm.historyCache.generation
                             if (!it.catchingUp || it.httpStatus != null) value = display(it)

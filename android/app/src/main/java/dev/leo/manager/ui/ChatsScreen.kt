@@ -257,7 +257,7 @@ internal fun ChatPage(
 ) {
     val pageAnchor = remember(id) { HistoryPageAnchor() }
     val live = if (id == null) conversations else
-        rememberLive(vm, state, "/chats/${segment(id)}/stream", pageAnchor::beforeApply)
+        rememberLive(vm, state, "/chats/${segment(id)}/stream", pageAnchor::beforeApply, streaming = selected)
     val chat = live.state?.chat?.takeIf { it.id == id }
     var createdId by rememberSaveable(id) { mutableStateOf<String?>(null) }
     var agent by rememberSaveable(id) { mutableStateOf(initialAgent) }

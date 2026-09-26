@@ -37,6 +37,7 @@ class ChatSwipeTest {
     private val restoration = StateRestorationTester(compose)
     private val pager get() = compose.onNodeWithTag("conversation-pager")
     private val history get() = compose.onNodeWithTag("conversation-history")
+    private lateinit var vm: LeoViewModel
 
     @Before fun setup() {
         WorkManagerTestInitHelper.initializeTestWorkManager(
@@ -161,6 +162,28 @@ class ChatSwipeTest {
         }
     }
 
+    @Test fun onlyTheSelectedChatKeepsALiveStreamWhileNeighborsStayPreviewed() = withChats {
+        open("Chat récent")
+        compose.waitUntil(10000) { hasReply("Chat intermédiaire", visible = false) }
+        waitForChatStreams("recent")
+        history.performTouchInput { swipeLeft() }
+        waitForChat("Chat intermédiaire")
+        compose.waitUntil(10000) { hasReply("Chat ancien", visible = false) && hasReply("Chat récent", visible = false) }
+        waitForChatStreams("middle")
+    }
+
+    /** Previews release their catch-up stream; only the settled page may stay connected. */
+    private fun waitForChatStreams(vararg expected: String) {
+        fun open() = vm.api.streamCalls.map { it.request().url.encodedPath }
+            .filter { it.startsWith("/api/chats/") && it != "/api/chats/stream" }
+            .map { it.removePrefix("/api/chats/").removeSuffix("/stream") }.sorted()
+        compose.waitUntil(10000) { open() == expected.sorted() }
+        // Stay settled: no preview reconnects behind the selected chat.
+        Thread.sleep(1500)
+        compose.waitForIdle()
+        Assert.assertEquals(expected.sorted(), open())
+    }
+
     @Test fun notificationReopensItsRequestedChatAfterSwipingAwayFromIt() = withChats {
         open("Chat récent")
         history.performTouchInput { swipeLeft() }
@@ -243,6 +266,7 @@ class ChatSwipeTest {
                 override fun write(origin: String, cookie: String?) = Unit
             }
             val vm = LeoViewModel(ApplicationProvider.getApplicationContext<Application>(), vault)
+            this.vm = vm
             restoration.setContent {
                 val state by vm.state.collectAsStateWithLifecycle()
                 LaunchedEffect(Unit) {
