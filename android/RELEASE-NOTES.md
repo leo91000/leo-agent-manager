@@ -1,4 +1,11 @@
-# Leo Android 0.38.6 — Swipe façon Gmail
+# Leo Android 0.39.0 — Comptes des agents de code
+
+- Codex et Claude Code partagent maintenant les mêmes comptes : plusieurs comptes Claude Code sont possibles, avec les mêmes réglages que Codex (pause, exécutions parallèles, reconnexion).
+- Connexions présente une carte par agent de code et une ligne compacte par compte : usage restant, un seul badge quand il est utile, et la comète quand le compte travaille. Une fiche détaille l’usage, les réinitialisations en réserve, les exécutions en cours et les réglages.
+- Un seul parcours « Ajouter un compte » pour les deux agents. L’Atelier signale quand les agents Codex ou Claude Code attendent un compte pour démarrer.
+- Nécessite le serveur 0.39.0, publié avec la même étiquette. Au premier démarrage, le serveur migre une fois les comptes Codex existants et la connexion Claude Code.
+
+## Leo Android 0.38.6 — Swipe façon Gmail
 
 - Dans le Fil et la liste des conversations, la ligne suit maintenant le doigt sur un fond rouge avec une icône de corbeille. Au-delà de 40 % de la largeur, l’icône grossit et le téléphone vibre.
 - Relâcher ou effectuer un geste rapide après ce seuil fait glisser la conversation hors de l’écran ; la liste se resserre. Avant le seuil, la ligne revient en place avec un effet élastique.
