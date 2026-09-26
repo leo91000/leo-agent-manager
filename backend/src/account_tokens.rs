@@ -24,6 +24,7 @@ pub struct Broker {
     stop: CancellationToken,
     path: PathBuf,
 }
+
 impl Drop for Broker {
     fn drop(&mut self) {
         self.stop.cancel();
@@ -102,6 +103,7 @@ pub struct Client {
     previous: String,
     account: String,
 }
+
 impl Client {
     pub fn new(home: &Path) -> Option<Self> {
         let path = std::env::var_os("LEO_AUTH_SOCKET")
@@ -109,6 +111,7 @@ impl Client {
             .unwrap_or_else(|| home.join(SOCKET));
         Self::from_socket(path)
     }
+
     pub fn from_socket(path: PathBuf) -> Option<Self> {
         path.exists().then_some(Self {
             path,
@@ -116,11 +119,14 @@ impl Client {
             account: String::new(),
         })
     }
+
     pub async fn tokens(&mut self, refresh: bool) -> Result<Value> {
         let result = tokio::time::timeout(Duration::from_secs(9), async {
             let mut stream = UnixStream::connect(&self.path).await?;
-            let mut bytes =
-                serde_json::to_vec(&json!({"refresh":refresh,"previous":self.previous}))?;
+            let mut bytes = serde_json::to_vec(&json!({
+                "refresh": refresh,
+                "previous": self.previous
+            }))?;
             bytes.push(b'\n');
             stream.write_all(&bytes).await?;
             line(&mut BufReader::new(stream)).await
@@ -137,6 +143,7 @@ impl Client {
         self.account = text(&result, "chatgptAccountId").into();
         Ok(result)
     }
+
     pub async fn login(&mut self, session: &mut Session) -> Result<()> {
         let mut tokens = self.tokens(false).await?;
         tokens["type"] = "chatgptAuthTokens".into();
@@ -149,6 +156,7 @@ impl Client {
         }
         Ok(())
     }
+
     pub async fn refresh(&mut self, rpc: &crate::rpc::Rpc, incoming: &Incoming) -> Result<()> {
         let id = incoming
             .id

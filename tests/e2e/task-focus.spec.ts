@@ -3,7 +3,13 @@ import { expect, expectSingleScroll, test } from './fixtures'
 test('reconnects after a temporary restart and resumes a cancelled conversation in place', async ({ page, workspace }) => {
   const agent = workspace.service.agent({ name: 'Recovery engineer' })
   const project = workspace.service.store.list('projects')[0]
-  const task = workspace.service.task({ name: 'Recover a deployment review', agentId: agent.id, projectId: project.id, prompt: 'fixture:restart', worktree: false })
+  const task = workspace.service.task({
+    name: 'Recover a deployment review',
+    agentId: agent.id,
+    projectId: project.id,
+    prompt: 'fixture:restart',
+    worktree: false,
+  })
   const run = await workspace.service.enqueue(task.id)
   await expect.poll(() => workspace.service.store.run(run.id)?.sessionId).toBe('fixture-session')
   await page.goto('/tasks')
@@ -14,7 +20,8 @@ test('reconnects after a temporary restart and resumes a cancelled conversation 
   await page.route(`**/api/runs/${run.id}/stream?*`, async (route) => {
     if (available)
       await route.continue()
-    else await route.fulfill({ status: 503, json: { error: 'Worker is restarting' } })
+    else
+      await route.fulfill({ status: 503, json: { error: 'Worker is restarting' } })
   })
   await page.goto(`/runs/${run.id}`)
   await expect(page.getByRole('status').filter({ hasText: 'Reconnecting' })).toBeVisible()
@@ -48,7 +55,16 @@ test('keeps task selection across reloads and discards a previous run response',
   const session = await page.request.get('/api/session').then(response => response.json())
   const existing = await page.request.get('/api/tasks').then(response => response.json())
   const activity = await page.request.get('/api/tasks/activity').then(response => response.json())
-  const created = await page.request.post('/api/tasks', { headers: { 'X-CSRF-Token': session.csrf }, data: { name: 'Fresh task without a run', prompt: 'This is the new task brief.', agentId: existing[0].agentId, enabled: false, worktree: false } })
+  const created = await page.request.post('/api/tasks', {
+    headers: { 'X-CSRF-Token': session.csrf },
+    data: {
+      name: 'Fresh task without a run',
+      prompt: 'This is the new task brief.',
+      agentId: existing[0].agentId,
+      enabled: false,
+      worktree: false,
+    },
+  })
   expect(created.ok()).toBe(true)
   const task = await created.json()
   let release!: () => void
@@ -57,7 +73,18 @@ test('keeps task selection across reloads and discards a previous run response',
   await page.route(`**/api/runs/${activity[0].id}/stream?*`, async (route) => {
     requested = true
     await gate
-    const batch = { reset: false, more: false, events: [{ id: 9999, runId: activity[0].id, type: 'item.completed', createdAt: Date.now(), text: 'STALE RUN MESSAGE', payload: { item: { type: 'agent_message', text: 'STALE RUN MESSAGE' } } }] }
+    const batch = {
+      reset: false,
+      more: false,
+      events: [{
+        id: 9999,
+        runId: activity[0].id,
+        type: 'item.completed',
+        createdAt: Date.now(),
+        text: 'STALE RUN MESSAGE',
+        payload: { item: { type: 'agent_message', text: 'STALE RUN MESSAGE' } },
+      }],
+    }
     await route.fulfill({ contentType: 'text/event-stream', body: `event: batch\nid: 9999\ndata: ${JSON.stringify(batch)}\n\n` })
   })
   try {
@@ -92,7 +119,15 @@ test('compact task workspace keeps the conversation visible and details reachabl
   await workspace.restart()
   const agent = workspace.service.store.list('agents')[0]
   const project = workspace.service.store.list('projects')[0]
-  const task = workspace.service.task({ name: 'Weekly Graphile Worker upstream ports', agentId: agent.id, projectId: project.id, prompt: 'Review upstream changes and report the checks you ran. fixture:activity', cron: '0 9 * * 4', enabled: false, worktree: false })
+  const task = workspace.service.task({
+    name: 'Weekly Graphile Worker upstream ports',
+    agentId: agent.id,
+    projectId: project.id,
+    prompt: 'Review upstream changes and report the checks you ran. fixture:activity',
+    cron: '0 9 * * 4',
+    enabled: false,
+    worktree: false,
+  })
   const run = await workspace.service.enqueue(task.id)
   await expect.poll(() => workspace.service.store.run(run.id)?.status).toBe('succeeded')
   const reply = '## The upstream review is complete.\n\nThe applicable changes have been integrated. No identified change remains pending.\n\n- **Tests passed** for the updated functionality.\n- PostgreSQL compatibility checked.\n- SQL scenarios and API comparisons reviewed.\n\nThe audit report records the decision for each upstream change.'
@@ -146,7 +181,14 @@ test('compact task workspace keeps the conversation visible and details reachabl
   await expectSingleScroll(page)
   await page.screenshot({ animations: 'disabled', path: test.info().outputPath('tasks-a-desktop.png') })
   for (const status of ['needs_input', 'blocked'] as const) {
-    workspace.service.store.updateRun(run.id, { outcome: { status, reason: 'Review the upstream API change before continuing.', evidence: [], reportedAt: Date.now() } })
+    workspace.service.store.updateRun(run.id, {
+      outcome: {
+        status,
+        reason: 'Review the upstream API change before continuing.',
+        evidence: [],
+        reportedAt: Date.now(),
+      },
+    })
     await page.reload()
     await page.getByRole('button', { name: status === 'needs_input' ? 'Your input needed' : 'Blocked', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Mission details' })
@@ -154,5 +196,6 @@ test('compact task workspace keeps the conversation visible and details reachabl
     await expect(dialog).toContainText('Review the upstream API change before continuing.')
     await page.getByRole('button', { name: 'Close dialog' }).click()
   }
+
   await workspace.restart()
 })

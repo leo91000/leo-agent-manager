@@ -2,9 +2,20 @@ import type { RunEvent } from '../shared/contracts'
 import type { HistoryPage, LiveState } from '../shared/live'
 import type { ReadingPosition } from './history-cache'
 import type { LiveStatus } from './live-connection'
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import {
+  computed,
+  onScopeDispose,
+  ref,
+  watch,
+} from 'vue'
 import { api, ApiError, state } from './api'
-import { cacheScope, clearHistoryCache, readHistory, removeHistory, writeHistory } from './history-cache'
+import {
+  cacheScope,
+  clearHistoryCache,
+  readHistory,
+  removeHistory,
+  writeHistory,
+} from './history-cache'
 import { liveConnection } from './live-connection'
 import { LiveEvents } from './live-events'
 
@@ -26,6 +37,7 @@ export function useLiveRun(path: () => string) {
   let generation = 0
   let persist: (() => void) | undefined
   let saveTimer: ReturnType<typeof setTimeout> | undefined
+
   function scheduleSave() {
     if (saveTimer !== undefined)
       return
@@ -34,12 +46,14 @@ export function useLiveRun(path: () => string) {
       persist?.()
     }, 500)
   }
+
   function savePosition(value: ReadingPosition, key?: string) {
     if (key && key !== path())
       return
     position.value = value
     scheduleSave()
   }
+
   watch([path, () => state.authenticated && !state.signingOut, () => state.csrf], async ([value, enabled, csrf]) => {
     persist?.()
     const current = ++generation
@@ -62,6 +76,7 @@ export function useLiveRun(path: () => string) {
       void clearHistoryCache()
       return
     }
+
     const scope = await cacheScope(csrf).catch(() => undefined)
     const cached = scope ? await readHistory(scope, value) : undefined
     if (disposed || current !== generation)
@@ -82,12 +97,24 @@ export function useLiveRun(path: () => string) {
       events.value = cached.events
       catchingUp.value = false
     }
+
     persist = () => {
       if (!scope || !complete || !detail || !history || current !== generation || !state.authenticated || state.signingOut)
         return
       storedPosition = position.value
-      void writeHistory(scope, value, { version: 1, cursor, history, state: detail, events: rows.slice(), oldest, hasOlder: hasOlder.value, savedAt: Date.now(), position: storedPosition })
+      void writeHistory(scope, value, {
+        version: 1,
+        cursor,
+        history,
+        state: detail,
+        events: rows.slice(),
+        oldest,
+        hasOlder: hasOlder.value,
+        savedAt: Date.now(),
+        position: storedPosition,
+      })
     }
+
     fetchOlder = async () => {
       if (!history || !hasOlder.value || loadingOlder.value)
         return
@@ -121,6 +148,7 @@ export function useLiveRun(path: () => string) {
           loadingOlder.value = false
       }
     }
+
     let checking = false
     connection = liveConnection(value, (batch, accepted) => {
       if (batch.state?.cacheRevision) {
@@ -132,6 +160,7 @@ export function useLiveRun(path: () => string) {
         }
         catch { void clearHistoryCache() }
       }
+
       const reset = batch.reset || (history && batch.history !== history)
         || (batch.state && detail?.run?.id !== batch.state.run?.id)
       if (reset) {
@@ -143,6 +172,7 @@ export function useLiveRun(path: () => string) {
         if (scope)
           void removeHistory(scope, value)
       }
+
       // Persist a complete snapshot only. An interrupted catch-up cannot corrupt it.
       const next = rows.slice()
       const candidate = accumulator.copy()
@@ -157,6 +187,7 @@ export function useLiveRun(path: () => string) {
         oldest = batch.oldest
         hasOlder.value = batch.hasOlder ?? false
       }
+
       complete = !batch.more
       if (complete) {
         snapshot.value = detail
@@ -165,6 +196,7 @@ export function useLiveRun(path: () => string) {
         synced.value = true
         scheduleSave()
       }
+
       error.value = ''
     }, (connectionStatus) => {
       status.value = connectionStatus
@@ -207,7 +239,21 @@ export function useLiveRun(path: () => string) {
     error,
     position,
     savePosition,
-    connectionNotice: computed(() => error.value ? '' : status.value === 'offline' ? (snapshot.value ? 'Offline · showing saved conversation' : 'Offline') : status.value === 'reconnecting' ? 'Reconnecting…' : status.value === 'connecting' && snapshot.value ? 'Updating…' : ''),
+    connectionNotice: computed(() => {
+      if (error.value)
+        return ''
+
+      if (status.value === 'offline')
+        return snapshot.value ? 'Offline · showing saved conversation' : 'Offline'
+
+      if (status.value === 'reconnecting')
+        return 'Reconnecting…'
+
+      if (status.value === 'connecting' && snapshot.value)
+        return 'Updating…'
+
+      return ''
+    }),
     reconnect: () => connection?.reconnect(),
   }
 }

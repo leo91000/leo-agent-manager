@@ -8,10 +8,12 @@ test('structured sign-in supports copying, mobile layouts, cancellation, retry a
   const data = await accountFixture({ service: workspace.service })
   const account = data.seed('Second account', limits(20, 30))
   const home = path.join(workspace.service.config.dataDir, 'codex-login', account.id, '.codex')
+
   async function prepare(mode: string) {
     await mkdir(home, { recursive: true })
     await writeFile(path.join(home, 'fixture-login.json'), JSON.stringify({ mode }))
   }
+
   await prepare('hold')
   await workspace.api('/api/codex/accounts/login', 'POST', { name: account.name, id: account.id })
   await page.goto('/connections')
@@ -30,12 +32,18 @@ test('structured sign-in supports copying, mobile layouts, cancellation, retry a
       await page.screenshot({ path: testInfo.outputPath(`connections-${theme}-${width}.png`), animations: 'disabled' })
     }
   }
+
   // Keep the external provider fully synthetic, including clipboard permissions.
   await context.route('https://auth.openai.com/**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fixture verification page</h1>' }))
   await page.evaluate(() => {
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => {
-      document.documentElement.dataset.copiedCode = text
-    } } })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          document.documentElement.dataset.copiedCode = text
+        },
+      },
+    })
   })
   const popupPromise = page.waitForEvent('popup')
   await panel.getByRole('link', { name: 'Copy code & open sign-in' }).click()
@@ -45,9 +53,14 @@ test('structured sign-in supports copying, mobile layouts, cancellation, retry a
   await expect(page.locator('html')).toHaveAttribute('data-copied-code', 'ABCD-12345')
   await expect(panel.getByRole('button', { name: 'Code copied' })).toBeVisible()
   await page.evaluate(() => {
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {
-      throw new Error('Permission denied')
-    } } })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error('Permission denied')
+        },
+      },
+    })
   })
   await panel.getByRole('button', { name: 'Code copied' }).click()
   await expect(panel.getByRole('alert')).toContainText('copy it manually')
@@ -82,7 +95,8 @@ test('accounts show live usage, reset windows and accessible controls across the
   const empty = data.seed('Almost empty', limits(97, 32))
   const paused = data.seed('Travel', limits(20, 50))
   data.pool.update(paused.id, { name: paused.name, enabled: false })
-  for (const account of [personal, work, empty, paused]) await workspace.setAccountUsage(account.id, account.limits)
+  for (const account of [personal, work, empty, paused])
+    await workspace.setAccountUsage(account.id, account.limits)
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto('/connections')
@@ -102,6 +116,7 @@ test('accounts show live usage, reset windows and accessible controls across the
         await card.screenshot({ path: testInfo.outputPath(`${theme}-mobile-banked-resets.png`), animations: 'disabled' })
     }
   }
+
   await card.getByRole('button', { name: 'Pause Work', exact: true }).click()
   await expect(card.getByText('Paused', { exact: true })).toBeVisible()
   await expect(card.getByText('Banked resets: 3 · Automatic use paused')).toBeVisible()

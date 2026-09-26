@@ -17,6 +17,7 @@ use std::{
 fn prefix(chat: &Value) -> String {
     format!("leo-conversations/{}/", text(chat, "id"))
 }
+
 async fn remove(path: &Path) -> Result<()> {
     match tokio::fs::symlink_metadata(path).await {
         Ok(meta) if meta.is_dir() => tokio::fs::remove_dir_all(path).await?,
@@ -26,6 +27,7 @@ async fn remove(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+
 pub(crate) async fn storage(s: &Service, chat: &Value) -> Result<Storage> {
     let storage = Storage::configured(s)?;
     if chat["archiveBucket"]
@@ -34,11 +36,13 @@ pub(crate) async fn storage(s: &Service, chat: &Value) -> Result<Storage> {
     {
         return Err(Error::new(
             409,
-            "The archive's bucket differs from the server configuration. Restore the original configuration.",
+            "The archive's bucket differs from the server configuration. Restore the \
+            original configuration.",
         ));
     }
     Ok(storage)
 }
+
 async fn disk(s: &Service, run: &str, action: &str, staging: &Path) -> Result<()> {
     if run.is_empty() || s.config.runner_url.is_empty() {
         return Ok(());
@@ -50,7 +54,9 @@ async fn disk(s: &Service, run: &str, action: &str, staging: &Path) -> Result<()
         .http
         .post(format!("{}/disks/{run}/{action}", s.config.runner_url))
         .bearer_auth(credential)
-        .json(&json!({"transfer":staging.file_name().and_then(|v| v.to_str())}))
+        .json(&json!({
+            "transfer": staging.file_name().and_then(|v| v.to_str()),
+        }))
         .timeout(std::time::Duration::from_secs(7200))
         .send()
         .await
@@ -63,6 +69,7 @@ async fn disk(s: &Service, run: &str, action: &str, staging: &Path) -> Result<()
     }
     Ok(())
 }
+
 async fn detach_worktrees(s: &Service, chat: &Value) -> Result<()> {
     let run = if text(chat, "runId").is_empty() {
         Value::Null
@@ -138,6 +145,7 @@ async fn files(s: &Service, chat: &Value, purge: bool) -> Result<()> {
     }
     Ok(())
 }
+
 async fn normalize_legacy_workspace(s: &Service, chat: &Value) -> Result<()> {
     let run_id = text(chat, "runId");
     if run_id.is_empty() {
@@ -161,7 +169,8 @@ async fn normalize_legacy_workspace(s: &Service, chat: &Value) -> Result<()> {
         {
             return Err(Error::new(
                 409,
-                "Configure the Firecracker runner to archive this legacy shared workspace without losing its files.",
+                "Configure the Firecracker runner to archive this legacy shared workspace \
+                without losing its files.",
             ));
         }
         return Ok(());
@@ -185,37 +194,73 @@ async fn normalize_legacy_workspace(s: &Service, chat: &Value) -> Result<()> {
     checkpoint["prepared"] = prepared.clone();
     let cid = text(chat, "id").to_owned();
     let rid = run_id.to_owned();
-    s.store.transaction(move |db| {
-        let mut current = required(db.get("chats",&cid)?,"Chat not found")?;
-        current["legacyWorkspaces"] = run["workspaces"].clone();
-        current["legacyProjects"] = crate::service::run_projects(&run).into();
-        db.put("chats",&current)?;
-        db.set(&key,&checkpoint,None)?;
-        db.patch_run(&rid,&json!({"workspace":prepared["cwd"],"workspaces":prepared["workspaces"],"isolated":prepared["isolated"]}))?;
-        Ok(())
-    }).await
+    s.store
+        .transaction(move |db| {
+            let mut current = required(db.get("chats", &cid)?, "Chat not found")?;
+            current["legacyWorkspaces"] = run["workspaces"].clone();
+            current["legacyProjects"] = crate::service::run_projects(&run).into();
+            db.put("chats", &current)?;
+            db.set(&key, &checkpoint, None)?;
+            db.patch_run(
+                &rid,
+                &json!({
+                    "workspace": prepared["cwd"],
+                    "workspaces": prepared["workspaces"],
+                    "isolated": prepared["isolated"],
+                }),
+            )?;
+            Ok(())
+        })
+        .await
 }
 
 async fn metadata(s: &Service, chat: &Value, staging: PathBuf) -> Result<()> {
     let chat = chat.clone();
-    s.store.read(move |db| {
-        let run = text(&chat,"runId");
-        let mut keys = Vec::new();
-        for prefix in [format!("chat-question:{}:",text(&chat,"id")),format!("chat-attachment:{}:",text(&chat,"id"))] { keys.extend(db.keys(&prefix)?); }
-        if let Some(checkpoint) = db.kv(&format!("run-checkpoint:{run}"))? { keys.push((format!("run-checkpoint:{run}"),checkpoint)); }
-        let value = json!({"version":1,"chatId":chat["id"],"run":db.run(run)?,"messages":db.messages(text(&chat,"id"))?,"keys":keys});
-        let mut output = std::fs::File::create(staging.join("metadata.json"))?;
-        serde_json::to_writer(&mut output,&value)?; output.sync_all()?;
-        let mut output = std::io::BufWriter::new(std::fs::File::create(staging.join("events.jsonl"))?);
-        let mut stmt = db.0.prepare("SELECT created_at,type,text,payload FROM events WHERE run_id=? ORDER BY id")?;
-        let mut rows = stmt.query([run])?;
-        while let Some(row) = rows.next()? {
-            let value = json!({"at":row.get::<_,i64>(0)?,"type":row.get::<_,String>(1)?,"text":row.get::<_,String>(2)?,"payload":row.get::<_,Option<String>>(3)?});
-            serde_json::to_writer(&mut output,&value)?; output.write_all(b"\n")?;
-        }
-        output.flush()?; output.get_ref().sync_all()?;
-        Ok(())
-    }).await
+    s.store
+        .read(move |db| {
+            let run = text(&chat, "runId");
+            let mut keys = Vec::new();
+            for prefix in [
+                format!("chat-question:{}:", text(&chat, "id")),
+                format!("chat-attachment:{}:", text(&chat, "id")),
+            ] {
+                keys.extend(db.keys(&prefix)?);
+            }
+            if let Some(checkpoint) = db.kv(&format!("run-checkpoint:{run}"))? {
+                keys.push((format!("run-checkpoint:{run}"), checkpoint));
+            }
+            let value = json!({
+                "version": 1,
+                "chatId": chat["id"],
+                "run": db.run(run)?,
+                "messages": db.messages(text(&chat, "id"))?,
+                "keys": keys,
+            });
+            let mut output = std::fs::File::create(staging.join("metadata.json"))?;
+            serde_json::to_writer(&mut output, &value)?;
+            output.sync_all()?;
+            let mut output =
+                std::io::BufWriter::new(std::fs::File::create(staging.join("events.jsonl"))?);
+            let mut stmt = db.0.prepare(
+                "SELECT created_at,type,text,payload FROM events WHERE run_id=? \
+                ORDER BY id",
+            )?;
+            let mut rows = stmt.query([run])?;
+            while let Some(row) = rows.next()? {
+                let value = json!({
+                    "at": row.get::<_, i64>(0)?,
+                    "type": row.get::<_, String>(1)?,
+                    "text": row.get::<_, String>(2)?,
+                    "payload": row.get::<_, Option<String>>(3)?,
+                });
+                serde_json::to_writer(&mut output, &value)?;
+                output.write_all(b"\n")?;
+            }
+            output.flush()?;
+            output.get_ref().sync_all()?;
+            Ok(())
+        })
+        .await
 }
 
 pub async fn archive(s: &Service, mut chat: Value) -> Result<()> {
@@ -331,23 +376,46 @@ pub async fn archive(s: &Service, mut chat: Value) -> Result<()> {
     disk(s, text(&chat, "runId"), "delete", Path::new("unused")).await?;
     files(s, &chat, false).await?;
     let cid = chat_id;
-    s.store.transaction(move |db| {
-        let mut current = required(db.get("chats",&cid)?,"Chat not found")?;
-        let run = text(&current,"runId");
-        db.0.execute("DELETE FROM events WHERE run_id=?",[run])?;
-        db.0.execute("DELETE FROM chat_messages WHERE chat_id=?",[&cid])?;
-        for prefix in [format!("chat-question:{cid}:"),format!("chat-attachment:{cid}:")] { for (key,_) in db.keys(&prefix)? { db.delete(&key)?; } }
-        db.delete(&format!("run-checkpoint:{run}"))?;
-        if let Some(value) = db.run(run)? {
-            let retained = json!({"id":value["id"],"status":value["status"],"createdAt":value["createdAt"],"finishedAt":value["finishedAt"],"archived":true});
-            db.0.execute("UPDATE runs SET data=? WHERE id=?",rusqlite::params![retained.to_string(),run])?;
-        }
-        if state(&current) == "trash" { current["previousLifecycle"] = "archived".into(); }
-        else { current["lifecycle"] = "archived".into(); }
-        current["archivedAt"] = now().into(); current["storageClass"] = "STANDARD".into(); current["lifecycleError"] = Value::Null;
-        db.put("chats",&current)?;
-        Ok(())
-    }).await
+    s.store
+        .transaction(move |db| {
+            let mut current = required(db.get("chats", &cid)?, "Chat not found")?;
+            let run = text(&current, "runId");
+            db.0.execute("DELETE FROM events WHERE run_id=?", [run])?;
+            db.0.execute("DELETE FROM chat_messages WHERE chat_id=?", [&cid])?;
+            for prefix in [
+                format!("chat-question:{cid}:"),
+                format!("chat-attachment:{cid}:"),
+            ] {
+                for (key, _) in db.keys(&prefix)? {
+                    db.delete(&key)?;
+                }
+            }
+            db.delete(&format!("run-checkpoint:{run}"))?;
+            if let Some(value) = db.run(run)? {
+                let retained = json!({
+                    "id": value["id"],
+                    "status": value["status"],
+                    "createdAt": value["createdAt"],
+                    "finishedAt": value["finishedAt"],
+                    "archived": true,
+                });
+                db.0.execute(
+                    "UPDATE runs SET data=? WHERE id=?",
+                    rusqlite::params![retained.to_string(), run],
+                )?;
+            }
+            if state(&current) == "trash" {
+                current["previousLifecycle"] = "archived".into();
+            } else {
+                current["lifecycle"] = "archived".into();
+            }
+            current["archivedAt"] = now().into();
+            current["storageClass"] = "STANDARD".into();
+            current["lifecycleError"] = Value::Null;
+            db.put("chats", &current)?;
+            Ok(())
+        })
+        .await
 }
 
 pub async fn restore(s: &Service, chat: Value, days: i64) -> Result<()> {
@@ -473,7 +541,8 @@ pub async fn restore(s: &Service, chat: Value, days: i64) -> Result<()> {
                 {
                     let event: Value = serde_json::from_str(&line?)?;
                     db.0.execute(
-                        "INSERT INTO events(run_id,created_at,type,text,payload) VALUES(?,?,?,?,?)",
+                        "INSERT INTO events(run_id,created_at,type,text,payload) \
+                        VALUES(?,?,?,?,?)",
                         rusqlite::params![
                             run,
                             event["at"].as_i64(),
@@ -545,7 +614,12 @@ pub async fn purge(s: &Service, chat: Value) -> Result<()> {
             db.0.execute("DELETE FROM chat_messages WHERE chat_id=?", [&cid])?;
             db.0.execute("DELETE FROM runs WHERE id=?", [&run])?;
             db.remove("chats", &cid)?;
-            db.audit("chat.purged", &json!({"id":cid}))?;
+            db.audit(
+                "chat.purged",
+                &json!({
+                    "id": cid,
+                }),
+            )?;
             Ok(())
         })
         .await

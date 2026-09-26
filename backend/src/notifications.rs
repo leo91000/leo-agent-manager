@@ -15,10 +15,12 @@ use web_push::{
     ContentEncoding, HyperWebPushClient, SubscriptionInfo, Urgency, VapidSignatureBuilder,
     WebPushClient, WebPushError, WebPushMessageBuilder,
 };
+
 #[derive(Clone, Default)]
 pub struct Notifications {
     delivery: Arc<Mutex<()>>,
 }
+
 pub fn enqueue(db: &Db<'_>, question: &Value) -> Result<()> {
     for (key, _) in db.keys("push-device:")? {
         let subscription = key.trim_start_matches("push-device:");
@@ -27,14 +29,20 @@ pub fn enqueue(db: &Db<'_>, question: &Value) -> Result<()> {
             db.set(
                 &key,
                 &json!({
-                "subscriptionId":subscription,"questionId":question["id"],"chatId":question["chatId"],"attempts":0,"nextAt":now(),"expiresAt":now()+3600000}
-                ),
+                    "subscriptionId": subscription,
+                    "questionId": question["id"],
+                    "chatId": question["chatId"],
+                    "attempts": 0,
+                    "nextAt": now(),
+                    "expiresAt": now() + 3600000
+                }),
                 None,
             )?;
         }
     }
     Ok(())
 }
+
 fn subscription(input: Value) -> Result<Value> {
     let endpoint = text(&input, "endpoint");
     let url =
@@ -70,11 +78,14 @@ fn subscription(input: Value) -> Result<Value> {
         }
     }
     Ok(json!({
-    "endpoint":endpoint,"keys":{
-    "p256dh":input["keys"]["p256dh"],"auth":input["keys"]["auth"]}
-    }
-    ))
+        "endpoint": endpoint,
+        "keys": {
+            "p256dh": input["keys"]["p256dh"],
+            "auth": input["keys"]["auth"]
+        }
+    }))
 }
+
 impl Notifications {
     async fn keys(&self, service: &Service) -> Result<Value> {
         let vault = service.vault.clone();
@@ -86,18 +97,22 @@ impl Notifications {
                 }
                 let private = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
                 let value = json!({
-                "privateKey":URL_SAFE_NO_PAD.encode(private.to_bytes()),"publicKey":URL_SAFE_NO_PAD.encode(private.public_key().to_encoded_point(false).as_bytes())}
-                );
+                    "privateKey": URL_SAFE_NO_PAD.encode(private.to_bytes()),
+                    "publicKey": URL_SAFE_NO_PAD
+                        .encode(private.public_key().to_encoded_point(false).as_bytes())
+                });
                 vault.set_in(db, "push-vapid", &value)?;
                 Ok(value)
             })
             .await
     }
+
     pub async fn configuration(&self, service: &Service) -> Result<Value> {
         Ok(json!({
-        "publicKey":self.keys(service).await?["publicKey"]}
-        ))
+            "publicKey": self.keys(service).await?["publicKey"]
+        }))
     }
+
     pub async fn subscribe(&self, service: &Service, input: Value) -> Result<Value> {
         let value = subscription(input)?;
         let id = hex_digest(text(&value, "endpoint"));
@@ -116,16 +131,17 @@ impl Notifications {
                 db.set(
                     &key,
                     &json!({
-                    "createdAt":now()}
-                    ),
+                        "createdAt": now()
+                    }),
                     None,
                 )?;
                 Ok(json!({
-                "id":id}
-                ))
+                    "id": id
+                }))
             })
             .await
     }
+
     pub async fn unsubscribe(&self, service: &Service, id: &str) -> Result<Value> {
         let id = id.to_owned();
         service
@@ -139,11 +155,12 @@ impl Notifications {
                     }
                 }
                 Ok(json!({
-                "ok":true}
-                ))
+                    "ok": true
+                }))
             })
             .await
     }
+
     pub async fn flush(&self, service: &Service) -> Result<()> {
         let Ok(_delivery) = self.delivery.try_lock() else {
             return Ok(());
@@ -205,6 +222,7 @@ impl Notifications {
         Ok(())
     }
 }
+
 async fn send(
     service: &Service,
     subscription: &Value,
@@ -226,8 +244,11 @@ async fn send(
         },
     );
     let payload = json!({
-    "title":"Your agent has a question","body":"Open the chat to answer.","chatId":delivery["chatId"],"questionId":delivery["questionId"]}
-    )
+        "title": "Your agent has a question",
+        "body": "Open the chat to answer.",
+        "chatId": delivery["chatId"],
+        "questionId": delivery["questionId"]
+    })
     .to_string();
     let mut message = WebPushMessageBuilder::new(&info);
     message.set_vapid_signature(signature.build()?);

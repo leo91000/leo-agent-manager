@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import type { CodexLoginFlow } from '../../shared/codex-accounts'
 import { computed, ref, watch } from 'vue'
-import { ArrowUpRight, Check, Copy, LoaderCircle, RefreshCw } from '../icons'
+import {
+  ArrowUpRight,
+  Check,
+  Copy,
+  LoaderCircle,
+  RefreshCw,
+} from '../icons'
 import { buttonBase, buttonSizes, buttonVariants } from '../ui'
 import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
@@ -23,6 +29,7 @@ watch(() => props.flow.code, () => {
   copied.value = false
   copyError.value = ''
 })
+
 async function copyCode() {
   const code = props.flow.code
   if (!code)
@@ -79,8 +86,21 @@ async function copyCode() {
         {{ flow.error }}
       </p>
       <div class="mt-4 flex flex-wrap gap-2">
-        <a v-if="ready" :href="flow.url" target="_blank" rel="noopener noreferrer" :class="[buttonBase, buttonVariants.primary, buttonSizes.small]" @click="copyCode">Copy code &amp; open sign-in<Icon :name="ArrowUpRight" :size="15" /></a>
-        <UiButton v-if="flow.state === 'failed'" variant="primary" size="small" :disabled="busy" @click="$emit('retry')">
+        <a
+          v-if="ready"
+          :href="flow.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          :class="[buttonBase, buttonVariants.primary, buttonSizes.small]"
+          @click="copyCode"
+        >Copy code &amp; open sign-in<Icon :name="ArrowUpRight" :size="15" /></a>
+        <UiButton
+          v-if="flow.state === 'failed'"
+          variant="primary"
+          size="small"
+          :disabled="busy"
+          @click="$emit('retry')"
+        >
           <Icon :name="RefreshCw" :size="15" />Try again
         </UiButton>
         <UiButton size="small" :disabled="busy || flow.phase === 'verifying' && waiting" @click="$emit('cancel')">

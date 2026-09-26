@@ -54,7 +54,8 @@ pub fn require_active(chat: &Value) -> Result<()> {
 
 pub fn require_active_run(db: &crate::store::Db<'_>, run: &str) -> Result<()> {
     for chat in db.json_rows(
-        "SELECT data FROM records WHERE kind='chats' AND json_extract(data,'$.runId')=?",
+        "SELECT data FROM records WHERE kind='chats' AND \
+        json_extract(data,'$.runId')=?",
         [run],
     )? {
         require_active(&chat)?;
@@ -90,57 +91,102 @@ impl Service {
     pub async fn chat_trash(&self, id: &str, confirmed: bool) -> Result<Value> {
         crate::validation::uuid(id)?;
         let id = id.to_owned();
-        let result = self.store.transaction(move |db| {
-            let mut chat = required(db.get("chats", &id)?, "Chat not found")?;
-            if matches!(state(&chat), "trash" | "purging") { return Ok(chat); }
-            let run = db.run(text(&chat, "runId"))?;
-            let messages = db.messages(&id)?;
-            let questions = db.keys(&format!("chat-question:{id}:"))?;
-            let busy = run.as_ref().is_some_and(|r| ["queued", "running"].contains(&text(r, "status")))
-                || messages.iter().any(|m| ["queued", "sending"].contains(&text(m, "status")))
-                || questions.iter().any(|(_, q)| ["pending", "answering"].contains(&text(q, "status")));
-            if busy && !confirmed {
-                return Err(Error::new(409, "Confirm deletion to stop the agent and cancel pending messages and questions."));
-            }
-            for mut message in messages {
-                if ["queued", "sending"].contains(&text(&message, "status")) {
-                    message["status"] = "cancelled".into();
-                    db.put_message(&message)?;
+        let result = self
+            .store
+            .transaction(move |db| {
+                let mut chat = required(db.get("chats", &id)?, "Chat not found")?;
+                if matches!(state(&chat), "trash" | "purging") {
+                    return Ok(chat);
                 }
-            }
-            for (key, mut question) in questions {
-                if ["pending", "answering"].contains(&text(&question, "status")) {
-                    question["status"] = "cancelled".into();
-                    question["blocking"] = false.into();
-                    db.set(&key, &question, None)?;
+
+                let run = db.run(text(&chat, "runId"))?;
+                let messages = db.messages(&id)?;
+                let questions = db.keys(&format!("chat-question:{id}:"))?;
+                let busy = run
+                    .as_ref()
+                    .is_some_and(|r| ["queued", "running"].contains(&text(r, "status")))
+                    || messages
+                        .iter()
+                        .any(|m| ["queued", "sending"].contains(&text(m, "status")))
+                    || questions
+                        .iter()
+                        .any(|(_, q)| ["pending", "answering"].contains(&text(q, "status")));
+                if busy && !confirmed {
+                    return Err(Error::new(
+                        409,
+                        "Confirm deletion to stop the agent and cancel pending messages \
+                        and questions.",
+                    ));
                 }
-            }
-            for (key, mut artifact) in db.keys(&format!("artifact:{}:", text(&chat, "runId")))? {
-                if let Some(token) = artifact["publicToken"].as_str() { db.delete(&format!("artifact-share:{token}"))?; }
-                artifact["visibility"] = "private".into();
-                artifact["publicToken"] = Value::Null;
-                artifact["publicUrl"] = Value::Null;
-                db.set(&key, &artifact, None)?;
-            }
-            db.delete(&format!("chat-title-pending:{id}"))?;
-            if let Some(run) = run && ["queued", "running"].contains(&text(&run, "status")) {
-                db.patch_run(text(&run, "id"), &json!({"cancelRequestedAt":now()}))?;
-            }
-            chat["cancelledByDeletion"] = busy.into();
-            for prefix in ["push-outbox:", "mcp-grant:"] {
-                for (key, value) in db.keys(prefix)? {
-                    if value["chatId"] == id || (chat["runId"].is_string() && value["runId"] == chat["runId"]) { db.delete(&key)?; }
+
+                for mut message in messages {
+                    if ["queued", "sending"].contains(&text(&message, "status")) {
+                        message["status"] = "cancelled".into();
+                        db.put_message(&message)?;
+                    }
                 }
-            }
-            chat["previousLifecycle"] = state(&chat).into();
-            chat["lifecycle"] = "trash".into();
-            chat["trashedAt"] = now().into();
-            chat["purgeAt"] = (now() + 30 * DAY).into();
-            chat["paused"] = true.into();
-            db.set("conversation-cache-revision", &crate::config::id().into(), None)?;
-            db.audit("chat.trashed", &json!({"id":id}))?;
-            db.put("chats", &chat)
-        }).await?;
+
+                for (key, mut question) in questions {
+                    if ["pending", "answering"].contains(&text(&question, "status")) {
+                        question["status"] = "cancelled".into();
+                        question["blocking"] = false.into();
+                        db.set(&key, &question, None)?;
+                    }
+                }
+
+                for (key, mut artifact) in
+                    db.keys(&format!("artifact:{}:", text(&chat, "runId")))?
+                {
+                    if let Some(token) = artifact["publicToken"].as_str() {
+                        db.delete(&format!("artifact-share:{token}"))?;
+                    }
+                    artifact["visibility"] = "private".into();
+                    artifact["publicToken"] = Value::Null;
+                    artifact["publicUrl"] = Value::Null;
+                    db.set(&key, &artifact, None)?;
+                }
+
+                db.delete(&format!("chat-title-pending:{id}"))?;
+                if let Some(run) = run
+                    && ["queued", "running"].contains(&text(&run, "status"))
+                {
+                    db.patch_run(
+                        text(&run, "id"),
+                        &json!({
+                            "cancelRequestedAt": now(),
+                        }),
+                    )?;
+                }
+                chat["cancelledByDeletion"] = busy.into();
+                for prefix in ["push-outbox:", "mcp-grant:"] {
+                    for (key, value) in db.keys(prefix)? {
+                        if value["chatId"] == id
+                            || (chat["runId"].is_string() && value["runId"] == chat["runId"])
+                        {
+                            db.delete(&key)?;
+                        }
+                    }
+                }
+
+                chat["previousLifecycle"] = state(&chat).into();
+                chat["lifecycle"] = "trash".into();
+                chat["trashedAt"] = now().into();
+                chat["purgeAt"] = (now() + 30 * DAY).into();
+                chat["paused"] = true.into();
+                db.set(
+                    "conversation-cache-revision",
+                    &crate::config::id().into(),
+                    None,
+                )?;
+                db.audit(
+                    "chat.trashed",
+                    &json!({
+                        "id": id,
+                    }),
+                )?;
+                db.put("chats", &chat)
+            })
+            .await?;
         if let Some(run) = result["runId"].as_str() {
             match self.worker.cancel(self, run).await {
                 Ok(()) => {}
@@ -198,7 +244,12 @@ impl Service {
                 chat["previousLifecycle"] = Value::Null;
                 chat["retryAfter"] = Value::Null;
                 chat["lifecycleError"] = Value::Null;
-                db.audit("chat.recovered", &json!({"id":id}))?;
+                db.audit(
+                    "chat.recovered",
+                    &json!({
+                        "id": id,
+                    }),
+                )?;
                 db.put("chats", &chat)
             })
             .await
@@ -206,9 +257,13 @@ impl Service {
 }
 
 fn policy(db: &crate::store::Db<'_>) -> Result<Value> {
-    Ok(db
-        .kv("conversation-retention")?
-        .unwrap_or_else(|| json!({"enabled":false,"inactivityDays":30,"coldAfterDays":90})))
+    Ok(db.kv("conversation-retention")?.unwrap_or_else(|| {
+        json!({
+            "enabled": false,
+            "inactivityDays": 30,
+            "coldAfterDays": 90,
+        })
+    }))
 }
 
 fn eligible(
@@ -259,6 +314,7 @@ impl Service {
     pub async fn retention_policy(&self) -> Result<Value> {
         self.retention_preview(None).await
     }
+
     pub async fn retention_preview(&self, days: Option<i64>) -> Result<Value> {
         let configured = crate::archive_storage::Storage::configured(self).is_ok();
         let runner = !self.config.runner_url.is_empty();
@@ -286,6 +342,7 @@ impl Service {
             })
             .await
     }
+
     pub async fn retention_save(&self, input: Value) -> Result<Value> {
         let enabled = input["enabled"]
             .as_bool()
@@ -312,7 +369,11 @@ impl Service {
         self.store
             .set(
                 "conversation-retention",
-                json!({"enabled":enabled,"inactivityDays":days,"coldAfterDays":cold}),
+                json!({
+                    "enabled": enabled,
+                    "inactivityDays": days,
+                    "coldAfterDays": cold,
+                }),
                 None,
             )
             .await?;
@@ -466,7 +527,8 @@ impl Service {
         if !confirmed {
             return Err(Error::new(
                 409,
-                "Confirm starting a fresh agent session using the preserved history and files.",
+                "Confirm starting a fresh agent session using the preserved \
+                history and files.",
             ));
         }
         let id = id.to_owned();
@@ -494,7 +556,10 @@ impl Service {
                 db.set(&key, &checkpoint, None)?;
                 db.patch_run(
                     text(&run, "id"),
-                    &json!({"sessionId":null,"resumeAvailable":false}),
+                    &json!({
+                        "sessionId": null,
+                        "resumeAvailable": false,
+                    }),
                 )?;
                 chat["sessionRestartRequested"] = true.into();
                 chat["paused"] = true.into();

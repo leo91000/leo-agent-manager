@@ -7,13 +7,19 @@ import Icon from '../components/Icon.vue'
 import OnePasswordAccounts from '../components/OnePasswordAccounts.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
-import { ArrowUpRight, CheckCircle2, Github, RefreshCw } from '../icons'
+import {
+  ArrowUpRight,
+  CheckCircle2,
+  Github,
+  RefreshCw,
+} from '../icons'
 import { buttonBase, buttonSizes, buttonVariants } from '../ui'
 
 const items = ref<any[]>([])
 const flow = ref<any>()
 const error = ref('')
 const busy = ref(false)
+
 async function load() {
   try {
     items.value = await api('/connections?refresh=true')
@@ -22,6 +28,7 @@ async function load() {
     error.value = (e as Error).message
   }
 }
+
 async function connect(provider: string) {
   busy.value = true
   error.value = ''
@@ -38,10 +45,12 @@ async function connect(provider: string) {
     busy.value = false
   }
 }
+
 async function cancel() {
   await api('/connections/login', { method: 'DELETE' })
   flow.value = null
 }
+
 let timer: ReturnType<typeof setInterval>
 onMounted(() => {
   load()

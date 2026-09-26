@@ -12,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+
 pub async fn secret(directory: &Path, name: &str) -> Result<String> {
     use tokio::io::AsyncWriteExt;
     let file = directory.join(name);
@@ -31,6 +32,7 @@ pub async fn secret(directory: &Path, name: &str) -> Result<String> {
     }
     Ok(tokio::fs::read_to_string(file).await?.trim().to_owned())
 }
+
 async fn git(args: Vec<String>, timeout: u64) -> Result<String> {
     let mut env = std::env::vars().collect::<Environment>();
     env.insert("GIT_NO_LAZY_FETCH".into(), "0".into());
@@ -47,13 +49,16 @@ async fn git(args: Vec<String>, timeout: u64) -> Result<String> {
     }
     Ok(output.stdout.trim().into())
 }
+
 fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|s| (*s).to_owned()).collect()
 }
+
 fn path(path: &Path) -> Result<&str> {
     path.to_str()
         .ok_or_else(|| Error::bad("Workspace paths must use UTF-8."))
 }
+
 async fn copy_tree(source: &Path, target: &Path, reject_symlinks: bool) -> Result<()> {
     if target.starts_with(source) {
         return Err(Error::bad(
@@ -89,6 +94,7 @@ async fn copy_tree(source: &Path, target: &Path, reject_symlinks: bool) -> Resul
     }
     Ok(())
 }
+
 async fn github_home(
     home: &Path,
     config: &Config,
@@ -107,10 +113,11 @@ async fn github_home(
         atomic_write(
             &destination.join("hosts.yml"),
             serde_yaml_ng::to_string(&json!({
-            "github.com":{
-            "oauth_token":token,"git_protocol":"https"}
-            }
-            ))
+                "github.com": {
+                    "oauth_token": token,
+                    "git_protocol": "https"
+                }
+            }))
             .map_err(Error::internal)?
             .as_bytes(),
         )
@@ -262,7 +269,12 @@ async fn prepare_project(
     } else {
         None
     };
-    Ok(json!({"projectId":project["id"],"path":target,"kind":kind,"revision":revision}))
+    Ok(json!({
+        "projectId": project["id"],
+        "path": target,
+        "kind": kind,
+        "revision": revision
+    }))
 }
 
 /// Prepare an immutable host seed. Guest working files are never copied back or replaced.
@@ -273,7 +285,15 @@ pub async fn project_seed(
     root: &Path,
 ) -> Result<Value> {
     let destination = root.join(text(project, "id"));
-    let mut value = json!({"projectId":project["id"],"path":destination,"kind":if Path::new(text(project,"path")).join(".git").exists() {"clone"} else {"copy"}});
+    let mut value = json!({
+        "projectId": project["id"],
+        "path": destination,
+        "kind": if Path::new(text(project, "path")).join(".git").exists() {
+            "clone"
+        } else {
+            "copy"
+        }
+    });
     if destination.exists() {
         if destination.join(".git").exists() {
             value["revision"] = git(args(&["-C", path(&destination)?, "rev-parse", "HEAD"]), 10)
@@ -347,7 +367,11 @@ pub async fn prepare(
         let entry =
             prepare_project(run, project, config, &root, projects.len() == 1, generation).await?;
         if is_isolated {
-            mounts.push(json!({"source":entry["path"],"target":entry["path"],"readOnly":access["sandbox"]=="read-only"}));
+            mounts.push(json!({
+                "source": entry["path"],
+                "target": entry["path"],
+                "readOnly": access["sandbox"] == "read-only"
+            }));
         }
         workspaces.push(entry);
     }
@@ -361,8 +385,13 @@ pub async fn prepare(
     let output = output_directory.join("result.md");
     if !is_isolated {
         return Ok(json!({
-        "cwd":cwd,"output":output,"workspaces":workspaces,"isolated":false,"mounts":mounts,"skills":run["snapshot"]["skills"]}
-        ));
+            "cwd": cwd,
+            "output": output,
+            "workspaces": workspaces,
+            "isolated": false,
+            "mounts": mounts,
+            "skills": run["snapshot"]["skills"]
+        }));
     }
     let home = directory.join("home");
     private_dir(&home.join(".codex")).await?;
@@ -438,16 +467,22 @@ pub async fn prepare(
     mounts.insert(
         0,
         json!({
-        "source":root,"target":root,"readOnly":false}
-        ),
+            "source": root,
+            "target": root,
+            "readOnly": false
+        }),
     );
     mounts.extend([
         json!({
-        "source":home,"target":"/home/node","readOnly":false}
-        ),
+            "source": home,
+            "target": "/home/node",
+            "readOnly": false
+        }),
         json!({
-        "source":output_directory,"target":output_directory,"readOnly":false}
-        ),
+            "source": output_directory,
+            "target": output_directory,
+            "readOnly": false
+        }),
     ]);
     let empty = directory.join("empty");
     private_dir(&empty).await?;
@@ -456,15 +491,25 @@ pub async fn prepare(
             let target = Path::new(text(workspace, "path")).join(relative);
             if tokio::fs::try_exists(&target).await? {
                 mounts.push(json!({
-                "source":empty,"target":target,"readOnly":true}
-                ));
+                    "source": empty,
+                    "target": target,
+                    "readOnly": true
+                }));
             }
         }
     }
     Ok(json!({
-    "projectRoot":root,"cwd":cwd,"output":output,"workspaces":workspaces,"isolated":true,"mounts":mounts,"skills":skills,"backend":if microvm {"firecracker"} else {"local"}}
-    ))
+        "projectRoot": root,
+        "cwd": cwd,
+        "output": output,
+        "workspaces": workspaces,
+        "isolated": true,
+        "mounts": mounts,
+        "skills": skills,
+        "backend": if microvm { "firecracker" } else { "local" }
+    }))
 }
+
 pub async fn codex_home(config: &Config, home: &Path) -> Result<()> {
     private_dir(home).await?;
     let source = config.home.join(".codex");
@@ -487,6 +532,7 @@ pub async fn codex_home(config: &Config, home: &Path) -> Result<()> {
     }
     Ok(())
 }
+
 pub async fn restore(
     run: &Value,
     mut prepared: Value,
@@ -524,7 +570,11 @@ pub async fn restore(
                 Path::new(text(&migrated, "projectRoot")),
             )
             .await?;
-            migrated["mounts"].as_array_mut().unwrap().push(json!({"source":entry["path"],"target":entry["path"],"readOnly":policy(&run["snapshot"]["agent"])["sandbox"]=="read-only"}));
+            migrated["mounts"].as_array_mut().unwrap().push(json!({
+                "source": entry["path"],
+                "target": entry["path"],
+                "readOnly": policy(&run["snapshot"]["agent"])["sandbox"] == "read-only"
+            }));
             migrated["workspaces"].as_array_mut().unwrap().push(entry);
         }
         for old in prepared["workspaces"].as_array().into_iter().flatten() {
@@ -648,7 +698,11 @@ pub async fn restore(
                 .as_array_mut()
                 .unwrap()
                 .push(entry.clone());
-            prepared["mounts"].as_array_mut().unwrap().push(json!({"source":entry["path"],"target":entry["path"],"readOnly":policy(&run["snapshot"]["agent"])["sandbox"]=="read-only"}));
+            prepared["mounts"].as_array_mut().unwrap().push(json!({
+                "source": entry["path"],
+                "target": entry["path"],
+                "readOnly": policy(&run["snapshot"]["agent"])["sandbox"] == "read-only"
+            }));
         }
     }
     if prepared["isolated"]

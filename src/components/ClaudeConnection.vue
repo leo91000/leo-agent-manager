@@ -1,15 +1,57 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+} from 'vue'
 import { api, notify } from '../api'
-import { ArrowUpRight, CheckCircle2, LoaderCircle, LogIn, RefreshCw } from '../icons'
+import {
+  ArrowUpRight,
+  CheckCircle2,
+  LoaderCircle,
+  LogIn,
+  RefreshCw,
+} from '../icons'
 import Icon from './Icon.vue'
 import UiAlert from './UiAlert.vue'
 import UiButton from './UiButton.vue'
 
-interface Login { id: string, state: string, url: string | null, error: string | null, expiresAt: number }
-interface UsageWindow { id: string, label: string, usedPercent: number, resetsAt: number | null }
-interface Usage { windows: UsageWindow[], checkedAt: number | null, stale: boolean, error: string | null }
-interface Connection { maxConcurrent: number, activeRuns: number, serverConcurrency: number, usage?: Usage | null, connected: boolean, busy: boolean, email?: string | null, subscriptionType?: string | null, error?: string, login: Login | null }
+interface Login {
+  id: string
+  state: string
+  url: string | null
+  error: string | null
+  expiresAt: number
+}
+
+interface UsageWindow {
+  id: string
+  label: string
+  usedPercent: number
+  resetsAt: number | null
+}
+
+interface Usage {
+  windows: UsageWindow[]
+  checkedAt: number | null
+  stale: boolean
+  error: string | null
+}
+
+interface Connection {
+  maxConcurrent: number
+  activeRuns: number
+  serverConcurrency: number
+  usage?: Usage | null
+  connected: boolean
+  busy: boolean
+  email?: string | null
+  subscriptionType?: string | null
+  error?: string
+  login: Login | null
+}
+
 const connection = ref<Connection>()
 const busy = ref(false)
 const error = ref('')
@@ -24,6 +66,7 @@ const pending = computed(() => connection.value?.login?.state === 'pending')
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 let generation = 0
+
 async function load() {
   try {
     const next = await api<Connection>('/claude/connection')
@@ -33,6 +76,7 @@ async function load() {
       notify('Claude Code connected')
       code.value = ''
     }
+
     connection.value = next
     if (!concurrencyDirty.value)
       concurrency.value = next.maxConcurrent ?? 4
@@ -43,12 +87,14 @@ async function load() {
       error.value = (e as Error).message
   }
 }
+
 async function poll() {
   const current = ++generation
   await load()
   if (!disposed && current === generation)
     timer = setTimeout(poll, pending.value ? 2000 : 10000)
 }
+
 async function action(path: string, method = 'POST', body?: object) {
   busy.value = true
   error.value = ''
@@ -61,6 +107,7 @@ async function action(path: string, method = 'POST', body?: object) {
     else {
       submitted.value = false
     }
+
     if (path === 'connection' && method === 'PATCH')
       concurrencyDirty.value = false
     await load()
@@ -72,6 +119,7 @@ async function action(path: string, method = 'POST', body?: object) {
   catch (e) { error.value = (e as Error).message }
   finally { busy.value = false }
 }
+
 onMounted(poll)
 onBeforeUnmount(() => {
   disposed = true
@@ -112,7 +160,14 @@ onBeforeUnmount(() => {
           <div class="mb-2 flex justify-between gap-2 text-xs">
             <span>{{ window.label }}</span><span class="font-semibold">{{ Math.round(remaining(window)) }}% left</span>
           </div>
-          <div role="progressbar" :aria-label="`Claude Code ${window.label} remaining`" :aria-valuenow="remaining(window)" :aria-valuemin="0" :aria-valuemax="100" class="h-2 overflow-hidden rounded-full bg-hover">
+          <div
+            role="progressbar"
+            :aria-label="`Claude Code ${window.label} remaining`"
+            :aria-valuenow="remaining(window)"
+            :aria-valuemin="0"
+            :aria-valuemax="100"
+            class="h-2 overflow-hidden rounded-full bg-hover"
+          >
             <div class="h-full rounded-full transition-[width] motion-reduce:transition-none" :class="connection.usage.stale ? 'bg-muted' : remaining(window) < 5 ? 'bg-warning' : 'bg-accent'" :style="{ width: `${remaining(window)}%` }" />
           </div>
           <p class="mt-1.5 text-2xs text-muted">
@@ -140,12 +195,25 @@ onBeforeUnmount(() => {
       <p class="text-sm text-muted">
         Sign in on Anthropic’s page using your Claude subscription. Your password stays with Anthropic.
       </p>
-      <a v-if="connection?.login?.url" :href="connection.login.url" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white">Open Claude sign-in<Icon :name="ArrowUpRight" :size="16" /></a>
+      <a
+        v-if="connection?.login?.url"
+        :href="connection.login.url"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white"
+      >Open Claude sign-in<Icon :name="ArrowUpRight" :size="16" /></a>
       <p v-else class="text-xs text-muted">
         Preparing your secure sign-in link…
       </p>
       <form class="mt-4" @submit.prevent="action('login/code', 'POST', { id: connection?.login?.id, code })">
-        <label class="text-xs">Authorization code<input v-model="code" type="password" autocomplete="off" placeholder="Paste the code from Anthropic" :disabled="busy" aria-label="Claude authorization code"></label>
+        <label class="text-xs">Authorization code<input
+          v-model="code"
+          type="password"
+          autocomplete="off"
+          placeholder="Paste the code from Anthropic"
+          :disabled="busy"
+          aria-label="Claude authorization code"
+        ></label>
         <p class="text-xs text-muted">
           If Anthropic shows a code, paste it here to finish. This link expires after 15 minutes.
         </p>
@@ -164,7 +232,16 @@ onBeforeUnmount(() => {
     <form class="my-5 flex flex-wrap items-end gap-3" @submit.prevent="action('connection', 'PATCH', { maxConcurrent: concurrency })">
       <label class="grid gap-1 text-sm">
         Simultaneous Claude conversations
-        <input v-model.number="concurrency" type="number" min="1" max="32" step="1" required class="w-24 rounded-lg border border-line bg-surface px-3 py-2" @input="concurrencyDirty = true">
+        <input
+          v-model.number="concurrency"
+          type="number"
+          min="1"
+          max="32"
+          step="1"
+          required
+          class="w-24 rounded-lg border border-line bg-surface px-3 py-2"
+          @input="concurrencyDirty = true"
+        >
       </label>
       <UiButton type="submit" :disabled="busy || !concurrencyDirty">
         Save limit

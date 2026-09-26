@@ -7,10 +7,13 @@ use tokio::{
     io::{AsyncRead, AsyncReadExt},
     process::Command,
 };
+
 pub type Environment = HashMap<String, String>;
+
 pub fn remove_archive_environment(env: &mut Environment) {
     env.retain(|key, _| !key.starts_with("AWS_") && !key.starts_with("ARCHIVE_"));
 }
+
 pub fn codex_environment(config: &Config, home: &Path) -> Environment {
     let mut env = std::env::vars().collect::<Environment>();
     remove_archive_environment(&mut env);
@@ -21,6 +24,7 @@ pub fn codex_environment(config: &Config, home: &Path) -> Environment {
     }
     env
 }
+
 pub fn command(binary: &str, args: &[String], env: &Environment, cwd: Option<&Path>) -> Command {
     let mut command = Command::new(binary);
     command
@@ -36,11 +40,13 @@ pub fn command(binary: &str, args: &[String], env: &Environment, cwd: Option<&Pa
     }
     command
 }
+
 pub struct Output {
     pub success: bool,
     pub stdout: String,
     pub stderr: String,
 }
+
 pub async fn bounded_output(
     mut command: Command,
     timeout: Duration,
@@ -74,6 +80,7 @@ pub async fn bounded_output(
         }
     }
 }
+
 pub async fn read_bounded(reader: impl AsyncRead + Unpin, limit: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     reader

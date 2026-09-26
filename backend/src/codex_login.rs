@@ -27,8 +27,8 @@ pub(crate) async fn run(
         // Session::request discards notifications while awaiting the reply.
         // Keep them queued here so an immediately completed login is not lost.
         let started = tokio::select! {
-            _ = stop.cancelled() => return Err(cancelled()),
-            result = session.rpc.request("account/login/start", json!({"type":"chatgptDeviceCode"})) => result?,
+            _  =  stop.cancelled() => return Err(cancelled()),
+            result  =  session.rpc.request("account/login/start", json!({"type":"chatgptDeviceCode"})) => result?,
         };
         let (id, code, url) = challenge(&started)?;
         login_id = Some(id.to_owned());
@@ -42,9 +42,9 @@ pub(crate) async fn run(
         tokio::pin!(deadline);
         loop {
             tokio::select! {
-                _ = stop.cancelled() => return Err(cancelled()),
-                _ = &mut deadline => return Err(Error::new(408, "Sign-in expired. Try again to get a new code.")),
-                incoming = session.incoming.recv() => {
+                _  =  stop.cancelled() => return Err(cancelled()),
+                _  =  &mut deadline => return Err(Error::new(408, "Sign-in expired. Try again to get a new code.")),
+                incoming  =  session.incoming.recv() => {
                     let Some(incoming) = incoming else {
                         return Err(Error::new(503, "Codex disconnected during sign-in. Try again."));
                     };
@@ -69,9 +69,12 @@ pub(crate) async fn run(
     {
         let _ = tokio::time::timeout(
             Duration::from_secs(2),
-            session
-                .rpc
-                .request("account/login/cancel", json!({"loginId":id})),
+            session.rpc.request(
+                "account/login/cancel",
+                json!({
+                    "loginId": id
+                }),
+            ),
         )
         .await;
     }
@@ -118,7 +121,12 @@ mod tests {
 
     #[test]
     fn validates_structured_codes_without_assuming_terminal_format() {
-        let mut value = json!({"type":"chatgptDeviceCode","loginId":"fixture-login","userCode":"ABCD-12345","verificationUrl":"https://auth.openai.com/codex/device"});
+        let mut value = json!({
+            "type": "chatgptDeviceCode",
+            "loginId": "fixture-login",
+            "userCode": "ABCD-12345",
+            "verificationUrl": "https://auth.openai.com/codex/device"
+        });
         for code in ["ABCD-1234", "ABCD-12345", "abcd-12345"] {
             value["userCode"] = code.into();
             assert_eq!(challenge(&value).unwrap().1, code);

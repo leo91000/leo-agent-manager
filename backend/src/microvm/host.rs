@@ -128,7 +128,11 @@ pub async fn export_artifact(
     let mut stream = connect(socket).await?;
     wire::write(
         stream.get_mut(),
-        &json!({"op":"artifact-export","path":path,"root":root}),
+        &json!({
+            "op": "artifact-export",
+            "path": path,
+            "root": root,
+        }),
     )
     .await?;
     let reply = wire::read(&mut stream)
@@ -159,7 +163,14 @@ fn console(
 }
 
 async fn import(socket: &Path, source: &Path, target: &str) -> Result<()> {
-    let binary = request(socket, &json!({"op":"status"})).await?["binaryImports"] == true;
+    let binary = request(
+        socket,
+        &json!({
+            "op": "status",
+        }),
+    )
+    .await?["binaryImports"]
+        == true;
     let mut stream = connect(socket).await?;
     let empty = tokio::fs::read_dir(source)
         .await?
@@ -168,7 +179,12 @@ async fn import(socket: &Path, source: &Path, target: &str) -> Result<()> {
         .is_none();
     wire::write(
         stream.get_mut(),
-        &json!({"op":"import","target":target,"replace":empty,"encoding":if binary {"binary"} else {"json"}}),
+        &json!({
+            "op": "import",
+            "target": target,
+            "replace": empty,
+            "encoding": if binary { "binary" } else { "json" },
+        }),
     )
     .await?;
     transfer(stream, source, target, binary).await
@@ -181,24 +197,42 @@ pub async fn import_project(
     target: &str,
     read_only: bool,
 ) -> Result<Value> {
-    let binary = request(socket, &json!({"op":"status"})).await?["binaryImports"] == true;
+    let binary = request(
+        socket,
+        &json!({
+            "op": "status",
+        }),
+    )
+    .await?["binaryImports"]
+        == true;
     let mut stream = connect(socket).await?;
     wire::write(
         stream.get_mut(),
-        &json!({"op":"project-import","target":target,"readOnly":read_only,"encoding":if binary {"binary"} else {"json"}}),
+        &json!({
+            "op": "project-import",
+            "target": target,
+            "readOnly": read_only,
+            "encoding": if binary { "binary" } else { "json" },
+        }),
     )
     .await?;
     let response = wire::read(&mut stream)
         .await?
         .ok_or_else(|| Error::new(503, "Guest disconnected."))?;
     if response["ok"] == true {
-        return Ok(json!({"ok":true,"reused":true}));
+        return Ok(json!({
+            "ok": true,
+            "reused": true,
+        }));
     }
     if response["ready"] != true {
         return Err(Error::bad("Guest refused project import."));
     }
     transfer(stream, source, target, binary).await?;
-    Ok(json!({"ok":true,"reused":false}))
+    Ok(json!({
+        "ok": true,
+        "reused": false,
+    }))
 }
 
 async fn transfer(
@@ -232,7 +266,10 @@ async fn transfer(
         } else {
             wire::write(
                 stream.get_mut(),
-                &json!({"type":"chunk","data":STANDARD.encode(&buffer[..count])}),
+                &json!({
+                    "type": "chunk",
+                    "data": STANDARD.encode(&buffer[..count]),
+                }),
             )
             .await?;
         }
@@ -240,7 +277,13 @@ async fn transfer(
     if binary {
         wire::write_chunk(stream.get_mut(), &[]).await?;
     } else {
-        wire::write(stream.get_mut(), &json!({"type":"end"})).await?;
+        wire::write(
+            stream.get_mut(),
+            &json!({
+                "type": "end",
+            }),
+        )
+        .await?;
     }
     let code = child.wait().await?.code();
     if !matches!(code, Some(0 | 1)) {
@@ -262,6 +305,7 @@ struct Network {
     gateway: String,
     mac: String,
 }
+
 impl Network {
     fn new(slot: usize) -> Result<Self> {
         // Each live slot owns a distinct /30 in private 10.0.0.0/8. Check
@@ -285,6 +329,7 @@ impl Network {
             ),
         })
     }
+
     async fn create(&self, uid: u32) -> Result<()> {
         command(
             "ip",
@@ -423,6 +468,7 @@ impl Network {
         )
         .await
     }
+
     async fn remove(&self) {
         for args in [
             vec!["-w", "5", "-D", "INPUT", "-i", &self.tap, "-j", "DROP"],
@@ -501,6 +547,7 @@ pub struct Vm {
     paused: bool,
     uid: u32,
 }
+
 impl Vm {
     pub async fn boot(
         state: &Path,
@@ -564,11 +611,42 @@ impl Vm {
             tokio::fs::copy("/opt/leo-vm/vmlinux", jail.join("vmlinux")).await?;
             network.create(uid).await?;
             let config = json!({
-                "boot-source":{"kernel_image_path":"vmlinux","boot_args":format!("console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro init=/sbin/leo-init ip={}::{}:255.255.255.252:leo:eth0:off",network.guest,network.gateway)},
-                "drives":[{"drive_id":"root","path_on_host":"root.ext4","is_root_device":true,"is_read_only":true},{"drive_id":"data","path_on_host":"data.ext4","is_root_device":false,"is_read_only":false}],
-                "machine-config":{"vcpu_count":2,"mem_size_mib":4096,"smt":false},
-                "network-interfaces":[{"iface_id":"net","host_dev_name":network.tap,"guest_mac":network.mac}],
-                "vsock":{"guest_cid":slot+3,"uds_path":"v.sock"}
+                "boot-source": {
+                    "kernel_image_path": "vmlinux",
+                    "boot_args": format!(
+                        "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro init=/sbin/leo-init \
+            ip={}::{}:255.255.255.252:leo:eth0:off",
+                        network.guest, network.gateway
+                    ),
+                },
+                "drives": [
+                    {
+                        "drive_id": "root",
+                        "path_on_host": "root.ext4",
+                        "is_root_device": true,
+                        "is_read_only": true,
+                    },
+                    {
+                        "drive_id": "data",
+                        "path_on_host": "data.ext4",
+                        "is_root_device": false,
+                        "is_read_only": false,
+                    },
+                ],
+                "machine-config": {
+                    "vcpu_count": 2,
+                    "mem_size_mib": 4096,
+                    "smt": false,
+                },
+                "network-interfaces": [{
+                    "iface_id": "net",
+                    "host_dev_name": network.tap,
+                    "guest_mac": network.mac,
+                }],
+                "vsock": {
+                    "guest_cid": slot + 3,
+                    "uds_path": "v.sock",
+                },
             });
             atomic_write(&jail.join("config.json"), &serde_json::to_vec(&config)?).await?;
             std::os::unix::fs::chown(jail.join("config.json"), Some(uid), Some(uid))?;
@@ -616,12 +694,18 @@ impl Vm {
                 if child.as_mut().unwrap().try_wait()?.is_some() {
                     return Err(Error::new(
                         503,
-                        "Firecracker exited before the guest was ready. Check the VM boot log.",
+                        "Firecracker exited before the guest was ready. Check the VM boot \
+                        log.",
                     ));
                 }
                 if let Ok(Ok(status)) = tokio::time::timeout(
                     Duration::from_secs(1),
-                    request(socket, &json!({"op":"status"})),
+                    request(
+                        socket,
+                        &json!({
+                            "op": "status",
+                        }),
+                    ),
                 )
                 .await
                 {
@@ -638,7 +722,10 @@ impl Vm {
 
             Ok(())
         };
-        let result = tokio::select! { r = operation => r, _ = stop.cancelled() => Err(Error::new(503,"VM preparation stopped.")) };
+        let result = tokio::select! {
+            r = operation => r,
+            _ = stop.cancelled() => Err(Error::new(503, "VM preparation stopped.")),
+        };
         if let Err(error) = result {
             vm.shutdown().await;
             return Err(Error::new(
@@ -648,6 +735,7 @@ impl Vm {
         }
         Ok(vm)
     }
+
     pub async fn discard_prepared(&self) {
         if self
             .disk_dir
@@ -657,16 +745,31 @@ impl Vm {
             let _ = tokio::fs::remove_dir_all(&self.disk_dir).await;
         }
     }
+
     pub async fn pause(&mut self) -> Result<()> {
         self.vm_state("Paused").await?;
         self.paused = true;
         Ok(())
     }
+
     async fn vm_state(&self, state: &str) -> Result<()> {
-        let body = json!({"state":state}).to_string();
+        let body = json!({
+            "state": state,
+        })
+        .to_string();
         let operation = async {
             let mut stream = UnixStream::connect(self.jail.join("api.sock")).await?;
-            stream.write_all(format!("PATCH /vm HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await?;
+            stream
+                .write_all(
+                    format!(
+                        "PATCH /vm HTTP/1.1\r\nHost: localhost\r\nContent-Type: \
+                        application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .as_bytes(),
+                )
+                .await?;
             let mut reader = BufReader::new(stream);
             let mut line = String::new();
             reader.read_line(&mut line).await?;
@@ -680,10 +783,16 @@ impl Vm {
             .await
             .map_err(|_| Error::new(503, "VM state change timed out."))?
     }
+
     pub async fn warm(&mut self) -> Result<()> {
         let response = tokio::time::timeout(
             Duration::from_secs(60),
-            request(&self.socket, &json!({"op":"prepare"})),
+            request(
+                &self.socket,
+                &json!({
+                    "op": "prepare",
+                }),
+            ),
         )
         .await
         .map_err(|_| Error::new(503, "VM warmup timed out."))??;
@@ -692,6 +801,7 @@ impl Vm {
         }
         self.pause().await
     }
+
     pub async fn adopt(&mut self, state: &Path, run_id: &str) -> Result<()> {
         let target = state.join("disks").join(run_id);
         // No replace, including an existing empty directory: it may hold another owner's lock.
@@ -700,6 +810,7 @@ impl Vm {
         std::fs::File::open(state.join("disks"))?.sync_all()?;
         Ok(())
     }
+
     async fn resume(&mut self) -> Result<()> {
         if !self.paused {
             return Ok(());
@@ -708,7 +819,10 @@ impl Vm {
         self.paused = false;
         let status = request(
             &self.socket,
-            &json!({"op":"clock","epochMs":crate::config::now()}),
+            &json!({
+                "op": "clock",
+                "epochMs": crate::config::now(),
+            }),
         )
         .await?;
         if status["ok"] != true {
@@ -716,11 +830,13 @@ impl Vm {
         }
         Ok(())
     }
+
     pub async fn activate(&mut self) -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), self.resume())
             .await
             .map_err(|_| Error::new(503, "Guest resume timed out."))?
     }
+
     pub async fn shutdown(&mut self) {
         if self.paused {
             let _ = self.vm_state("Resumed").await;
@@ -728,7 +844,12 @@ impl Vm {
         }
         let _ = tokio::time::timeout(
             Duration::from_secs(2),
-            request(&self.socket, &json!({"op":"shutdown"})),
+            request(
+                &self.socket,
+                &json!({
+                    "op": "shutdown",
+                }),
+            ),
         )
         .await;
         if let Some(mut child) = self.child.take()
@@ -746,6 +867,7 @@ impl Vm {
         let _ = tokio::fs::remove_dir_all(self.jail.parent().unwrap()).await;
         self.lock.take();
     }
+
     pub async fn execute(
         &mut self,
         plan: &Value,
@@ -762,7 +884,10 @@ impl Vm {
             .unwrap_or("unknown");
         atomic_write(
             &state.join(format!("{id}.vm.json")),
-            &serde_json::to_vec(&json!({"vmId":vm_id,"runId":plan["runId"]}))?,
+            &serde_json::to_vec(&json!({
+                "vmId": vm_id,
+                "runId": plan["runId"],
+            }))?,
         )
         .await?;
         let socket = &self.socket;
@@ -789,11 +914,15 @@ impl Vm {
                 tokio::select! {
                     _ = relay_cancel.cancelled() => break,
                     accepted = auth_listener.accept() => {
-                        let Ok((mut guest,_))=accepted else {break};
-                        if let Some(path)=&auth_path {
+                        let Ok((mut guest, _)) = accepted else { break };
+                        if let Some(path) = &auth_path {
                             // Bound concurrency and lifetime; only this run's manager socket is reachable.
-                            if let Ok(mut manager)=UnixStream::connect(path).await {
-                                let _=tokio::time::timeout(Duration::from_secs(45),tokio::io::copy_bidirectional(&mut guest,&mut manager)).await;
+                            if let Ok(mut manager) = UnixStream::connect(path).await {
+                                let _ = tokio::time::timeout(
+                                    Duration::from_secs(45),
+                                    tokio::io::copy_bidirectional(&mut guest, &mut manager),
+                                )
+                                .await;
                             }
                         }
                     }
@@ -802,7 +931,13 @@ impl Vm {
         });
 
         let operation = async {
-            let status = request(socket, &json!({"op":"status"})).await?;
+            let status = request(
+                socket,
+                &json!({
+                    "op": "status",
+                }),
+            )
+            .await?;
             if status["initialized"] != true {
                 let mut imported = Vec::<(&Path, &str)>::new();
                 for mount in plan["imports"].as_array().into_iter().flatten() {
@@ -841,7 +976,14 @@ impl Vm {
                 }
             }
             let mut stream = connect(socket).await?;
-            wire::write(stream.get_mut(), &json!({"op":"run","plan":plan})).await?;
+            wire::write(
+                stream.get_mut(),
+                &json!({
+                    "op": "run",
+                    "plan": plan,
+                }),
+            )
+            .await?;
             let mut timer = tokio::time::interval(Duration::from_millis(500));
             let inbox = plan["imports"]
                 .as_array()
@@ -863,13 +1005,15 @@ impl Vm {
                 tokio::pin!(next);
                 let event = loop {
                     tokio::select! {
-                        event=&mut next=>break event,
-                        _=timer.tick()=>{
-                            if let Some(inbox)=&inbox {
-                                let content=tokio::fs::read(inbox.join("messages.json")).await.unwrap_or_default();
-                                if content!=last_inbox {
-                                    import(socket,inbox,"/run/leo-chat").await?;
-                                    last_inbox=content;
+                        event = &mut next => break event,
+                        _ = timer.tick() => {
+                            if let Some(inbox) = &inbox {
+                                let content = tokio::fs::read(inbox.join("messages.json"))
+                                    .await
+                                    .unwrap_or_default();
+                                if content != last_inbox {
+                                    import(socket, inbox, "/run/leo-chat").await?;
+                                    last_inbox = content;
                                 }
                             }
                         }
@@ -905,13 +1049,20 @@ impl Vm {
                         }
                         if let Some(directory) = plan["claudeState"].as_str() {
                             // Read fixed CLI-owned files through a private control response, never the run log.
-                            let state = request(socket, &json!({"op":"claude-state"})).await?;
+                            let state = request(
+                                socket,
+                                &json!({
+                                    "op": "claude-state",
+                                }),
+                            )
+                            .await?;
                             if state["ok"] != true
                                 || !state["files"][".credentials.json"].is_string()
                             {
                                 return Err(Error::new(
                                     503,
-                                    "Claude sign-in state could not be saved. Reconnect before starting another run.",
+                                    "Claude sign-in state could not be saved. Reconnect before \
+                                    starting another run.",
                                 ));
                             }
                             for name in [".credentials.json", ".claude.json"] {
@@ -938,8 +1089,10 @@ impl Vm {
                 }
             }
         };
-        let result =
-            tokio::select! { result = operation => result, _ = stop.cancelled() => Ok(143) };
+        let result = tokio::select! {
+            result = operation => result,
+            _ = stop.cancelled() => Ok(143),
+        };
         relay_stop.cancel();
         relay.abort();
         let _ = relay.await;
@@ -971,6 +1124,7 @@ fn rename_new(source: &Path, target: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn slot_networks_remain_distinct_above_four_and_one_byte() {
         let mut addresses = std::collections::HashSet::new();
@@ -993,6 +1147,7 @@ mod tests {
             assert!(Network::new(slot).is_err());
         }
     }
+
     #[test]
     fn adoption_never_replaces_a_workspace_or_its_lock() {
         let root = tempfile::tempdir().unwrap();

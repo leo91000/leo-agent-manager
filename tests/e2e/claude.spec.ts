@@ -16,6 +16,7 @@ test('Claude sign-in, provider selection and resumed chats work on desktop and m
     await expectSingleScroll(page)
     await section.screenshot({ path: testInfo.outputPath(`claude-login-${width}.png`) })
   }
+
   await section.getByLabel('Claude authorization code').fill('wrong')
   await section.getByRole('button', { name: 'Finish sign-in' }).click()
   await expect(section.getByRole('alert')).toContainText('could not finish')
@@ -93,6 +94,7 @@ test('switching coding agents preserves one chat, context and provider selection
     await section.getByLabel('Claude authorization code').fill('fixture-code')
     await section.getByRole('button', { name: 'Finish sign-in' }).click()
   }
+
   await expect(section.getByText('Connected', { exact: true })).toBeVisible()
   const chat = await workspace.api('/api/chats', 'POST', {})
   await workspace.api(`/api/chats/${chat.id}/messages`, 'POST', { id: crypto.randomUUID(), text: 'Preserve the existing design. Work on this conversation.' })
@@ -130,6 +132,7 @@ test('switching coding agents preserves one chat, context and provider selection
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
   }
+
   await page.getByLabel('Message', { exact: true }).fill('Continue with Claude using the previous decisions.')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect.poll(async () => {
@@ -160,9 +163,26 @@ test('switching coding agents preserves one chat, context and provider selection
 
 test('Claude usage distinguishes stale limits, unknown usage and disconnected accounts', async ({ page }) => {
   test.setTimeout(60000)
-  let usage: object | null = { windows: [{ id: 'five_hour', label: '5-hour window', usedPercent: 105, resetsAt: null }], stale: true, checkedAt: 1700000000000, error: 'Claude Code usage is temporarily unavailable.' }
+  let usage: object | null = {
+    windows: [{
+      id: 'five_hour',
+      label: '5-hour window',
+      usedPercent: 105,
+      resetsAt: null,
+    }],
+    stale: true,
+    checkedAt: 1700000000000,
+    error: 'Claude Code usage is temporarily unavailable.',
+  }
   let connected = true
-  await page.route('**/api/claude/connection', route => route.fulfill({ json: { connected, busy: false, login: null, usage } }))
+  await page.route('**/api/claude/connection', route => route.fulfill({
+    json: {
+      connected,
+      busy: false,
+      login: null,
+      usage,
+    },
+  }))
   await page.goto('/connections')
   await page.getByLabel('Password', { exact: true }).fill('browser-password-long-enough')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
@@ -172,7 +192,12 @@ test('Claude usage distinguishes stale limits, unknown usage and disconnected ac
   await expect(section.getByText('Last known usage', { exact: false })).toBeVisible()
   await expect(section.getByText('Reset time unavailable')).toBeVisible()
   await expect(section.getByText('Connected', { exact: true })).toBeVisible()
-  usage = { windows: [], checkedAt: null, stale: true, error: null }
+  usage = {
+    windows: [],
+    checkedAt: null,
+    stale: true,
+    error: null,
+  }
   await page.reload()
   await expect(section.getByText('Usage limits unavailable.', { exact: true })).toBeVisible()
   await expect(section.getByRole('progressbar')).toHaveCount(0)

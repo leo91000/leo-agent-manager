@@ -354,10 +354,17 @@ test('dark appearance settings, empty states and connection sign-in feedback', a
   await page.goto('/tasks')
   await expect(page.getByRole('heading', { name: 'No missions yet', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('empty-tasks.png'), fullPage: true, animations: 'disabled' })
-  await page.route('**/api/connections?*', route => route.fulfill({ json: [
-    { provider: 'codex', installed: true, connected: false, version: 'Test CLI' },
-    { provider: 'github', installed: false, connected: false },
-  ] }))
+  await page.route('**/api/connections?*', route => route.fulfill({
+    json: [
+      {
+        provider: 'codex',
+        installed: true,
+        connected: false,
+        version: 'Test CLI',
+      },
+      { provider: 'github', installed: false, connected: false },
+    ],
+  }))
   // Synthetic feedback only: never initiate a real device login or capture a real code.
   await page.route('**/api/codex/accounts/login', route => route.fulfill({ json: { state: 'pending', code: 'DEMO-CODE', url: 'https://example.com' } }))
   await page.goto('/connections')
@@ -367,6 +374,7 @@ test('dark appearance settings, empty states and connection sign-in feedback', a
     await page.setViewportSize({ width, height: width === 320 ? 568 : 1000 })
     await page.screenshot({ path: testInfo.outputPath(`${width}-connection-pending.png`), fullPage: true, animations: 'disabled' })
   }
+
   await page.unroute('**/api/codex/accounts/login')
   await page.route('**/api/codex/accounts/login', route => route.fulfill({ json: { state: 'failed', error: 'The verification code expired. Please try again.' } }))
   await expect(page.getByRole('heading', { name: 'Let’s try that again', exact: true })).toBeVisible()

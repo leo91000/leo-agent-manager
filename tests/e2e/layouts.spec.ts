@@ -24,12 +24,31 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
       await navigation.getByRole('link', { name: place, exact: true }).click()
     else
       await page.goto(place === 'Atelier' ? '/atelier' : destination)
-    const sections: Record<string, string> = { '/runs': 'Runs', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills', '/connections': 'Connections', '/settings': 'Settings', '/mcps': 'MCPs' }
+    const sections: Record<string, string> = {
+      '/runs': 'Runs',
+      '/agents': 'Agents',
+      '/projects': 'Projects',
+      '/skills': 'Skills',
+      '/connections': 'Connections',
+      '/settings': 'Settings',
+      '/mcps': 'MCPs',
+    }
     if (sections[destination]) {
       await expect(page.getByRole('heading', { name: 'Atelier', exact: true }).or(page.getByRole('navigation', { name: 'Atelier sections' }))).toBeVisible()
       await page.getByRole('link', { name: sections[destination], exact: true }).first().click()
     }
-    const headings: Record<string, string> = { '/': 'Fil', '/tasks': 'Missions', '/runs': 'Run history', '/agents': 'Agents', '/projects': 'Projects', '/skills': 'Skills library', '/connections': 'Connections', '/settings': 'Settings', '/mcps': 'MCPs' }
+
+    const headings: Record<string, string> = {
+      '/': 'Fil',
+      '/tasks': 'Missions',
+      '/runs': 'Run history',
+      '/agents': 'Agents',
+      '/projects': 'Projects',
+      '/skills': 'Skills library',
+      '/connections': 'Connections',
+      '/settings': 'Settings',
+      '/mcps': 'MCPs',
+    }
     if (headings[destination])
       await expect(page.getByRole('heading', { name: headings[destination], exact: true }).first()).toBeVisible()
     if (url.startsWith('/runs/')) {
@@ -37,6 +56,7 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
       await expect(page.locator('.run-title-meta')).toBeVisible()
     }
   }
+
   async function fits() {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
     await expectSingleScroll(page)
@@ -51,6 +71,7 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
       expect(Math.abs(bounds!.x + bounds!.width / 2 - page.viewportSize()!.width / 2)).toBeLessThan(2)
     }
   }
+
   async function screenshot(name: string) {
     await page.evaluate(() => document.fonts.ready)
     await fits()
@@ -61,9 +82,11 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
       }).map(el => el.className))
       expect(brightSurfaces).toEqual([])
     }
+
     const overlay = await page.locator('dialog[open], .sidebar.open').count()
     await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: !overlay, animations: 'disabled' })
   }
+
   const screens = [
     ['overview', '/', '.fil'],
     ['tasks', '/tasks', '.task-card'],
@@ -93,6 +116,7 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
         expect(geometry).toEqual({ aligned: true, separated: true })
       }
     }
+
     await page.getByRole('button', { name: /^Activity/ }).click()
     await expect(page.locator('.activity-group').first()).toBeAttached()
     expect((await page.locator('.activity-scroll').boundingBox())!.height).toBeGreaterThan(65)
@@ -194,11 +218,13 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
         await expect(list).not.toBeVisible()
         await expect(dialog).toBeVisible()
       }
+
       await dialog.getByRole('button').last().scrollIntoViewIfNeeded()
       await expect(dialog.getByRole('button').last()).toBeInViewport()
       await page.keyboard.press('Escape')
       await expect(dialog).toHaveCount(0)
     }
+
     await page.keyboard.press('Control+k')
     await page.getByRole('dialog').getByLabel('Search', { exact: true }).fill('review')
     await screenshot(`${viewport.width}-workspace-search`)
@@ -218,6 +244,7 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
     await expect(dock.getByRole('link', { name: 'New conversation' })).toBeInViewport()
     await screenshot(`dock-${height}`)
   }
+
   await dock.getByRole('link', { name: 'Atelier', exact: true }).click()
   await page.getByRole('button', { name: 'Sign out' }).scrollIntoViewIfNeeded()
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeInViewport()
@@ -231,7 +258,12 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
     description: `Maintains project ${index}`,
     model: '',
     reasoning: 'high',
-    access: { projects: null, skills: null, github: true, sandbox: 'yolo' },
+    access: {
+      projects: null,
+      skills: null,
+      github: true,
+      sandbox: 'yolo',
+    },
   }))
   await page.route('**/api/agents', route => route.fulfill({ json: manyAgents }))
   await page.goto('/tasks')
@@ -264,18 +296,56 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
   await expect(page.getByRole('textbox', { name: /^Tags/ })).toBeFocused()
   await page.keyboard.press('Escape')
   await page.unroute('**/api/agents')
+
   function history(events: RunEvent[]) {
     workspace.service.store.db.prepare('DELETE FROM events WHERE run_id=?').run(run.id)
     for (const event of events)
       workspace.service.store.event(run.id, event.type, event.text, event.payload)
   }
+
   history([
-    { id: 1, runId: run.id, createdAt: 1000, type: 'item.started', text: '' },
-    { id: 2, runId: run.id, createdAt: 1800, type: 'item.completed', text: 'Already up to date.\ncompatibility/css-feature-target.json' },
-    { id: 3, runId: run.id, createdAt: 2000, type: 'item.started', text: '' },
-    { id: 4, runId: run.id, createdAt: 2500, type: 'item.completed', text: '[{"id":123,"jobs":[{"name":"quality","conclusion":"success"}]}]' },
-    { id: 5, runId: run.id, createdAt: 3000, type: 'item.started', text: '' },
-    { id: 6, runId: run.id, createdAt: 3500, type: 'item.completed', text: 'implementation-pr {"files":["src/activity.ts"' },
+    {
+      id: 1,
+      runId: run.id,
+      createdAt: 1000,
+      type: 'item.started',
+      text: '',
+    },
+    {
+      id: 2,
+      runId: run.id,
+      createdAt: 1800,
+      type: 'item.completed',
+      text: 'Already up to date.\ncompatibility/css-feature-target.json',
+    },
+    {
+      id: 3,
+      runId: run.id,
+      createdAt: 2000,
+      type: 'item.started',
+      text: '',
+    },
+    {
+      id: 4,
+      runId: run.id,
+      createdAt: 2500,
+      type: 'item.completed',
+      text: '[{"id":123,"jobs":[{"name":"quality","conclusion":"success"}]}]',
+    },
+    {
+      id: 5,
+      runId: run.id,
+      createdAt: 3000,
+      type: 'item.started',
+      text: '',
+    },
+    {
+      id: 6,
+      runId: run.id,
+      createdAt: 3500,
+      type: 'item.completed',
+      text: 'implementation-pr {"files":["src/activity.ts"',
+    },
   ])
   await page.goto(`/runs/${run.id}`)
   await page.getByRole('button', { name: /^Activity/ }).click()
@@ -305,11 +375,67 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
   await expect(incomplete.getByRole('button', { name: 'Copy Saved source' })).toBeVisible()
   await expect(incomplete.locator('pre')).toContainText('{"files":["src/activity.ts"')
   history([
-    { id: 1, runId: run.id, createdAt: 1000, type: 'error', text: '', payload: { message: 'WebSocket connection failed: 503 Service Unavailable' } },
-    { id: 2, runId: run.id, createdAt: 2000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'rg needle src', exit_code: 1, status: 'failed' } } },
-    { id: 3, runId: run.id, createdAt: 3000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'diff before after', exit_code: 1, status: 'failed' } } },
-    { id: 4, runId: run.id, createdAt: 4000, type: 'item.completed', text: '', payload: { item: { type: 'command_execution', command: 'pnpm test', exit_code: 1, status: 'failed' } } },
-    { id: 5, runId: run.id, createdAt: 5000, type: 'turn.completed', text: '', payload: {} },
+    {
+      id: 1,
+      runId: run.id,
+      createdAt: 1000,
+      type: 'error',
+      text: '',
+      payload: { message: 'WebSocket connection failed: 503 Service Unavailable' },
+    },
+    {
+      id: 2,
+      runId: run.id,
+      createdAt: 2000,
+      type: 'item.completed',
+      text: '',
+      payload: {
+        item: {
+          type: 'command_execution',
+          command: 'rg needle src',
+          exit_code: 1,
+          status: 'failed',
+        },
+      },
+    },
+    {
+      id: 3,
+      runId: run.id,
+      createdAt: 3000,
+      type: 'item.completed',
+      text: '',
+      payload: {
+        item: {
+          type: 'command_execution',
+          command: 'diff before after',
+          exit_code: 1,
+          status: 'failed',
+        },
+      },
+    },
+    {
+      id: 4,
+      runId: run.id,
+      createdAt: 4000,
+      type: 'item.completed',
+      text: '',
+      payload: {
+        item: {
+          type: 'command_execution',
+          command: 'pnpm test',
+          exit_code: 1,
+          status: 'failed',
+        },
+      },
+    },
+    {
+      id: 5,
+      runId: run.id,
+      createdAt: 5000,
+      type: 'turn.completed',
+      text: '',
+      payload: {},
+    },
   ])
   await page.goto(`/runs/${run.id}`)
   await page.getByRole('button', { name: /^Activity/ }).click()
@@ -319,6 +445,7 @@ async function checkMobileLayouts(page: Page, workspace: Workspace, testInfo: Te
     await expect(card).toHaveAttribute('data-status', 'info')
     await expect(card.locator('.operation-error')).toHaveCount(0)
   }
+
   await expect(page.locator('.operation-card[data-status="error"]')).toHaveCount(1)
   await screenshot('command-outcomes')
   expect(errors).toEqual([])

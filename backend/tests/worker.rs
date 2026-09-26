@@ -10,6 +10,7 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
 };
+
 struct Fixture {
     root: TempDir,
     service: Arc<Service>,
@@ -29,9 +30,15 @@ async fn verbose_tools_do_not_hide_chat_answers_or_failures() {
         } else {
             "fixture:verbose-tools"
         };
-        s.chat_send(chat_id, json!({"id":id(),"text":prompt}))
-            .await
-            .unwrap();
+        s.chat_send(
+            chat_id,
+            json!({
+                "id": id(),
+                "text": prompt,
+            }),
+        )
+        .await
+        .unwrap();
         let run_id = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 if let Some(id) = s.chat_detail(chat_id).await.unwrap()["runId"].as_str() {
@@ -78,7 +85,8 @@ async fn verbose_tools_do_not_hide_chat_answers_or_failures() {
                     .any(|event| event["payload"]["item"]["type"] == "agent_message"
                         && text(&event["payload"]["item"], "text")
                             .contains("Ready for the next step.")),
-                "The completed answer must reach the newest conversation page even after verbose tools"
+                "The completed answer must reach the newest conversation page even after verbose \
+                tools"
             );
             assert!(events.iter().any(|e| e["type"] == "item.updated"
                 && e["payload"]["item"]["text"] == "Still responding after verbose tools."));
@@ -94,12 +102,27 @@ async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replayi
     let s = &fixture.service;
     let claude_home = leo_agent_manager::claude::home(&s.config);
     std::fs::create_dir_all(&claude_home).unwrap();
-    std::fs::write(claude_home.join(".credentials.json"), json!({"claudeAiOauth":{"accessToken":"fixture-access","refreshToken":"fixture-refresh","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
+    std::fs::write(
+        claude_home.join(".credentials.json"),
+        json!({
+            "claudeAiOauth": {
+                "accessToken": "fixture-access",
+                "refreshToken": "fixture-refresh",
+                "expiresAt": leo_agent_manager::config::now() + 3600000,
+                "scopes": ["user:inference"],
+            },
+        })
+        .to_string(),
+    )
+    .unwrap();
     let chat = s.chat_create(json!({})).await.unwrap();
     let chat_id = text(&chat, "id");
     s.chat_send(
         chat_id,
-        json!({"id":id(),"text":"Keep the existing design and inspect the workspace."}),
+        json!({
+            "id": id(),
+            "text": "Keep the existing design and inspect the workspace.",
+        }),
     )
     .await
     .unwrap();
@@ -117,8 +140,12 @@ async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replayi
     let first = fixture.until(&run_id, |r| r["status"] == "succeeded").await;
     let marker = std::path::Path::new(text(&first, "workspace")).join("preserved.txt");
     std::fs::write(&marker, "completed work").unwrap();
-    let message =
-        json!({"id":id(),"text":"Continue with Claude.","provider":"claude","model":"opus[1m]"});
+    let message = json!({
+        "id": id(),
+        "text": "Continue with Claude.",
+        "provider": "claude",
+        "model": "opus[1m]",
+    });
     s.chat_send(chat_id, message.clone()).await.unwrap();
     let second = fixture
         .until(&run_id, |r| {
@@ -143,7 +170,10 @@ async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replayi
             .len(),
         2
     );
-    let continuation = json!({"id":id(),"text":"Keep using Claude."});
+    let continuation = json!({
+        "id": id(),
+        "text": "Keep using Claude.",
+    });
     s.chat_send(chat_id, continuation.clone()).await.unwrap();
     fixture
         .until(&run_id, |r| {
@@ -155,8 +185,11 @@ async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replayi
             .unwrap()
             .contains("--resume")
     );
-    let back =
-        json!({"id":id(),"text":"Return to Codex and preserve the decisions.","provider":"codex"});
+    let back = json!({
+        "id": id(),
+        "text": "Return to Codex and preserve the decisions.",
+        "provider": "codex",
+    });
     s.chat_send(chat_id, back.clone()).await.unwrap();
     let last = fixture
         .until(&run_id, |r| {
@@ -171,6 +204,7 @@ async fn chat_switches_codex_claude_and_back_without_losing_workspace_or_replayi
     assert_eq!(s.chat_detail(chat_id).await.unwrap()["runId"], run_id);
     fixture.stop(false).await;
 }
+
 #[tokio::test]
 async fn chat_messages_invoke_dollar_skills_without_changing_the_visible_text() {
     let mut fixture = Fixture::new().await;
@@ -178,7 +212,8 @@ async fn chat_messages_invoke_dollar_skills_without_changing_the_visible_text() 
     s.skills
         .save(
             "review",
-            "---\nname: review\ndescription: Review the current changes\n---\nReview carefully.\n",
+            "---\nname: review\ndescription: Review the current changes\n---\nReview \
+            carefully.\n",
             None,
         )
         .await
@@ -186,9 +221,15 @@ async fn chat_messages_invoke_dollar_skills_without_changing_the_visible_text() 
     let chat = s.chat_create(json!({})).await.unwrap();
     let chat_id = text(&chat, "id");
     let request = "$review the workspace and keep $HOME untouched.";
-    s.chat_send(chat_id, json!({"id":id(),"text":request}))
-        .await
-        .unwrap();
+    s.chat_send(
+        chat_id,
+        json!({
+            "id": id(),
+            "text": request,
+        }),
+    )
+    .await
+    .unwrap();
     let run_id = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             if let Some(id) = s.chat_detail(chat_id).await.unwrap()["runId"].as_str() {
@@ -211,6 +252,7 @@ async fn chat_messages_invoke_dollar_skills_without_changing_the_visible_text() 
     );
     fixture.stop(false).await;
 }
+
 impl Fixture {
     async fn new() -> Self {
         let root = TempDir::new().unwrap();
@@ -247,9 +289,11 @@ impl Fixture {
         fixture.start().await;
         fixture
     }
+
     async fn start(&mut self) {
         self.start_backend(false).await;
     }
+
     async fn start_backend(&mut self, legacy: bool) {
         let file = self.root.path().join("config.json");
         tokio::fs::write(&file, serde_json::to_vec(&self.service.config).unwrap())
@@ -290,6 +334,7 @@ impl Fixture {
         self.url = line.trim_start_matches("Listening on ").to_owned();
         self.process = Some(child);
     }
+
     async fn stop(&mut self, abrupt: bool) {
         if let Some(mut process) = self.process.take() {
             if abrupt {
@@ -305,13 +350,27 @@ impl Fixture {
             }
         }
     }
+
     async fn enqueue(&self, prompt: &str) -> Value {
-        let task = self.service.task(json!({"name":"Fixture run","prompt":prompt,"worktree":false,"agentId":leo_agent_manager::config::MAIN_AGENT_ID}), None).await.unwrap();
+        let task = self
+            .service
+            .task(
+                json!({
+                    "name": "Fixture run",
+                    "prompt": prompt,
+                    "worktree": false,
+                    "agentId": leo_agent_manager::config::MAIN_AGENT_ID,
+                }),
+                None,
+            )
+            .await
+            .unwrap();
         self.service
             .enqueue(text(&task, "id"), "manual", None)
             .await
             .unwrap()
     }
+
     async fn until(&self, id: &str, condition: impl Fn(&Value) -> bool) -> Value {
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
@@ -363,9 +422,51 @@ async fn usage_exhaustion_switches_accounts_and_preserves_the_conversation() {
     let mut usage = json!({});
     for (name, used) in [("More capacity", 10), ("Backup", 30)] {
         let id = id();
-        let limits = json!({"ordinaryUsageAllowed":true,"rateLimits":{"limitId":"codex","primary":{"usedPercent":used,"windowDurationMins":300,"resetsAt":now()/1000+7200}}});
-        s.store.put("codexAccounts", json!({"id":id,"name":name,"enabled":true,"email":format!("{id}@example.test"),"plan":"plus","identity":null,"createdAt":now(),"checkedAt":now(),"state":"ready","error":"","limits":limits,"lastUsedAt":null,"exhausted":null})).await.unwrap();
-        s.vault.set(&format!("codex-account:{id}"), &json!({"tokens":{"account_id":id,"access_token":"synthetic-access","refresh_token":"synthetic-refresh"}})).await.unwrap();
+        let limits = json!({
+            "ordinaryUsageAllowed": true,
+            "rateLimits": {
+                "limitId": "codex",
+                "primary": {
+                    "usedPercent": used,
+                    "windowDurationMins": 300,
+                    "resetsAt": now() / 1000 + 7200,
+                },
+            },
+        });
+        s.store
+            .put(
+                "codexAccounts",
+                json!({
+                    "id": id,
+                    "name": name,
+                    "enabled": true,
+                    "email": format!("{id}@example.test"),
+                    "plan": "plus",
+                    "identity": null,
+                    "createdAt": now(),
+                    "checkedAt": now(),
+                    "state": "ready",
+                    "error": "",
+                    "limits": limits,
+                    "lastUsedAt": null,
+                    "exhausted": null,
+                }),
+            )
+            .await
+            .unwrap();
+        s.vault
+            .set(
+                &format!("codex-account:{id}"),
+                &json!({
+                    "tokens": {
+                        "account_id": id,
+                        "access_token": "synthetic-access",
+                        "refresh_token": "synthetic-refresh",
+                    },
+                }),
+            )
+            .await
+            .unwrap();
         usage[&id] = limits;
         accounts.push(id);
     }
@@ -383,6 +484,7 @@ async fn usage_exhaustion_switches_accounts_and_preserves_the_conversation() {
     assert_eq!(completed["sessionId"], "fixture-chat");
     fixture.stop(false).await;
 }
+
 #[tokio::test]
 async fn native_worker_records_artifacts_and_completes_task() {
     let mut fixture = Fixture::new().await;
@@ -423,7 +525,21 @@ async fn parallel_managed_tasks_resume_after_restart_without_refresh_credentials
         .set("codex-accounts-enabled", json!(true), None)
         .await
         .unwrap();
-    fixture.service.vault.set(&format!("codex-account:{account_id}"), &json!({"tokens":{"access_token":"synthetic","refresh_token":"secret-refresh","account_id":"shared"}})).await.unwrap();
+    fixture
+        .service
+        .vault
+        .set(
+            &format!("codex-account:{account_id}"),
+            &json!({
+                "tokens": {
+                    "access_token": "synthetic",
+                    "refresh_token": "secret-refresh",
+                    "account_id": "shared",
+                },
+            }),
+        )
+        .await
+        .unwrap();
     fixture.start().await;
     let first = fixture.enqueue("fixture:chat-hang first task").await;
     let second = fixture.enqueue("fixture:chat-hang second task").await;
@@ -468,6 +584,7 @@ async fn parallel_managed_tasks_resume_after_restart_without_refresh_credentials
     );
     fixture.stop(false).await;
 }
+
 #[tokio::test]
 async fn abrupt_restart_fences_previous_process_and_resumes_workspace() {
     let mut fixture = Fixture::new().await;
@@ -502,6 +619,7 @@ async fn abrupt_restart_fences_previous_process_and_resumes_workspace() {
     );
     fixture.stop(false).await;
 }
+
 #[tokio::test]
 async fn native_chat_turns_reuse_the_same_run_and_conversation() {
     let mut fixture = Fixture::new().await;
@@ -509,7 +627,13 @@ async fn native_chat_turns_reuse_the_same_run_and_conversation() {
     let chat_id = text(&chat, "id");
     fixture
         .service
-        .chat_send(chat_id, json!({"id":id(),"text":"First message"}))
+        .chat_send(
+            chat_id,
+            json!({
+                "id": id(),
+                "text": "First message",
+            }),
+        )
         .await
         .unwrap();
     let run_id = tokio::time::timeout(Duration::from_secs(10), async {
@@ -531,7 +655,13 @@ async fn native_chat_turns_reuse_the_same_run_and_conversation() {
     assert_eq!(first["status"], "succeeded", "{first}");
     fixture
         .service
-        .chat_send(chat_id, json!({"id":id(),"text":"Second message"}))
+        .chat_send(
+            chat_id,
+            json!({
+                "id": id(),
+                "text": "Second message",
+            }),
+        )
         .await
         .unwrap();
     let second = fixture
@@ -546,7 +676,13 @@ async fn native_chat_turns_reuse_the_same_run_and_conversation() {
     );
     fixture
         .service
-        .chat_send(chat_id, json!({"id":id(),"text":"fixture:disconnect"}))
+        .chat_send(
+            chat_id,
+            json!({
+                "id": id(),
+                "text": "fixture:disconnect",
+            }),
+        )
         .await
         .unwrap();
     let failed = fixture.until(&run_id, |r| r["status"] == "failed").await;
@@ -579,7 +715,11 @@ async fn chat_attachments_survive_worker_restart_and_reach_codex() {
         .service
         .chat_send(
             chat_id,
-            json!({"id":id(),"text":"fixture:chat-hang","attachmentIds":[attachment_id]}),
+            json!({
+                "id": id(),
+                "text": "fixture:chat-hang",
+                "attachmentIds": [attachment_id],
+            }),
         )
         .await
         .unwrap();
@@ -679,7 +819,8 @@ async fn controller_interruptions_resume_saved_threads_and_stop_after_three_reco
                 let index = plans.iter().position(|plan| plan["id"] == attempt).unwrap();
                 let mut output = String::from("{\"type\":\"thread.started\",\"thread_id\":\"fixture-session\"}\n");
                 if index >= state.failures {
-                    output.push_str("{\"type\":\"item.completed\",\"item\":{\"id\":\"reply\",\"type\":\"agent_message\",\"text\":\"resumed VM\"}}\n{\"type\":\"turn.completed\",\"usage\":{}}\n");
+                    output.push_str("{\"type\":\"item.completed\",\"item\":{\"id\":\"reply\",\"type\":\"agent_message\",\"text\":\"resumed \
+                    VM\"}}\n{\"type\":\"turn.completed\",\"usage\":{}}\n");
                 }
                 return Body::from(format!("{}\n",json!({"type":"output","stderr":false,"data":STANDARD.encode(output)}))).into_response();
             }
@@ -742,7 +883,19 @@ async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_th
     let s = &fixture.service;
     let home = leo_agent_manager::claude::home(&s.config);
     std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".credentials.json"), json!({"claudeAiOauth":{"accessToken":"fixture-access","refreshToken":"private-refresh","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
+    std::fs::write(
+        home.join(".credentials.json"),
+        json!({
+            "claudeAiOauth": {
+                "accessToken": "fixture-access",
+                "refreshToken": "private-refresh",
+                "expiresAt": leo_agent_manager::config::now() + 3600000,
+                "scopes": ["user:inference"],
+            },
+        })
+        .to_string(),
+    )
+    .unwrap();
     s.store
         .set("claude-concurrency", json!(2), None)
         .await
@@ -758,7 +911,12 @@ async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_th
         let chat_id = text(&chat, "id").to_owned();
         s.chat_send(
             &chat_id,
-            json!({"id":id(),"text":prompt,"provider":"claude","model":"sonnet"}),
+            json!({
+                "id": id(),
+                "text": prompt,
+                "provider": "claude",
+                "model": "sonnet",
+            }),
         )
         .await
         .unwrap();
@@ -822,7 +980,12 @@ async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_th
     s.question_answer(
         &chats[0],
         &first_question,
-        json!({"id":id(),"answers":{"0":["Small change"]}}),
+        json!({
+            "id": id(),
+            "answers": {
+                "0": ["Small change"],
+            },
+        }),
     )
     .await
     .unwrap();
@@ -842,7 +1005,12 @@ async fn claude_conversations_run_together_and_lowering_limit_does_not_cancel_th
     s.question_answer(
         &chats[1],
         &second_question,
-        json!({"id":id(),"answers":{"0":["Small change"]}}),
+        json!({
+            "id": id(),
+            "answers": {
+                "0": ["Small change"],
+            },
+        }),
     )
     .await
     .unwrap();
@@ -920,14 +1088,22 @@ async fn unlimited_runs_can_be_cancelled_and_finite_checkpoints_still_expire() {
     let mut snapshot = run["snapshot"].clone();
     snapshot["agent"]["timeoutMinutes"] = 1.into();
     s.store
-        .patch_run(id, json!({"snapshot":snapshot}))
+        .patch_run(
+            id,
+            json!({
+                "snapshot": snapshot,
+            }),
+        )
         .await
         .unwrap();
     // Resume the final five seconds of an existing one-minute budget.
     s.store
         .set(
             &format!("run-checkpoint:{id}"),
-            json!({"launched":false,"remainingMs":5000}),
+            json!({
+                "launched": false,
+                "remainingMs": 5000,
+            }),
             None,
         )
         .await

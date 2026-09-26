@@ -1,9 +1,19 @@
 <script setup lang="ts">
 import type { CodexAccountView, CodexLoginFlow, UsageWindow } from '../../shared/codex-accounts'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+} from 'vue'
 import { usageBlocked } from '../../shared/codex-accounts'
 import { api, date, notify } from '../api'
-import { ArrowUpRight, BrandOpenAI, Plus, RefreshCw } from '../icons'
+import {
+  ArrowUpRight,
+  BrandOpenAI,
+  Plus,
+  RefreshCw,
+} from '../icons'
 import CodexSignIn from './CodexSignIn.vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
@@ -28,6 +38,7 @@ const stale = (account: CodexAccountView) => !account.checkedAt || now.value - a
 const activeRuns = (account: CodexAccountView) => account.activeRunIds ?? (account.activeRunId ? [account.activeRunId] : [])
 const eligible = (account: CodexAccountView) => account.enabled && account.state === 'ready' && !stale(account) && !account.exhausted && activeRuns(account).length < (account.maxConcurrentRuns ?? 4) && account.limits && !usageBlocked(account.limits) && (account.remainingPercent ?? 0) > 0
 const next = computed(() => accounts.value.filter(eligible).sort((a, b) => b.remainingPercent! - a.remainingPercent! || (a.lastUsedAt ?? 0) - (b.lastUsedAt ?? 0) || a.id.localeCompare(b.id))[0]?.id)
+
 function status(account: CodexAccountView) {
   if (!account.enabled)
     return 'Paused'
@@ -47,9 +58,11 @@ function status(account: CodexAccountView) {
     return 'Next run'
   return account.remainingPercent < 5 ? 'Low usage' : 'Ready'
 }
+
 function windows(account: CodexAccountView) {
   return [account.limits?.rateLimits.primary, account.limits?.rateLimits.secondary].filter((window): window is UsageWindow => !!window)
 }
+
 function windowLabel(window: UsageWindow) {
   const minutes = window.windowDurationMins
   if (!minutes)
@@ -60,7 +73,9 @@ function windowLabel(window: UsageWindow) {
     return `${minutes / 1440}-day window`
   return minutes % 60 === 0 ? `${minutes / 60}-hour window` : `${minutes}-minute window`
 }
+
 const remaining = (window: UsageWindow) => Math.max(0, Math.min(100, 100 - window.usedPercent))
+
 function resetLabel(window: UsageWindow) {
   if (!window.resetsAt)
     return 'Reset time unavailable'
@@ -73,10 +88,12 @@ function resetLabel(window: UsageWindow) {
     return `Resets in ${Math.floor(minutes / 60)}h ${minutes % 60}m`
   return `Resets in ${Math.floor(minutes / 1440)}d ${Math.floor(minutes % 1440 / 60)}h`
 }
+
 async function load(refresh = false) {
   accounts.value = await api(`/codex/accounts${refresh ? '/refresh' : ''}`, refresh ? { method: 'POST' } : {})
   now.value = Date.now()
 }
+
 async function action(operation: () => Promise<void>) {
   busy.value = true
   error.value = ''
@@ -90,12 +107,14 @@ async function action(operation: () => Promise<void>) {
     busy.value = false
   }
 }
+
 function edit(account?: CodexAccountView) {
   editing.value = account
   name.value = account?.name ?? ''
   maxConcurrentRuns.value = account?.maxConcurrentRuns ?? 4
   open.value = true
 }
+
 async function save() {
   await action(async () => {
     if (editing.value) {
@@ -104,26 +123,31 @@ async function save() {
     else {
       flow.value = await api('/codex/accounts/login', { method: 'POST', body: JSON.stringify({ name: name.value }) })
     }
+
     open.value = false
     await load()
   })
 }
+
 async function reconnect(account: CodexAccountView) {
   await action(async () => {
     flow.value = await api('/codex/accounts/login', { method: 'POST', body: JSON.stringify({ name: account.name, id: account.id }) })
   })
 }
+
 async function retry() {
   const account = accounts.value.find(account => account.id === flow.value?.accountId)
   if (account)
     await reconnect(account)
 }
+
 async function toggle(account: CodexAccountView) {
   await action(async () => {
     await api(`/codex/accounts/${account.id}`, { method: 'PUT', body: JSON.stringify({ name: account.name, enabled: !account.enabled }) })
     await load()
   })
 }
+
 async function cancel() {
   await action(async () => {
     await api('/codex/accounts/login', { method: 'DELETE' })
@@ -131,6 +155,7 @@ async function cancel() {
     await load()
   })
 }
+
 async function remove() {
   if (!removing.value)
     return
@@ -141,6 +166,7 @@ async function remove() {
     await load()
   })
 }
+
 async function poll() {
   if (polling || busy.value)
     return
@@ -163,6 +189,7 @@ async function poll() {
     loading.value = false
   }
 }
+
 onMounted(() => {
   void poll()
   window.addEventListener('focus', poll)
@@ -191,10 +218,20 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <UiButton :disabled="busy" size="small" aria-label="Refresh Codex usage" @click="action(() => load(true))">
+        <UiButton
+          :disabled="busy"
+          size="small"
+          aria-label="Refresh Codex usage"
+          @click="action(() => load(true))"
+        >
           <Icon :name="RefreshCw" :size="15" />Refresh
         </UiButton>
-        <UiButton variant="primary" size="small" :disabled="busy || flow?.state === 'pending' || accounts.length >= 10" @click="edit()">
+        <UiButton
+          variant="primary"
+          size="small"
+          :disabled="busy || flow?.state === 'pending' || accounts.length >= 10"
+          @click="edit()"
+        >
           <Icon :name="Plus" :size="15" />Add account
         </UiButton>
       </div>
@@ -202,7 +239,13 @@ onBeforeUnmount(() => {
     <UiAlert v-if="error || pollError">
       {{ error || pollError }}
     </UiAlert>
-    <CodexSignIn v-if="flow?.state === 'pending' || flow?.state === 'failed'" :flow="flow" :busy="busy" @cancel="cancel" @retry="retry" />
+    <CodexSignIn
+      v-if="flow?.state === 'pending' || flow?.state === 'failed'"
+      :flow="flow"
+      :busy="busy"
+      @cancel="cancel"
+      @retry="retry"
+    />
     <p v-if="loading" class="text-muted py-6" role="status">
       Loading accounts…
     </p>
@@ -212,7 +255,13 @@ onBeforeUnmount(() => {
       </p>
     </div>
     <div class="grid grid-cols-2 gap-4 tablet:grid-cols-1">
-      <article v-for="account in accounts" :key="account.id" class="codex-account-card min-w-0 rounded-card border bg-surface p-5 phone:p-4" :class="account.id === next ? 'border-accent' : 'border-line'" :aria-label="account.name">
+      <article
+        v-for="account in accounts"
+        :key="account.id"
+        class="codex-account-card min-w-0 rounded-card border bg-surface p-5 phone:p-4"
+        :class="account.id === next ? 'border-accent' : 'border-line'"
+        :aria-label="account.name"
+      >
         <header class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <h3 class="break-words">
@@ -231,7 +280,14 @@ onBeforeUnmount(() => {
             <div class="mb-2 flex justify-between gap-2 text-xs">
               <span>{{ windowLabel(window) }}</span><span class="font-semibold">{{ Math.round(remaining(window)) }}% left</span>
             </div>
-            <div role="progressbar" :aria-label="`${account.name} ${windowLabel(window)} remaining`" :aria-valuenow="remaining(window)" :aria-valuemin="0" :aria-valuemax="100" class="h-2 overflow-hidden rounded-full bg-hover">
+            <div
+              role="progressbar"
+              :aria-label="`${account.name} ${windowLabel(window)} remaining`"
+              :aria-valuenow="remaining(window)"
+              :aria-valuemin="0"
+              :aria-valuemax="100"
+              class="h-2 overflow-hidden rounded-full bg-hover"
+            >
               <div class="h-full rounded-full transition-[width] motion-reduce:transition-none" :class="stale(account) || !account.enabled ? 'bg-muted' : remaining(window) < 5 ? 'bg-warning' : 'bg-accent'" :style="{ width: `${remaining(window)}%` }" />
             </div>
             <p class="mt-1.5 text-2xs text-muted" :title="window.resetsAt ? date(window.resetsAt * 1000) : undefined">
@@ -254,20 +310,41 @@ onBeforeUnmount(() => {
         <p v-if="account.checkedAt" class="mt-4 text-2xs text-muted" :title="date(account.checkedAt)">
           Updated {{ Math.max(0, Math.floor((now - account.checkedAt) / 1000)) }}s ago
         </p>
-        <RouterLink v-for="(runId, index) in activeRuns(account)" :key="runId" :to="`/runs/${runId}`" class="mt-3 inline-flex items-center gap-1 text-xs text-accent">
+        <RouterLink
+          v-for="(runId, index) in activeRuns(account)"
+          :key="runId"
+          :to="`/runs/${runId}`"
+          class="mt-3 inline-flex items-center gap-1 text-xs text-accent"
+        >
           View run {{ index + 1 }}<Icon :name="ArrowUpRight" :size="13" />
         </RouterLink>
         <footer class="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
-          <UiButton size="small" :disabled="busy || flow?.state === 'pending'" :aria-label="`${account.enabled ? 'Pause' : 'Enable'} ${account.name}`" @click="toggle(account)">
+          <UiButton
+            size="small"
+            :disabled="busy || flow?.state === 'pending'"
+            :aria-label="`${account.enabled ? 'Pause' : 'Enable'} ${account.name}`"
+            @click="toggle(account)"
+          >
             {{ account.enabled ? 'Pause' : 'Enable' }}
           </UiButton>
-          <UiButton size="small" :disabled="busy || flow?.state === 'pending'" :aria-label="`Edit ${account.name}`" @click="edit(account)">
+          <UiButton
+            size="small"
+            :disabled="busy || flow?.state === 'pending'"
+            :aria-label="`Edit ${account.name}`"
+            @click="edit(account)"
+          >
             Edit
           </UiButton>
           <UiButton size="small" :disabled="busy || !!account.activeRunId || flow?.state === 'pending'" @click="reconnect(account)">
             Reconnect
           </UiButton>
-          <UiButton size="small" variant="danger-outline" :disabled="busy || !!account.activeRunId || flow?.state === 'pending'" :aria-label="`Remove ${account.name}`" @click="removing = account">
+          <UiButton
+            size="small"
+            variant="danger-outline"
+            :disabled="busy || !!account.activeRunId || flow?.state === 'pending'"
+            :aria-label="`Remove ${account.name}`"
+            @click="removing = account"
+          >
             Remove
           </UiButton>
         </footer>
@@ -282,7 +359,19 @@ onBeforeUnmount(() => {
       <div class="grid gap-4 p-6">
         <UiAlert v-if="error">
           {{ error }}
-        </UiAlert><label v-if="editing">Parallel runs<input v-model.number="maxConcurrentRuns" type="number" min="1" step="1" required><span class="text-xs text-muted">The server’s overall limit also applies. Lowering this lets current runs finish.</span></label><label>Account name<input v-model="name" required maxlength="100" placeholder="e.g. Personal" autocomplete="off"></label><p v-if="!editing" class="text-sm text-muted">
+        </UiAlert><label v-if="editing">Parallel runs<input
+          v-model.number="maxConcurrentRuns"
+          type="number"
+          min="1"
+          step="1"
+          required
+        ><span class="text-xs text-muted">The server’s overall limit also applies. Lowering this lets current runs finish.</span></label><label>Account name<input
+          v-model="name"
+          required
+          maxlength="100"
+          placeholder="e.g. Personal"
+          autocomplete="off"
+        ></label><p v-if="!editing" class="text-sm text-muted">
           Sign in with ChatGPT using a one-time device code.
         </p>
       </div><footer class="flex justify-end gap-3 border-t border-line p-4">

@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -62,46 +61,54 @@ fun rememberLive(
             var cacheGeneration = vm.historyCache.generation
             val key = vm.historyCache.key(workspace.origin, api.csrf, path)
             // A resumed session is already at least as recent as its cache.
-            if (session.path != path) vm.historyCache.read(key)?.let {
-                session.restore(it, path, api.streamGeneration.get())
-                value = session.snapshot
-            }
+            if (session.path != path)
+                vm.historyCache.read(key)?.let {
+                    session.restore(it, path, api.streamGeneration.get())
+                    value = session.snapshot
+                }
             try {
                 owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     try {
-                        // A preview settles on its first complete snapshot, then releases the stream:
-                        // a restored session emits it before connecting, so a cached preview never connects.
+                        // A preview settles on its first complete snapshot, then releases the
+                        // stream:
+                        // a restored session emits it before connecting, so a cached preview never
+                        // connects.
                         api.live(path, session)
-                            .transformWhile { emit(it); streaming || (it.catchingUp && it.httpStatus == null) }
-                            .collect {
-                            vm.acceptCacheRevision(it.state?.cacheRevision)
-                            cacheGeneration = vm.historyCache.generation
-                            if (!it.catchingUp || it.httpStatus != null) value = display(it)
-                            if (it.httpStatus in listOf(401, 403, 404, 409)) {
-                                vm.historyCache.remove(key)
-                                value =
-                                    LiveSnapshot(
-                                        httpStatus = it.httpStatus,
-                                        status = it.status,
-                                        error = it.error,
-                                    )
-                            } else if (!it.catchingUp && it.state != null && it.history != null) {
-                                vm.historyCache.save(
-                                    key,
-                                    CachedHistory(
-                                        it.cursor,
-                                        it.history,
-                                        it.state,
-                                        value.events,
-                                        oldest = value.oldest,
-                                        hasOlder = value.hasOlder,
-                                    ),
-                                    expectedGeneration = cacheGeneration,
-                                )
+                            .transformWhile {
+                                emit(it)
+                                streaming || (it.catchingUp && it.httpStatus == null)
                             }
-                            if (it.httpStatus == 401)
-                                vm.report(ApiException(401, "Session expirée"))
-                        }
+                            .collect {
+                                vm.acceptCacheRevision(it.state?.cacheRevision)
+                                cacheGeneration = vm.historyCache.generation
+                                if (!it.catchingUp || it.httpStatus != null) value = display(it)
+                                if (it.httpStatus in listOf(401, 403, 404, 409)) {
+                                    vm.historyCache.remove(key)
+                                    value =
+                                        LiveSnapshot(
+                                            httpStatus = it.httpStatus,
+                                            status = it.status,
+                                            error = it.error,
+                                        )
+                                } else if (
+                                    !it.catchingUp && it.state != null && it.history != null
+                                ) {
+                                    vm.historyCache.save(
+                                        key,
+                                        CachedHistory(
+                                            it.cursor,
+                                            it.history,
+                                            it.state,
+                                            value.events,
+                                            oldest = value.oldest,
+                                            hasOlder = value.hasOlder,
+                                        ),
+                                        expectedGeneration = cacheGeneration,
+                                    )
+                                }
+                                if (it.httpStatus == 401)
+                                    vm.report(ApiException(401, "Session expirée"))
+                            }
                     } finally {
                         withContext(NonCancellable) { vm.historyCache.flush(key) }
                     }
@@ -133,7 +140,8 @@ fun rememberLive(
                             require(page.oldest < before || !page.hasOlder) {
                                 "Page d’historique invalide."
                             }
-                            // Capture the reader synchronously before any response state is applied.
+                            // Capture the reader synchronously before any response state is
+                            // applied.
                             beforeOlderPage()
                             older = mergeHistory(page.events, older)
                             olderHistory = history
@@ -180,7 +188,10 @@ fun rememberLive(
 /** The response boundary can capture a layout before snapshotFlow observes its final movement. */
 internal class HistoryPageAnchor {
     var capture: (() -> Unit)? = null
-    fun beforeApply() { capture?.invoke() }
+
+    fun beforeApply() {
+        capture?.invoke()
+    }
 }
 
 /**
@@ -208,7 +219,8 @@ internal fun rememberHistoryPaging(
             val visible = list.layoutInfo.visibleItemsInfo
             headerAnchor =
                 if (visible.firstOrNull()?.key == "history:older")
-                    visible.firstOrNull { it.key != "history:older" }
+                    visible
+                        .firstOrNull { it.key != "history:older" }
                         ?.let { it.key.toString() to -it.offset }
                 else null
             // A null anchor is intentional when the reader has left the header.
@@ -289,20 +301,20 @@ internal fun rememberHistoryPaging(
         var armed = true
         if (ready && !follow)
             snapshotFlow {
-                    val snapshot = current
-                    val nearStart =
-                        list.layoutInfo.visibleItemsInfo.isNotEmpty() &&
-                            list.firstVisibleItemIndex <= 1 &&
-                            list.firstVisibleItemScrollOffset < threshold
-                    val available = !settling && !snapshot.loadingOlder
-                    Triple(
-                        nearStart,
-                        available,
-                        snapshot.hasOlder &&
-                            snapshot.olderError == null &&
-                            requested != (snapshot.history to snapshot.oldest),
-                    )
-                }
+                val snapshot = current
+                val nearStart =
+                    list.layoutInfo.visibleItemsInfo.isNotEmpty() &&
+                        list.firstVisibleItemIndex <= 1 &&
+                        list.firstVisibleItemScrollOffset < threshold
+                val available = !settling && !snapshot.loadingOlder
+                Triple(
+                    nearStart,
+                    available,
+                    snapshot.hasOlder &&
+                        snapshot.olderError == null &&
+                        requested != (snapshot.history to snapshot.oldest),
+                )
+            }
                 .collect { (nearStart, available, canLoad) ->
                     if (available) {
                         if (!nearStart) armed = true
@@ -372,13 +384,13 @@ internal fun rememberHistoryPosition(
         if (ready && visible) {
             try {
                 snapshotFlow {
-                        ReadingPosition(
-                            list.firstVisibleItemIndex,
-                            list.firstVisibleItemScrollOffset,
-                            currentFollow,
-                            firstEvent,
-                        )
-                    }
+                    ReadingPosition(
+                        list.firstVisibleItemIndex,
+                        list.firstVisibleItemScrollOffset,
+                        currentFollow,
+                        firstEvent,
+                    )
+                }
                     .collectLatest { vm.historyCache.position(key, it) }
             } finally {
                 withContext(NonCancellable) {
@@ -586,15 +598,28 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
                 color =
                     if (user) MaterialTheme.colorScheme.surfaceContainerHigh
                     else MaterialTheme.colorScheme.background,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp),
-                modifier = if (user) Modifier.widthIn(max = maxWidth * 0.9f) else Modifier.fillMaxWidth(),
+                shape =
+                    RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = 16.dp,
+                        bottomEnd = 4.dp,
+                    ),
+                modifier =
+                    if (user) Modifier.widthIn(max = maxWidth * 0.9f) else Modifier.fillMaxWidth(),
             ) {
                 Column(
-                    Modifier.padding(horizontal = if (user) 16.dp else 0.dp, vertical = if (user) 12.dp else 8.dp),
+                    Modifier.padding(
+                        horizontal = if (user) 16.dp else 0.dp,
+                        vertical = if (user) 12.dp else 8.dp,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (!user)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
                             Text(
                                 agent,
                                 Modifier.weight(1f),
@@ -605,8 +630,8 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
                                 java.text
                                     .SimpleDateFormat(
                                         "HH:mm",
-                                        androidx.compose.ui.platform.LocalConfiguration.current.locales[
-                                                0],
+                                        androidx.compose.ui.platform.LocalConfiguration.current
+                                            .locales[0],
                                     )
                                     .format(java.util.Date(event.createdAt)),
                                 style = MaterialTheme.typography.labelSmall,
@@ -616,27 +641,35 @@ fun EventRow(vm: LeoViewModel, event: RunEvent, agent: String = "Leo") {
                     if (user)
                         androidx.compose.foundation.text.selection.SelectionContainer {
                             Text(
-                                highlightSkills(content, LocalSkillNames.current, skillMentionStyle()),
+                                highlightSkills(
+                                    content,
+                                    LocalSkillNames.current,
+                                    skillMentionStyle(),
+                                ),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                         }
                     else Markdown(content)
                     if (user)
                         Text(
-                            java.text.SimpleDateFormat("HH:mm", androidx.compose.ui.platform.LocalConfiguration.current.locales[0])
+                            java.text
+                                .SimpleDateFormat(
+                                    "HH:mm",
+                                    androidx.compose.ui.platform.LocalConfiguration.current.locales[
+                                            0],
+                                )
                                 .format(java.util.Date(event.createdAt)),
                             Modifier.align(Alignment.End),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    val attachments =
-                        runCatching {
-                                event.payload?.get("attachments")?.let {
-                                    wireJson.decodeFromJsonElement<List<ChatAttachment>>(it)
-                                }
-                            }
-                            .getOrNull()
-                            .orEmpty()
+                    val attachments = runCatching {
+                        event.payload?.get("attachments")?.let {
+                            wireJson.decodeFromJsonElement<List<ChatAttachment>>(it)
+                        }
+                    }
+                        .getOrNull()
+                        .orEmpty()
                     if (attachments.isNotEmpty()) AttachmentList(vm, attachments)
                 }
             }

@@ -1,12 +1,28 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Clock, MessageCircleQuestion, Pause, X } from '../icons'
+import {
+  Clock,
+  MessageCircleQuestion,
+  Pause,
+  X,
+} from '../icons'
 import { identityColor, initial } from '../signal'
 import Icon from './Icon.vue'
 
 // Agent identity: a rounded square in the agent's colour. A comet arc orbits it while the
 // agent works (overflowing, so rows stay aligned) and a small badge marks what needs the user.
-const props = withDefaults(defineProps<{ name: string, identity?: string, size?: number, working?: boolean, badge?: 'question' | 'failed' | 'paused' | 'queued' | null }>(), { identity: '', size: 36, working: false, badge: null })
+const props = withDefaults(defineProps<{
+  name: string
+  identity?: string
+  size?: number
+  working?: boolean
+  badge?: 'question' | 'failed' | 'paused' | 'queued' | null
+}>(), {
+  identity: '',
+  size: 36,
+  working: false,
+  badge: null,
+})
 const radius = computed(() => Math.round(props.size * 0.3))
 </script>
 

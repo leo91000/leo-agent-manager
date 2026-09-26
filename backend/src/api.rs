@@ -7,6 +7,7 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc};
+
 pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
     if input.path.starts_with("/api/claude/") {
         return crate::claude::routes(s, input).await;
@@ -55,7 +56,11 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
         ("POST", ["schedule", "preview"]) => Ok(json!({
         "occurrences":next_occurrences(input.string("cron",500)?,input.string("timezone",100)?,now(),3)?}
         )),
-        ("GET", ["tasks", "activity"]) => s.store.read(|db| Ok(db.json_rows("SELECT json_set(json_remove(data,'$.snapshot','$.summary'),'$.taskName',json_extract(data,'$.snapshot.task.name'),'$.agentName',json_extract(data,'$.snapshot.agent.name')) FROM runs WHERE id IN (SELECT (SELECT id FROM runs WHERE task_id=records.id ORDER BY created_at DESC,id DESC LIMIT 1) FROM records WHERE kind='tasks') ORDER BY created_at DESC,id DESC", [])?.into())).await,
+        ("GET", ["tasks", "activity"]) => s.store.read(|db| Ok(db.json_rows("SELECT \
+        json_set(json_remove(data,'$.snapshot','$.summary'),'$.taskName',json_extract(data,'$.snapshot.task.name'),'$.agentName',json_extract(data,'$.snapshot.agent.name')) \
+        FROM runs WHERE id IN (SELECT (SELECT id FROM runs WHERE task_id=records.id ORDER BY \
+        created_at DESC,id DESC LIMIT 1) FROM records WHERE kind='tasks') ORDER BY created_at \
+        DESC,id DESC", [])?.into())).await,
         ("GET", ["runs"]) => {
             let (limit, offset) = (input.number("limit", 40, 1, 100)?, input.number("offset", 0, 0, i64::MAX)?);
             let status = input.query.get("status").cloned();
@@ -246,7 +251,8 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
         ("GET", ["settings"]) => Ok(json!({
         "publicUrl":s.config.public_url,"workspaceRoots":s.config.workspace_roots,"home":s.config.home,"concurrency":s.config.concurrency,"mcpUrl":format!("{}/mcp",s.config.public_url),"version":env!("CARGO_PKG_VERSION"),"commit":std::env::var("APP_COMMIT").unwrap_or_else(|_|"development".into()),"protocol":"2026-07-28","nativeMcpOauth":true}
         )),
-        ("GET", ["audit"]) => s.store.read(|db| Ok(db.json_rows("SELECT json_object('id',id,'created_at',created_at,'action',action,'detail',detail) FROM audit ORDER BY id DESC LIMIT 100", [])?.into())).await,
+        ("GET", ["audit"]) => s.store.read(|db| Ok(db.json_rows("SELECT json_object('id',id,'created_at',created_at,'action',action,'detail',detail) \
+        FROM audit ORDER BY id DESC LIMIT 100", [])?.into())).await,
         ("GET", ["tokens"]) => Ok(s
             .store
             .keys("grant:")
@@ -276,6 +282,7 @@ pub async fn dispatch(s: &Arc<Service>, input: &Input) -> Result<Value> {
         _ => Err(Error::new(404, "Not found")),
     }
 }
+
 async fn save(s: &Service, kind: &str, input: Value, id: Option<&str>) -> Result<Value> {
     match kind {
         "agents" => s.agent(input, id).await,
@@ -283,6 +290,7 @@ async fn save(s: &Service, kind: &str, input: Value, id: Option<&str>) -> Result
         _ => s.task(input, id).await,
     }
 }
+
 async fn skill_project(s: &Service, scope: &str) -> Result<Option<PathBuf>> {
     if scope == "global" {
         return Ok(None);
@@ -292,6 +300,7 @@ async fn skill_project(s: &Service, scope: &str) -> Result<Option<PathBuf>> {
         "path",
     ))))
 }
+
 fn hash(value: &str) -> Result<()> {
     if value.len() != 64
         || !value

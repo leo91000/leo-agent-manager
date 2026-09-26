@@ -16,6 +16,7 @@ pub struct Storage {
     pub bucket: String,
     binary: String,
 }
+
 impl Storage {
     pub fn configured(s: &Service) -> Result<Self> {
         let file = s.config.data_dir.join("archive-s3.json");
@@ -43,9 +44,11 @@ impl Storage {
             binary: config["awsBinary"].as_str().unwrap_or("aws").into(),
         })
     }
+
     async fn call(&self, args: Vec<String>) -> Result<Value> {
         self.optional(args, None).await
     }
+
     async fn optional(&self, args: Vec<String>, missing: Option<&str>) -> Result<Value> {
         let mut command = Command::new(&self.binary);
         command
@@ -71,7 +74,8 @@ impl Storage {
         if !output.status.success() {
             return Err(Error::new(
                 503,
-                "Archive storage operation failed; local data is retained and the operation will retry.",
+                "Archive storage operation failed; local data is retained and the operation will \
+                retry.",
             ));
         }
         if output.stdout.is_empty() {
@@ -80,6 +84,7 @@ impl Storage {
         serde_json::from_slice(&output.stdout)
             .map_err(|_| Error::new(503, "Invalid response from archive storage."))
     }
+
     pub async fn validate(&self) -> Result<()> {
         let block = self
             .call(vec![
@@ -120,7 +125,8 @@ impl Storage {
             .any(|r| r["Status"] == "Enabled")
         {
             return Err(Error::bad(
-                "Use a dedicated archive bucket without enabled lifecycle rules; Léo manages retention.",
+                "Use a dedicated archive bucket without enabled lifecycle rules; Léo manages \
+                retention.",
             ));
         }
         let lock = self
@@ -136,7 +142,8 @@ impl Storage {
             .await?;
         if lock["ObjectLockConfiguration"]["ObjectLockEnabled"] == "Enabled" {
             return Err(Error::bad(
-                "Object Lock is incompatible with automatic trash deletion. Use a dedicated bucket without Object Lock.",
+                "Object Lock is incompatible with automatic trash deletion. Use a dedicated \
+                bucket without Object Lock.",
             ));
         }
         self.call(vec![
@@ -148,9 +155,11 @@ impl Storage {
         .await?;
         Ok(())
     }
+
     fn uri(&self, key: &str) -> String {
         format!("s3://{}/{key}", self.bucket)
     }
+
     pub async fn upload(&self, path: &Path, key: &str) -> Result<()> {
         self.call(vec![
             "s3".into(),
@@ -164,6 +173,7 @@ impl Storage {
         .await?;
         Ok(())
     }
+
     pub async fn download(&self, key: &str, path: &Path) -> Result<()> {
         self.call(vec![
             "s3".into(),
@@ -176,6 +186,7 @@ impl Storage {
         .await?;
         Ok(())
     }
+
     pub async fn cold(&self, key: &str) -> Result<()> {
         let head = self
             .call(vec![
@@ -233,6 +244,7 @@ impl Storage {
         }
         Ok(())
     }
+
     pub async fn ready(&self, key: &str) -> Result<bool> {
         let head = self
             .call(vec![
@@ -258,11 +270,18 @@ impl Storage {
             "--key".into(),
             key.into(),
             "--restore-request".into(),
-            json!({"Days":3,"GlacierJobParameters":{"Tier":"Standard"}}).to_string(),
+            json!({
+                "Days": 3,
+                "GlacierJobParameters": {
+                    "Tier": "Standard",
+                },
+            })
+            .to_string(),
         ])
         .await?;
         Ok(false)
     }
+
     pub async fn purge(&self, prefix: &str) -> Result<()> {
         let listed = self
             .call(vec![
@@ -404,9 +423,13 @@ pub async fn crypt(
                 let mut bytes = vec![0; 1024 * 1024];
                 let n = source.read(&mut bytes)?;
                 let value = if n == 0 {
-                    json!({"end":true})
+                    json!({
+                        "end": true,
+                    })
                 } else {
-                    json!({"data":STANDARD.encode(&bytes[..n])})
+                    json!({
+                        "data": STANDARD.encode(&bytes[..n]),
+                    })
                 };
                 serde_json::to_writer(&mut target, &vault.encrypt(&aad, &value)?)?;
                 target.write_all(b"\n")?;

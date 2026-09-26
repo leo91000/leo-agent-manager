@@ -10,6 +10,7 @@ use crate::{
 use serde_json::{Value, json};
 use std::{path::Path, sync::Arc};
 use tokio_util::sync::CancellationToken;
+
 #[derive(Clone)]
 pub struct Service {
     pub artifacts: Arc<crate::artifacts::Artifacts>,
@@ -33,6 +34,7 @@ pub struct Service {
     pub http: reqwest::Client,
     pub shutdown: CancellationToken,
 }
+
 impl Service {
     pub async fn new(config: Config) -> Result<Arc<Self>> {
         if config.worker_enabled
@@ -40,7 +42,8 @@ impl Service {
             && std::env::var("NODE_ENV").is_ok_and(|v| v == "production")
         {
             return Err(Error::bad(
-                "Production execution requires the Firecracker runner. Set RUNNER_URL; shared host execution is available only in development.",
+                "Production execution requires the Firecracker runner. Set RUNNER_URL; shared host \
+                execution is available only in development.",
             ));
         }
         let store = Store::open(&config.data_dir)?;
@@ -83,8 +86,10 @@ impl Service {
             let mut agent = parse(
                 "agent",
                 json!({
-                "name":"Main agent","description":"Your default agent, with access to every registered project, skill, and shared connection."}
-                ),
+                    "name": "Main agent",
+                    "description": "Your default agent, with access to every registered project, skill, and shared \
+                    connection.",
+                }),
             )?;
             agent["id"] = MAIN_AGENT_ID.into();
             agent["createdAt"] = now().into();
@@ -111,9 +116,11 @@ impl Service {
         tokio::spawn(crate::artifacts::preview::recover(service.clone()));
         Ok(service)
     }
+
     pub async fn get(&self, kind: &str, id: &str) -> Result<Value> {
         required(self.store.get(kind, id).await?, "Record not found")
     }
+
     pub async fn agent(&self, mut input: Value, existing_id: Option<&str>) -> Result<Value> {
         let existing = if let Some(id) = existing_id {
             Some(self.get("agents", id).await?)
@@ -140,7 +147,8 @@ impl Service {
         let access = policy(&agent);
         if !access["projects"].is_null() && access["github"] == true {
             return Err(Error::bad(
-                "Shared GitHub credentials require access to all projects. Disable the GitHub connection for an agent with selected projects.",
+                "Shared GitHub credentials require access to all projects. Disable the GitHub \
+                connection for an agent with selected projects.",
             ));
         }
         if agent["id"] == MAIN_AGENT_ID
@@ -153,7 +161,8 @@ impl Service {
                     .is_some_and(|v| !v.is_empty()))
         {
             return Err(Error::bad(
-                "The main agent always has access to all resources. Create another agent for restricted access.",
+                "The main agent always has access to all resources. Create another agent for \
+                restricted access.",
             ));
         }
         for kind in ["projects", "mcps"] {
@@ -173,6 +182,7 @@ impl Service {
         }
         self.store.save("agents", agent, "agent.saved").await
     }
+
     pub async fn project(&self, input: Value, existing: Option<&str>) -> Result<Value> {
         let mut project = parse("project", input)?;
         let actual = crate::skills::workspace(
@@ -211,6 +221,7 @@ impl Service {
             .unwrap_or_else(|| now().into());
         self.store.save("projects", project, "project.saved").await
     }
+
     pub async fn task(&self, input: Value, existing: Option<&str>) -> Result<Value> {
         let mut task = parse("task", input)?;
         let agent = self.get("agents", text(&task, "agentId")).await?;
@@ -232,6 +243,7 @@ impl Service {
             };
         self.store.save("tasks", task, "task.saved").await
     }
+
     pub async fn remove(&self, kind: &str, id: &str) -> Result<()> {
         let (kind, id) = (kind.to_owned(), id.to_owned());
         self.store
@@ -294,12 +306,13 @@ impl Service {
                 db.audit(
                     &format!("{kind}.deleted"),
                     &json!({
-                    "id":id}
-                    ),
+                        "id": id,
+                    }),
                 )
             })
             .await
     }
+
     pub async fn agent_skills(&self, agent: &Value) -> Result<Vec<Value>> {
         let access = policy(agent);
         let mut available = self.skills.list("global", None).await?;
@@ -323,6 +336,7 @@ impl Service {
         });
         Ok(available)
     }
+
     pub async fn snapshot(&self, task: Value, trigger: &str) -> Result<Value> {
         if task["archived"] == true {
             return Err(Error::new(
@@ -333,7 +347,13 @@ impl Service {
         let agent = self.get("agents", text(&task, "agentId")).await?;
         let all_projects = self.store.list("projects").await?;
         let projects = task_projects(&agent, &task, &all_projects)?;
-        let available_projects = task_projects(&agent, &json!({"projectId":null}), &all_projects)?;
+        let available_projects = task_projects(
+            &agent,
+            &json!({
+                "projectId": null,
+            }),
+            &all_projects,
+        )?;
         let project = if projects.len() == 1 {
             projects[0].clone()
         } else {
@@ -365,15 +385,35 @@ impl Service {
                 })
                 .ok_or_else(|| Error::bad(format!("Skill unavailable or invalid: {key}")))?;
             skills.push(json!({
-            "name":s["name"],"path":s["path"],"content":s["content"]}
-            ));
+                "name": s["name"],
+                "path": s["path"],
+                "content": s["content"],
+            }));
         }
         Ok(json!({
-        "id":id(),"taskId":task["id"],"projectId":project["id"],"status":"queued","trigger":trigger,"createdAt":now(),"startedAt":null,"finishedAt":null,"summary":"","sessionId":null,"workspace":null,"usage":null,"snapshot":{
-        "task":task,"agent":agent,"project":project,"projects":projects,"availableProjects":available_projects,"skills":skills}
-        }
-        ))
+            "id": id(),
+            "taskId": task["id"],
+            "projectId": project["id"],
+            "status": "queued",
+            "trigger": trigger,
+            "createdAt": now(),
+            "startedAt": null,
+            "finishedAt": null,
+            "summary": "",
+            "sessionId": null,
+            "workspace": null,
+            "usage": null,
+            "snapshot": {
+                "task": task,
+                "agent": agent,
+                "project": project,
+                "projects": projects,
+                "availableProjects": available_projects,
+                "skills": skills,
+            },
+        }))
     }
+
     pub async fn enqueue(
         &self,
         task_id: &str,
@@ -391,8 +431,10 @@ impl Service {
                 db.audit(
                     "run.queued",
                     &json!({
-                    "id":run["id"],"taskId":run["taskId"],"trigger":run["trigger"]}
-                    ),
+                        "id": run["id"],
+                        "taskId": run["taskId"],
+                        "trigger": run["trigger"],
+                    }),
                 )?;
                 Ok(run)
             })
@@ -400,6 +442,7 @@ impl Service {
         self.worker.notify();
         Ok(result)
     }
+
     pub async fn schedule(&self) -> Result<()> {
         for task in self.store.list("tasks").await? {
             if task["enabled"] != true
@@ -422,8 +465,9 @@ impl Service {
                     .audit(
                         "schedule.failed",
                         json!({
-                        "taskId":task["id"],"error":error.message}
-                        ),
+                            "taskId": task["id"],
+                            "error": error.message,
+                        }),
                     )
                     .await?;
             }
@@ -443,12 +487,16 @@ impl Service {
         Ok(())
     }
 }
+
 pub fn policy(agent: &Value) -> Value {
     let mut value = json!({
-    "projects":null,"skills":null,"mcps":null,"mcpTools":{
-    }
-    ,"github":true,"sandbox":"yolo"}
-    );
+        "projects": null,
+        "skills": null,
+        "mcps": null,
+        "mcpTools": {},
+        "github": true,
+        "sandbox": "yolo",
+    });
     merge(&mut value, &agent["access"]);
     if agent["id"] != MAIN_AGENT_ID
         && agent["access"].is_object()
@@ -462,9 +510,11 @@ pub fn policy(agent: &Value) -> Value {
     }
     value
 }
+
 pub fn allowed(scope: &Value, id: &str) -> bool {
     scope.is_null() || scope.as_array().is_some_and(|a| a.iter().any(|v| v == id))
 }
+
 pub fn isolated(agent: &Value) -> bool {
     let a = policy(agent);
     !a["projects"].is_null()
@@ -474,6 +524,7 @@ pub fn isolated(agent: &Value) -> bool {
         || a["sandbox"] != "yolo"
         || a["mcpTools"].as_object().is_some_and(|a| !a.is_empty())
 }
+
 pub fn task_projects(agent: &Value, task: &Value, projects: &[Value]) -> Result<Vec<Value>> {
     let a = policy(agent);
     let available = projects
@@ -490,6 +541,7 @@ pub fn task_projects(agent: &Value, task: &Value, projects: &[Value]) -> Result<
     }
     Ok(available)
 }
+
 pub fn run_projects(run: &Value) -> Vec<Value> {
     run["snapshot"]["projects"]
         .as_array()
@@ -502,6 +554,7 @@ pub fn run_projects(run: &Value) -> Vec<Value> {
             }
         })
 }
+
 pub fn next_occurrences(pattern: &str, zone: &str, time: i64, count: usize) -> Result<Vec<i64>> {
     use chrono::{Offset, TimeZone};
     use std::str::FromStr;
@@ -542,6 +595,7 @@ pub fn next_occurrences(pattern: &str, zone: &str, time: i64, count: usize) -> R
     }
     Ok(result)
 }
+
 fn normalize_origin(remote: &str) -> String {
     if let Ok(mut url) = url::Url::parse(remote)
         && ["http", "https", "ssh", "git"].contains(&url.scheme())

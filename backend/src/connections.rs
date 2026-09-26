@@ -16,25 +16,33 @@ use tokio::{
     sync::{Mutex, watch},
 };
 use tokio_util::sync::CancellationToken;
+
 static CODE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b").unwrap());
+
 static URL: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"https://(?:auth\.openai\.com|github\.com)/[\w/-]+").unwrap()
 });
+
 #[derive(Clone)]
 pub struct DeviceLogin {
     pub flow: watch::Sender<Value>,
     pub stop: CancellationToken,
     finished: watch::Receiver<bool>,
 }
+
 impl DeviceLogin {
     pub fn start(config: &Config, provider: &str, home: &Path) -> Result<Self> {
         let mut config = config.clone();
         config.home = home.to_owned();
         if provider == "codex" {
-            let (flow, _) = watch::channel(
-                json!({"provider":"codex","state":"pending","phase":"starting","url":"","code":""}),
-            );
+            let (flow, _) = watch::channel(json!({
+                "provider": "codex",
+                "state": "pending",
+                "phase": "starting",
+                "url": "",
+                "code": ""
+            }));
             let (done, finished) = watch::channel(false);
             let stop = CancellationToken::new();
             let login = Self {
@@ -84,8 +92,11 @@ impl DeviceLogin {
         let mut stderr = child.stderr.take().unwrap();
         let mut stdin = child.stdin.take().unwrap();
         let (flow, _) = watch::channel(json!({
-        "provider":provider,"state":"pending","url":"","code":""}
-        ));
+            "provider": provider,
+            "state": "pending",
+            "url": "",
+            "code": ""
+        }));
         let (done, finished) = watch::channel(false);
         let stop = CancellationToken::new();
         let login = Self {
@@ -105,16 +116,22 @@ impl DeviceLogin {
             tokio::pin!(deadline);
             let success = loop {
                 tokio::select! {
-                                    _=stop.cancelled()=>break false,
-                                    _=&mut deadline=>break false,
-                                    result=child.wait()=>break result.is_ok_and(|s|s.success()),
-                                    result=stdout.read(&mut out),if stdout_open=>match result {
-                Ok(0)|Err(_)=>stdout_open=false,Ok(n)=>receive(&flow,&mut buffer,&out[..n])}
-                ,
-                                    result=stderr.read(&mut err),if stderr_open=>match result {
-                Ok(0)|Err(_)=>stderr_open=false,Ok(n)=>receive(&flow,&mut buffer,&err[..n])}
-                ,
-                                }
+                    _ = stop.cancelled() => break false,
+                    _ = &mut deadline => break false,
+                    result = child.wait() => break result.is_ok_and(|s| s.success()),
+                    result = stdout.read(&mut out) , if stdout_open => {
+                        match result {
+                            Ok(0) | Err(_) => stdout_open = false,
+                            Ok(n) => receive(&flow, &mut buffer, &out[..n]),
+                        }
+                    }
+                    result = stderr.read(&mut err) , if stderr_open => {
+                        match result {
+                            Ok(0) | Err(_) => stderr_open = false,
+                            Ok(n) => receive(&flow, &mut buffer, &err[..n]),
+                        }
+                    }
+                }
             };
             if !success {
                 if let Some(pid) = child.id() {
@@ -139,9 +156,11 @@ impl DeviceLogin {
         });
         Ok(login)
     }
+
     pub fn running(&self) -> bool {
         !*self.finished.borrow()
     }
+
     pub async fn wait(&self) {
         let mut finished = self.finished.clone();
         while !*finished.borrow() {
@@ -150,14 +169,17 @@ impl DeviceLogin {
             }
         }
     }
+
     pub async fn cancel(&self) {
         self.stop.cancel();
         self.wait().await;
     }
+
     pub fn view(&self) -> Value {
         self.flow.borrow().clone()
     }
 }
+
 fn receive(flow: &watch::Sender<Value>, buffer: &mut Vec<u8>, bytes: &[u8]) {
     buffer.extend_from_slice(bytes);
     if buffer.len() > 16000 {
@@ -173,11 +195,13 @@ fn receive(flow: &watch::Sender<Value>, buffer: &mut Vec<u8>, bytes: &[u8]) {
         }
     });
 }
+
 #[derive(Default)]
 pub struct Connections {
     cache: Mutex<Option<(i64, Value)>>,
     pub login: Mutex<Option<DeviceLogin>>,
 }
+
 impl Connections {
     pub async fn status(&self, s: &Service, force: bool) -> Result<Value> {
         let mut cache = self.cache.lock().await;
@@ -192,6 +216,7 @@ impl Connections {
         *cache = Some((now(), value.clone()));
         Ok(value)
     }
+
     pub async fn start(&self, s: &Arc<Service>, provider: &str) -> Result<Value> {
         if !["codex", "github"].contains(&provider) {
             return Err(Error::bad("Unknown connection provider."));
@@ -241,6 +266,7 @@ impl Connections {
         *self.cache.lock().await = None;
         Ok(result)
     }
+
     pub async fn flow(&self) -> Value {
         self.login
             .lock()
@@ -249,6 +275,7 @@ impl Connections {
             .map(DeviceLogin::view)
             .unwrap_or(Value::Null)
     }
+
     pub async fn cancel(&self) {
         if let Some(login) = self.login.lock().await.take() {
             login.cancel().await;
@@ -256,6 +283,7 @@ impl Connections {
         *self.cache.lock().await = None;
     }
 }
+
 async fn check(config: &Config, provider: &str) -> Value {
     let binary = if provider == "codex" {
         &config.codex_bin
@@ -271,13 +299,21 @@ async fn check(config: &Config, provider: &str) -> Value {
     .await;
     let Ok(version) = version else {
         return json!({
-        "provider":provider,"installed":false,"connected":false,"account":"CLI not installed","version":""}
-        );
+            "provider": provider,
+            "installed": false,
+            "connected": false,
+            "account": "CLI not installed",
+            "version": ""
+        });
     };
     if !version.success {
         return json!({
-        "provider":provider,"installed":false,"connected":false,"account":"CLI not installed","version":""}
-        );
+            "provider": provider,
+            "installed": false,
+            "connected": false,
+            "account": "CLI not installed",
+            "version": ""
+        });
     }
     let args = if provider == "codex" {
         vec!["login", "status"]
@@ -318,16 +354,21 @@ async fn check(config: &Config, provider: &str) -> Value {
         None
     };
     json!({
-    "workflowPermission":workflow,
-    "provider":provider,"installed":true,"version":version.stdout.lines().next().unwrap_or(""),"connected":connected,"account":if !connected{
-    "Not signed in"}
-    else if provider=="codex"{
-    "ChatGPT subscription"}
-    else{
-    &auth}
-    }
-    )
+        "workflowPermission": workflow,
+        "provider": provider,
+        "installed": true,
+        "version": version.stdout.lines().next().unwrap_or(""),
+        "connected": connected,
+        "account": if !connected {
+            "Not signed in"
+        } else if provider == "codex" {
+            "ChatGPT subscription"
+        } else {
+            &auth
+        }
+    })
 }
+
 #[derive(Clone)]
 pub struct AccountLogin {
     pub account_id: String,
@@ -335,10 +376,12 @@ pub struct AccountLogin {
     pub home: std::path::PathBuf,
     pub complete: watch::Receiver<bool>,
 }
+
 impl AccountLogin {
     pub fn busy(&self) -> bool {
         !*self.complete.borrow()
     }
+
     pub fn view(&self) -> Value {
         let mut value = self.device.view();
         // Authentication is only complete after credentials are captured, the
@@ -351,6 +394,7 @@ impl AccountLogin {
         value
     }
 }
+
 impl Service {
     pub async fn account_login(self: &Arc<Self>, name: &str, id: Option<&str>) -> Result<Value> {
         self.accounts.initialize(self).await?;
@@ -450,6 +494,7 @@ impl Service {
         });
         Ok(result)
     }
+
     pub async fn cancel_account_login(&self) {
         let mut current = self.account_login.lock().await;
         if let Some(mut login) = current.take() {

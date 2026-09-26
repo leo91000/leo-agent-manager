@@ -26,6 +26,7 @@ test('manages MCP connections, OAuth consent, tools and agent access on desktop 
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-oauth-editor.png`), animations: 'disabled' })
       }
     }
+
     await dialog.getByRole('button', { name: 'Save MCP' }).click()
     const card = page.locator('.mcp-card').filter({ hasText: 'Design workspace' })
     await card.getByRole('button', { name: 'Connect', exact: true }).click()
@@ -44,6 +45,7 @@ test('manages MCP connections, OAuth consent, tools and agent access on desktop 
         await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-connections.png`), animations: 'disabled' })
       }
     }
+
     await card.getByRole('button', { name: /Browse tools/ }).click()
     await page.screenshot({ path: testInfo.outputPath('dark-mobile-tools.png'), animations: 'disabled' })
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()

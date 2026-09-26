@@ -3,9 +3,28 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+
 fn config(root: &TempDir) -> Config {
-    serde_json::from_value(json!({"dataDir":root.path().join("data"),"home":root.path().join("home"),"workspaceRoots":[root.path()],"publicUrl":"http://localhost:4310","host":"127.0.0.1","port":0,"setupToken":"test","codexBin":"/nonexistent-codex","claudeBin":std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/claude.mjs"),"ghBin":"gh","concurrency":1,"logger":false,"workerEnabled":false,"runnerUrl":""})).unwrap()
+    serde_json::from_value(json!({
+        "dataDir": root.path().join("data"),
+        "home": root.path().join("home"),
+        "workspaceRoots": [root.path()],
+        "publicUrl": "http://localhost:4310",
+        "host": "127.0.0.1",
+        "port": 0,
+        "setupToken": "test",
+        "codexBin": "/nonexistent-codex",
+        "claudeBin": std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/claude.mjs"),
+        "ghBin": "gh",
+        "concurrency": 1,
+        "logger": false,
+        "workerEnabled": false,
+        "runnerUrl": "",
+    }))
+    .unwrap()
 }
+
 async fn route(
     s: &std::sync::Arc<Service>,
     method: &str,
@@ -24,6 +43,7 @@ async fn route(
     )
     .await
 }
+
 async fn wait_login(s: &std::sync::Arc<Service>, state: &str) -> Value {
     tokio::time::timeout(std::time::Duration::from_secs(8), async {
         loop {
@@ -37,6 +57,7 @@ async fn wait_login(s: &std::sync::Arc<Service>, state: &str) -> Value {
     .await
     .unwrap()
 }
+
 #[tokio::test]
 async fn official_login_cancellation_failure_retry_identity_and_logout() {
     let root = TempDir::new().unwrap();
@@ -67,7 +88,10 @@ async fn official_login_cancellation_failure_retry_identity_and_logout() {
             &s,
             "POST",
             "login/code",
-            json!({"id":"stale","code":"fixture-code"})
+            json!({
+                "id": "stale",
+                "code": "fixture-code"
+            })
         )
         .await
         .is_err()
@@ -81,7 +105,10 @@ async fn official_login_cancellation_failure_retry_identity_and_logout() {
         &s,
         "POST",
         "login/code",
-        json!({"id":failed["id"],"code":"wrong"}),
+        json!({
+            "id": failed["id"],
+            "code": "wrong",
+        }),
     )
     .await
     .unwrap();
@@ -92,7 +119,10 @@ async fn official_login_cancellation_failure_retry_identity_and_logout() {
         &s,
         "POST",
         "login/code",
-        json!({"id":login["id"],"code":"fixture-code"}),
+        json!({
+            "id": login["id"],
+            "code": "fixture-code",
+        }),
     )
     .await
     .unwrap();
@@ -122,7 +152,19 @@ async fn official_login_cancellation_failure_retry_identity_and_logout() {
     s.store
         .set(
             "claude-models",
-            json!({"models":[{"model":"default","displayName":"Default (recommended)","description":"Opus 5.5 with 1M context · Best for everyday tasks","isDefault":true,"defaultReasoningEffort":"","supportedReasoningEfforts":[]}],"checkedAt":chrono::Utc::now().timestamp_millis(),"stale":false,"error":""}),
+            json!({
+                "models": [{
+                    "model": "default",
+                    "displayName": "Default (recommended)",
+                    "description": "Opus 5.5 with 1M context · Best for everyday tasks",
+                    "isDefault": true,
+                    "defaultReasoningEffort": "",
+                    "supportedReasoningEfforts": [],
+                }],
+                "checkedAt": chrono::Utc::now().timestamp_millis(),
+                "stale": false,
+                "error": "",
+            }),
             None,
         )
         .await
@@ -138,9 +180,30 @@ async fn official_login_cancellation_failure_retry_identity_and_logout() {
         false
     );
 }
+
 fn plan(root: &TempDir, prompt: &str) -> Value {
-    json!({"provider":"claude","execution":{"messageId":"original","text":prompt,"attachments":[]},"instructions":"Follow the task scope","inputDirectory":root.path().join("inbox"),"output":root.path().join("result.md"),"cwd":root.path(),"model":"sonnet","reasoning":"high","sandbox":"yolo","writableRoots":[root.path()],"claudeMcps":{"mcpServers":{}},"claudeDeniedTools":[]})
+    json!({
+        "provider": "claude",
+        "execution": {
+            "messageId": "original",
+            "text": prompt,
+            "attachments": [],
+        },
+        "instructions": "Follow the task scope",
+        "inputDirectory": root.path().join("inbox"),
+        "output": root.path().join("result.md"),
+        "cwd": root.path(),
+        "model": "sonnet",
+        "reasoning": "high",
+        "sandbox": "yolo",
+        "writableRoots": [root.path()],
+        "claudeMcps": {
+            "mcpServers": {},
+        },
+        "claudeDeniedTools": [],
+    })
 }
+
 fn setup(root: &TempDir) -> Config {
     let c = config(root);
     std::fs::create_dir_all(c.home.join(".claude")).unwrap();
@@ -148,6 +211,7 @@ fn setup(root: &TempDir) -> Config {
     std::fs::create_dir(root.path().join("inbox")).unwrap();
     c
 }
+
 #[tokio::test]
 async fn streaming_tools_receipts_resume_and_no_replay_after_completion() {
     let root = TempDir::new().unwrap();
@@ -197,6 +261,7 @@ async fn streaming_tools_receipts_resume_and_no_replay_after_completion() {
     assert!(calls.contains("--resume"));
     assert_eq!(calls.lines().count(), 2);
 }
+
 #[tokio::test]
 async fn interrupted_resume_uses_a_fresh_wire_id_and_preserves_chat_receipts() {
     for prompt in [
@@ -260,6 +325,7 @@ async fn interrupted_resume_uses_a_fresh_wire_id_and_preserves_chat_receipts() {
         assert_eq!(receipt["delivered"], json!(["original"]));
     }
 }
+
 #[tokio::test]
 async fn reasoning_before_text_keeps_one_message_per_block() {
     let root = TempDir::new().unwrap();
@@ -294,6 +360,7 @@ async fn reasoning_before_text_keeps_one_message_per_block() {
         && e["item"]["type"] == "agent_message"
         && e["item"]["text"] == "Claude fixture completed"));
 }
+
 #[tokio::test]
 async fn question_answers_use_control_protocol() {
     let root = TempDir::new().unwrap();
@@ -302,9 +369,27 @@ async fn question_answers_use_control_protocol() {
     let (tx, mut rx) = mpsc::channel(64);
     let task =
         tokio::spawn(async move { claude_process::run(&c, p, tx, CancellationToken::new()).await });
-    tokio::time::timeout(std::time::Duration::from_secs(8),async{while let Some(e)=rx.recv().await{
-        if e["type"]=="chat.question" {assert_eq!(e["question"]["id"].as_str().unwrap().len(),64);std::fs::write(root.path().join("inbox/messages.json"),json!([{"id":"answer","questionId":e["question"]["id"],"answers":{"0":["Small change"]}}]).to_string()).unwrap();}
-    }}).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        while let Some(e) = rx.recv().await {
+            if e["type"] == "chat.question" {
+                assert_eq!(e["question"]["id"].as_str().unwrap().len(), 64);
+                std::fs::write(
+                    root.path().join("inbox/messages.json"),
+                    json!([{
+                        "id": "answer",
+                        "questionId": e["question"]["id"],
+                        "answers": {
+                            "0": ["Small change"],
+                        },
+                    }])
+                    .to_string(),
+                )
+                .unwrap();
+            }
+        }
+    })
+    .await
+    .unwrap();
     task.await.unwrap().unwrap();
     let response: Value = serde_json::from_slice(
         &std::fs::read(root.path().join("home/.claude/question-response.json")).unwrap(),
@@ -315,6 +400,7 @@ async fn question_answers_use_control_protocol() {
         "Small change"
     );
 }
+
 #[tokio::test]
 async fn cancellation_and_provider_errors_do_not_complete_the_turn() {
     for prompt in ["fixture:hang", "fixture:fail", "fixture:background"] {
@@ -337,10 +423,17 @@ async fn cancellation_and_provider_errors_do_not_complete_the_turn() {
         assert!(!root.path().join("result.md").exists());
     }
 }
+
 #[test]
 fn provider_defaults_and_sandbox_arguments_preserve_boundaries() {
     assert_eq!(claude::provider(&json!({})), "codex");
-    assert!(claude::validate_agent(&json!({"provider":"claude","reasoning":"ultra"})).is_err());
+    assert!(
+        claude::validate_agent(&json!({
+            "provider": "claude",
+            "reasoning": "ultra"
+        }))
+        .is_err()
+    );
     let root = TempDir::new().unwrap();
     let mut p = plan(&root, "test");
     p["sandbox"] = "workspace-write".into();
@@ -360,18 +453,33 @@ async fn steering_waits_for_both_responses_and_acknowledges_each_message() {
         tokio::spawn(async move { claude_process::run(&c, p, tx, CancellationToken::new()).await });
     let mut delivered = Vec::new();
     let mut responses = 0;
-    tokio::time::timeout(std::time::Duration::from_secs(15),async {
-        while let Some(e)=rx.recv().await {
-            if e["type"]=="chat.delivered" {
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        while let Some(e) = rx.recv().await {
+            if e["type"] == "chat.delivered" {
                 delivered.push(e["messageId"].clone());
-                if e["messageId"]=="original" {
-                    std::fs::write(root.path().join("inbox/messages.json"),json!([{"id":"steering","text":"fixture:slow additional instruction","attachments":[]}]).to_string()).unwrap();
+                if e["messageId"] == "original" {
+                    std::fs::write(
+                        root.path().join("inbox/messages.json"),
+                        json!([{
+                            "id": "steering",
+                            "text": "fixture:slow additional instruction",
+                            "attachments": [],
+                        }])
+                        .to_string(),
+                    )
+                    .unwrap();
                 }
             }
-            if e["type"]=="item.completed" && e["item"]["type"]=="agent_message" {responses+=1;}
-            if e["type"]=="turn.completed" {assert_eq!(responses,2);}
+            if e["type"] == "item.completed" && e["item"]["type"] == "agent_message" {
+                responses += 1;
+            }
+            if e["type"] == "turn.completed" {
+                assert_eq!(responses, 2);
+            }
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     task.await.unwrap().unwrap();
     assert_eq!(delivered, vec![json!("original"), json!("steering")]);
 }
@@ -382,7 +490,12 @@ async fn restored_background_results_cannot_complete_an_undelivered_prompt_or_re
     let c = setup(&root);
     std::fs::write(
         root.path().join("result.claude-receipt.json"),
-        json!({"messageId":"original","delivered":[],"text":""}).to_string(),
+        json!({
+            "messageId": "original",
+            "delivered": [],
+            "text": "",
+        })
+        .to_string(),
     )
     .unwrap();
     let events = run_events(&c, plan(&root, "fixture:startup-result")).await;
@@ -468,8 +581,12 @@ async fn merged_prompts_need_only_one_correlated_result() {
     let c = setup(&root);
     std::fs::write(
         root.path().join("inbox/messages.json"),
-        json!([{"id":"steering","text":"fixture:batch second prompt","attachments":[]}])
-            .to_string(),
+        json!([{
+            "id": "steering",
+            "text": "fixture:batch second prompt",
+            "attachments": [],
+        }])
+        .to_string(),
     )
     .unwrap();
     let events = run_events(&c, plan(&root, "fixture:batch first prompt")).await;
@@ -492,7 +609,18 @@ async fn usage_is_sanitized_cached_and_preserved_on_failure_without_changing_con
     let c = config(&root);
     let home = claude::home(&c);
     std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".credentials.json"),json!({"claudeAiOauth":{"accessToken":"fixture-access","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
+    std::fs::write(
+        home.join(".credentials.json"),
+        json!({
+            "claudeAiOauth": {
+                "accessToken": "fixture-access",
+                "expiresAt": leo_agent_manager::config::now() + 3600000,
+                "scopes": ["user:inference"],
+            },
+        })
+        .to_string(),
+    )
+    .unwrap();
     let s = Service::new(c).await.unwrap();
     let first = route(&s, "GET", "connection", Value::Null).await.unwrap();
     assert_eq!(first["connected"], true);
@@ -549,7 +677,25 @@ async fn usage_is_sanitized_cached_and_preserved_on_failure_without_changing_con
     let mut old = first["usage"].clone();
     old["attemptedAt"] = 0.into();
     s.store.set("claude-usage", old, None).await.unwrap();
-    s.store.write(|db| db.add_run(&json!({"id":"busy-claude","taskId":"fixture","status":"running","createdAt":1,"snapshot":{"agent":{"provider":"claude"}}}), None)).await.unwrap();
+    s.store
+        .write(|db| {
+            db.add_run(
+                &json!({
+                    "id": "busy-claude",
+                    "taskId": "fixture",
+                    "status": "running",
+                    "createdAt": 1,
+                    "snapshot": {
+                        "agent": {
+                            "provider": "claude",
+                        },
+                    },
+                }),
+                None,
+            )
+        })
+        .await
+        .unwrap();
     let busy = route(&s, "GET", "connection", Value::Null).await.unwrap();
     assert_eq!(busy["busy"], true);
     assert_eq!(busy["usage"]["stale"], true);
@@ -562,7 +708,12 @@ async fn usage_is_sanitized_cached_and_preserved_on_failure_without_changing_con
         2
     );
     s.store
-        .patch_run("busy-claude", json!({"status":"succeeded"}))
+        .patch_run(
+            "busy-claude",
+            json!({
+                "status": "succeeded",
+            }),
+        )
         .await
         .unwrap();
     std::fs::write(home.join("sync-required"), "run").unwrap();
@@ -594,16 +745,45 @@ async fn usage_handles_partial_invalid_and_unavailable_windows_and_reconnect() {
     let c = config(&root);
     let home = claude::home(&c);
     std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".credentials.json"),json!({"claudeAiOauth":{"accessToken":"fixture-access","expiresAt":leo_agent_manager::config::now()+3600000,"scopes":["user:inference"]}}).to_string()).unwrap();
+    std::fs::write(
+        home.join(".credentials.json"),
+        json!({
+            "claudeAiOauth": {
+                "accessToken": "fixture-access",
+                "expiresAt": leo_agent_manager::config::now() + 3600000,
+                "scopes": ["user:inference"],
+            },
+        })
+        .to_string(),
+    )
+    .unwrap();
     let s = Service::new(c).await.unwrap();
-    let payload = json!({"rate_limits_available":true,"rate_limits":{
-        "five_hour":{"utilization":0,"resets_at":null},
-        "seven_day":{"utilization":105,"resets_at":"invalid"},
-        "seven_day_opus":{"utilization":null},
-        "seven_day_sonnet":{"utilization":-1},
-        "model_scoped":[{"display_name":"Fable","utilization":42,"resets_at":"2030-01-07T12:00:00Z","secret":"never-return"}],
-        "unknown_secret":"never-return"
-    }});
+    let payload = json!({
+        "rate_limits_available": true,
+        "rate_limits": {
+            "five_hour": {
+                "utilization": 0,
+                "resets_at": null,
+            },
+            "seven_day": {
+                "utilization": 105,
+                "resets_at": "invalid",
+            },
+            "seven_day_opus": {
+                "utilization": null,
+            },
+            "seven_day_sonnet": {
+                "utilization": -1,
+            },
+            "model_scoped": [{
+                "display_name": "Fable",
+                "utilization": 42,
+                "resets_at": "2030-01-07T12:00:00Z",
+                "secret": "never-return",
+            }],
+            "unknown_secret": "never-return",
+        },
+    });
     std::fs::write(home.join("fixture-usage.json"), payload.to_string()).unwrap();
     let view = route(&s, "GET", "connection", Value::Null).await.unwrap();
     let windows = view["usage"]["windows"].as_array().unwrap();
@@ -615,8 +795,18 @@ async fn usage_handles_partial_invalid_and_unavailable_windows_and_reconnect() {
     assert!(!view.to_string().contains("never-return"));
 
     for payload in [
-        json!({"rate_limits_available":false,"rate_limits":null}),
-        json!({"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":"25"}}}),
+        json!({
+            "rate_limits_available": false,
+            "rate_limits": null,
+        }),
+        json!({
+            "rate_limits_available": true,
+            "rate_limits": {
+                "five_hour": {
+                    "utilization": "25",
+                },
+            },
+        }),
     ] {
         s.store.delete("claude-usage").await.unwrap();
         std::fs::write(home.join("fixture-usage.json"), payload.to_string()).unwrap();
@@ -651,15 +841,29 @@ async fn concurrency_setting_is_validated_persisted_and_available_during_runs() 
         Value::Null,
     ] {
         assert!(
-            route(&s, "PATCH", "connection", json!({"maxConcurrent":limit}))
-                .await
-                .is_err()
+            route(
+                &s,
+                "PATCH",
+                "connection",
+                json!({
+                    "maxConcurrent": limit
+                })
+            )
+            .await
+            .is_err()
         );
     }
     assert_eq!(
-        route(&s, "PATCH", "connection", json!({"maxConcurrent":2}))
-            .await
-            .unwrap()["maxConcurrent"],
+        route(
+            &s,
+            "PATCH",
+            "connection",
+            json!({
+                "maxConcurrent": 2
+            })
+        )
+        .await
+        .unwrap()["maxConcurrent"],
         2
     );
     assert_eq!(

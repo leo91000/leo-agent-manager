@@ -39,6 +39,7 @@ struct Attempt {
     plan: Value,
     imports: Arc<Mutex<()>>,
 }
+
 #[derive(Clone)]
 struct Broker {
     data: PathBuf,
@@ -58,6 +59,7 @@ fn normalized(path: &Path) -> bool {
         })
         && !path.to_string_lossy().contains("//")
 }
+
 fn validate(plan: &Value, id: &str, data: &Path) -> Result<()> {
     uuid(text(plan, "runId"))?;
     if plan["id"] != id
@@ -106,6 +108,7 @@ fn validate(plan: &Value, id: &str, data: &Path) -> Result<()> {
     }
     Ok(())
 }
+
 impl Broker {
     async fn start(&self, id: &str) -> Result<()> {
         if self.active.lock().await.contains_key(id) {
@@ -199,7 +202,11 @@ impl Broker {
             let code = match result {
                 Ok(code) => code,
                 Err(error) => {
-                    let event = json!({"type":"output","stderr":true,"data":STANDARD.encode(format!("{}\n",error.message))});
+                    let event = json!({
+                        "type": "output",
+                        "stderr": true,
+                        "data": STANDARD.encode(format!("{}\n", error.message)),
+                    });
                     if let Ok(mut log) = tokio::fs::OpenOptions::new()
                         .create(true)
                         .append(true)
@@ -222,6 +229,7 @@ impl Broker {
         });
         Ok(())
     }
+
     async fn open_project(&self, id: &str, project_id: &str, value: Value) -> Result<Value> {
         uuid(project_id)?;
         let (plan, stop, lock, socket) = {
@@ -257,10 +265,23 @@ impl Broker {
             .get()
             .ok_or_else(|| Error::new(409, "VM is still starting."))?;
         tokio::select! {
-            _ = stop.cancelled() => Err(Error::new(409,"VM stopped during project import.")),
-            result = tokio::time::timeout(Duration::from_secs(290),host::import_project(socket,source,text(&value,"target"),plan["sandbox"] == "read-only")) => result.map_err(|_| Error::new(503,"Project import timed out."))?,
+            _ = stop.cancelled() => Err(Error::new(409, "VM stopped during project import.")),
+            result
+                = tokio::time::timeout(
+                    Duration::from_secs(290),
+                    host::import_project(
+                        socket,
+                        source,
+                        text(&value, "target"),
+                        plan["sandbox"] == "read-only",
+                    ),
+                ) =>
+            {
+                result.map_err(|_| Error::new(503, "Project import timed out."))?
+            }
         }
     }
+
     async fn stop(&self, id: &str) -> Result<()> {
         atomic_write(&self.state.join(format!("{id}.stopped")), b"").await?;
         let attempt = {
@@ -278,6 +299,7 @@ impl Broker {
         Ok(())
     }
 }
+
 async fn erase_attempt_content(broker: &Broker, run: &str) -> Result<()> {
     let mut attempts = std::collections::HashSet::new();
     let plans = broker.data.join("runner-plans");
@@ -342,7 +364,15 @@ async fn erase_attempt_content(broker: &Broker, run: &str) -> Result<()> {
 
 async fn handler(State(broker): State<Broker>, request: Request) -> Result<Response> {
     if request.uri().path() == "/health" {
-        return Ok(Json(json!({"status":"ok","backend":"firecracker","runtimeId":std::env::var("APP_RUNTIME_ID").unwrap_or_else(|_|"development".into()),"activeRuns":broker.active.lock().await.len(),"pool":broker.pool.health().await})).into_response());
+        return Ok(Json(json!({
+            "status": "ok",
+            "backend": "firecracker",
+            "runtimeId": std::env::var("APP_RUNTIME_ID")
+                .unwrap_or_else(|_| "development".into()),
+            "activeRuns": broker.active.lock().await.len(),
+            "pool": broker.pool.health().await,
+        }))
+        .into_response());
     }
     let credential = tokio::fs::read_to_string(broker.data.join("runner-secret")).await?;
     let authorization = request
@@ -407,7 +437,10 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
                 }
             }
             // Preserve the lock inode: an overlapping boot must contend on it.
-            return Ok(Json(json!({"deleted":true})).into_response());
+            return Ok(Json(json!({
+                "deleted": true,
+            }))
+            .into_response());
         }
         drop(active);
         let transfer = text(&body, "transfer");
@@ -454,7 +487,10 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
             std::fs::File::open(&directory)?.sync_all()?;
             tokio::fs::remove_dir_all(target).await?;
         }
-        Ok(Json(json!({"ready":true})).into_response())
+        Ok(Json(json!({
+            "ready": true,
+        }))
+        .into_response())
     } else {
         let id = segments
             .get(1)
@@ -488,8 +524,15 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
                 };
                 let root = broker.data.join("runs").join(run);
                 let (stream, size) = tokio::select! {
-                    _=stop.cancelled()=>return Err(Error::new(409,"VM stopped.")),
-                    result=tokio::time::timeout(Duration::from_secs(10),host::export_artifact(&socket,text(&value,"path"),&root))=>result.map_err(|_|Error::new(408,"Artifact export timed out."))??,
+                    _ = stop.cancelled() => return Err(Error::new(409, "VM stopped.")),
+                    result
+                        = tokio::time::timeout(
+                            Duration::from_secs(10),
+                            host::export_artifact(&socket, text(&value, "path"), &root),
+                        ) =>
+                    {
+                        result.map_err(|_| Error::new(408, "Artifact export timed out."))??
+                    }
                 };
                 let stream = tokio_util::io::ReaderStream::new(stream.take(size))
                     .take_until(async move { stop.cancelled().await });
@@ -573,8 +616,10 @@ async fn handler(State(broker): State<Broker>, request: Request) -> Result<Respo
                         {
                             return Some((
                                 Ok::<_, std::io::Error>(Bytes::from(
-                                    json!({"StatusCode":code.parse::<i32>().unwrap_or(1)})
-                                        .to_string(),
+                                    json!({
+                                        "StatusCode": code.parse::<i32>().unwrap_or(1),
+                                    })
+                                    .to_string(),
                                 )),
                                 (broker, id, true),
                             ));
@@ -654,7 +699,9 @@ pub async fn serve(stop: CancellationToken) -> Result<()> {
     drop(controller);
     Ok(())
 }
+
 use std::os::fd::AsRawFd;
+
 pub async fn client(id: &str, stop: CancellationToken) -> Result<i32> {
     uuid(id)?;
     let base = std::env::var("RUNNER_URL").map_err(|_| Error::bad("Missing runner URL."))?;
@@ -733,7 +780,10 @@ pub async fn client(id: &str, stop: CancellationToken) -> Result<i32> {
         let (_, code) = tokio::try_join!(output, wait)?;
         Ok(code)
     };
-    let result = tokio::select! {_=stop.cancelled()=>Ok(143),result=operation=>result};
+    let result = tokio::select! {
+        _ = stop.cancelled() => Ok(143),
+        result = operation => result,
+    };
     let _ = http
         .delete(url)
         .bearer_auth(token)
@@ -753,6 +803,7 @@ pub async fn client(id: &str, stop: CancellationToken) -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[tokio::test]
     async fn workspace_disk_round_trip_uses_authenticated_http_and_preserves_the_lock() {
         use std::io::{Read, Seek, SeekFrom, Write};
@@ -813,7 +864,12 @@ mod tests {
                         .method("POST")
                         .uri(format!("/disks/{run}/{action}"))
                         .header("authorization", format!("Bearer {credential}"))
-                        .body(Body::from(json!({"transfer":transfer}).to_string()))
+                        .body(Body::from(
+                            json!({
+                                "transfer": transfer,
+                            })
+                            .to_string(),
+                        ))
                         .unwrap(),
                 )
                 .await
@@ -862,10 +918,17 @@ mod tests {
         file.read_to_string(&mut text).unwrap();
         assert_eq!(text, "native session and unpublished work");
     }
+
     #[test]
     fn execution_plans_accept_unlimited_but_reject_invalid_or_expired_deadlines() {
         let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-        let mut plan = json!({"id":id,"runId":id,"expires":null,"cwd":format!("/data/runs/{id}/workspace"),"imports":[]});
+        let mut plan = json!({
+            "id": id,
+            "runId": id,
+            "expires": null,
+            "cwd": format!("/data/runs/{id}/workspace"),
+            "imports": [],
+        });
         assert!(validate(&plan, id, Path::new("/data")).is_ok());
         for expiry in [
             json!(0),
@@ -879,10 +942,21 @@ mod tests {
         plan.as_object_mut().unwrap().remove("expires");
         assert!(validate(&plan, id, Path::new("/data")).is_err());
     }
+
     #[test]
     fn claude_credentials_have_one_private_destination() {
         let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-        let mut plan = json!({"id":id,"runId":id,"expires":now()+60000,"cwd":format!("/data/runs/{id}/workspace"),"imports":[],"chat":{"provider":"claude"},"claudeState":"/data/claude"});
+        let mut plan = json!({
+            "id": id,
+            "runId": id,
+            "expires": now() + 60000,
+            "cwd": format!("/data/runs/{id}/workspace"),
+            "imports": [],
+            "chat": {
+                "provider": "claude",
+            },
+            "claudeState": "/data/claude",
+        });
         assert!(validate(&plan, id, Path::new("/data")).is_ok());
         for destination in ["/data/other", "/home/node", "/data/../claude"] {
             plan["claudeState"] = destination.into();
@@ -892,10 +966,17 @@ mod tests {
         plan["chat"]["provider"] = "codex".into();
         assert!(validate(&plan, id, Path::new("/data")).is_err());
     }
+
     #[test]
     fn imports_cannot_grant_host_or_other_run_access() {
         let id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-        let mut plan = json!({"id":id,"runId":id,"expires":now()+60000,"cwd":format!("/data/runs/{id}/workspace"),"imports":[]});
+        let mut plan = json!({
+            "id": id,
+            "runId": id,
+            "expires": now() + 60000,
+            "cwd": format!("/data/runs/{id}/workspace"),
+            "imports": [],
+        });
         assert!(validate(&plan, id, Path::new("/data")).is_ok());
         for source in [
             "/data/private",
@@ -903,7 +984,10 @@ mod tests {
             "/data/runs/another/workspace",
             "/data/runs/../private",
         ] {
-            plan["imports"] = json!([{"source":source,"target":"/home/node"}]);
+            plan["imports"] = json!([{
+                "source": source,
+                "target": "/home/node",
+            }]);
             assert!(validate(&plan, id, Path::new("/data")).is_err());
         }
     }

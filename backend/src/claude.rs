@@ -25,11 +25,13 @@ pub struct Claude {
     pub gate: Mutex<()>,
     login: Mutex<Option<Login>>,
 }
+
 struct Login {
     view: Value,
     cancel: CancellationToken,
     input: mpsc::Sender<String>,
 }
+
 pub fn provider(agent: &Value) -> &str {
     if agent["provider"] == "claude" {
         "claude"
@@ -37,12 +39,15 @@ pub fn provider(agent: &Value) -> &str {
         "codex"
     }
 }
+
 pub fn is_claude(run: &Value) -> bool {
     provider(&run["snapshot"]["agent"]) == "claude"
 }
+
 pub fn home(config: &Config) -> PathBuf {
     config.data_dir.join("claude")
 }
+
 pub fn environment(config: &Config, directory: &Path) -> Environment {
     let mut env = std::env::vars().collect::<Environment>();
     crate::process::remove_archive_environment(&mut env);
@@ -73,6 +78,7 @@ pub fn environment(config: &Config, directory: &Path) -> Environment {
     env.insert("BROWSER".into(), "true".into());
     env
 }
+
 pub fn validate_agent(agent: &Value) -> Result<()> {
     if provider(agent) == "claude" {
         if !["", "low", "medium", "high", "xhigh", "max"].contains(&text(agent, "reasoning")) {
@@ -84,10 +90,30 @@ pub fn validate_agent(agent: &Value) -> Result<()> {
     }
     Ok(())
 }
+
 pub fn models() -> Value {
-    let rows = [("sonnet", "Sonnet"), ("opus", "Opus"), ("haiku", "Haiku")].iter().map(|(model, name)| json!({"model":model,"displayName":name,"description":"Claude Code alias · connect to load account capabilities","hidden":false,"isDefault":false,"defaultReasoningEffort":"","supportedReasoningEfforts":[]})).collect::<Vec<_>>();
-    json!({"models":rows,"checkedAt":null,"stale":true,"error":"Connect Claude Code to load available models and effort levels."})
+    let rows = [("sonnet", "Sonnet"), ("opus", "Opus"), ("haiku", "Haiku")]
+        .iter()
+        .map(|(model, name)| {
+            json!({
+                "model": model,
+                "displayName": name,
+                "description": "Claude Code alias · connect to load account capabilities",
+                "hidden": false,
+                "isDefault": false,
+                "defaultReasoningEffort": "",
+                "supportedReasoningEfforts": [],
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "models": rows,
+        "checkedAt": null,
+        "stale": true,
+        "error": "Connect Claude Code to load available models and effort levels.",
+    })
 }
+
 // Metadata queries never submit a user message or start a model turn.
 async fn query_metadata(s: &Service, request: Option<Value>) -> Result<Value> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
@@ -141,7 +167,8 @@ async fn query_metadata(s: &Service, request: Option<Value>) -> Result<Value> {
             }
             if value["response"]["subtype"] != "success" {
                 // CLI error text can contain private state. Never forward it.
-                return Err(Error::new(502, "Claude Code could not load account data. Check the connection and CLI version."));
+                return Err(Error::new(502, "Claude Code could not load account data. Check the connection \
+                and CLI version."));
             }
             if expected == "initialize" && let Some(request) = &request {
                 let message = json!({"type":"control_request","request_id":"metadata","request":request});
@@ -167,6 +194,7 @@ async fn query_metadata(s: &Service, request: Option<Value>) -> Result<Value> {
     drain.abort();
     result
 }
+
 // Claude Code caches its account's model catalog. Unlike the initialize response, it names the
 // model behind each alias and marks the default effort. A missing cache only hides those details.
 async fn cached_catalog(directory: &Path) -> Vec<Value> {
@@ -191,6 +219,7 @@ async fn cached_catalog(directory: &Path) -> Vec<Value> {
     }
     newest.1
 }
+
 // Applied whenever the catalog is served, including one stored while runs blocked refreshes.
 fn present(catalog: &mut Value, cached: &[Value]) {
     for row in catalog["models"].as_array_mut().into_iter().flatten() {
@@ -237,19 +266,52 @@ fn present(catalog: &mut Value, cached: &[Value]) {
         }
     }
 }
+
 async fn discover_models(s: &Service) -> Result<Value> {
     let value = query_metadata(s, None).await?;
     let rows = value["models"]
         .as_array()
         .ok_or_else(|| Error::new(502, "Update Claude Code to load its model catalog."))?;
-    let models = rows.iter().filter(|row| !text(row, "value").is_empty()).map(|row| json!({"model":row["value"],"resolvedModel":text(row,"resolvedModel"),"displayName":row["displayName"],"description":row["description"],"hidden":false,"isDefault":row["value"]=="default","defaultReasoningEffort":"","supportedReasoningEfforts":row["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|effort|json!({"reasoningEffort":effort,"description":""})).collect::<Vec<_>>()})).collect::<Vec<_>>();
+    let models = rows
+        .iter()
+        .filter(|row| !text(row, "value").is_empty())
+        .map(|row| {
+            json!({
+                "model": row["value"],
+                "resolvedModel": text(row, "resolvedModel"),
+                "displayName": row["displayName"],
+                "description": row["description"],
+                "hidden": false,
+                "isDefault": row["value"] == "default",
+                "defaultReasoningEffort": "",
+                "supportedReasoningEfforts": row["supportedEffortLevels"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(|effort| {
+                        json!({
+                            "reasoningEffort": effort,
+                            "description": "",
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
     if models.is_empty() {
         return Err(Error::new(502, "Claude Code returned no available models."));
     }
-    Ok(json!({"models":models,"checkedAt":now(),"stale":false,"error":""}))
+    Ok(json!({
+        "models": models,
+        "checkedAt": now(),
+        "stale": false,
+        "error": "",
+    }))
 }
 
 const USAGE_TTL: i64 = 300_000;
+
 fn usage_windows(value: &Value) -> Result<Vec<Value>> {
     if value["rate_limits_available"] != true {
         return Err(Error::new(
@@ -270,7 +332,12 @@ fn usage_windows(value: &Value) -> Result<Vec<Value>> {
             .as_str()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|date| date.timestamp());
-        windows.push(json!({"id":id,"label":label,"usedPercent":used,"resetsAt":resets_at}));
+        windows.push(json!({
+            "id": id,
+            "label": label,
+            "usedPercent": used,
+            "resetsAt": resets_at,
+        }));
     };
     for (key, label) in [
         ("five_hour", "5-hour window"),
@@ -306,11 +373,12 @@ fn usage_windows(value: &Value) -> Result<Vec<Value>> {
 
 // Called under the account gate: never refresh CLI credentials while a guest owns them.
 async fn usage(s: &Service, can_query: bool) -> Result<Value> {
-    let mut cached = s
-        .store
-        .kv("claude-usage")
-        .await?
-        .unwrap_or(json!({"windows":[],"checkedAt":null,"stale":true,"error":null}));
+    let mut cached = s.store.kv("claude-usage").await?.unwrap_or(json!({
+        "windows": [],
+        "checkedAt": null,
+        "stale": true,
+        "error": null,
+    }));
     let recent = cached["attemptedAt"]
         .as_i64()
         .is_some_and(|at| now() - at < USAGE_TTL);
@@ -318,7 +386,10 @@ async fn usage(s: &Service, can_query: bool) -> Result<Value> {
         cached["attemptedAt"] = now().into();
         match query_metadata(
             s,
-            Some(json!({"subtype":"get_usage","skip_behaviors":true})),
+            Some(json!({
+                "subtype": "get_usage",
+                "skip_behaviors": true,
+            })),
         )
         .await
         .and_then(|v| usage_windows(&v))
@@ -330,7 +401,10 @@ async fn usage(s: &Service, can_query: bool) -> Result<Value> {
                 cached["stale"] = false.into();
             }
             Err(_) => {
-                cached["error"] = "Claude Code usage is temporarily unavailable. It will be checked again automatically.".into();
+                cached["error"] =
+                    "Claude Code usage is temporarily unavailable. It will be checked again \
+                    automatically."
+                        .into();
                 cached["stale"] = true.into();
             }
         }
@@ -351,6 +425,7 @@ async fn model_catalog(s: &Service) -> Result<Value> {
     present(&mut catalog, &cached_catalog(&home(&s.config)).await);
     Ok(catalog)
 }
+
 async fn stored_catalog(s: &Service) -> Result<Value> {
     let _guard = s.claude.gate.lock().await;
     let mut cached = s.store.kv("claude-models").await?.unwrap_or_else(models);
@@ -379,6 +454,7 @@ async fn stored_catalog(s: &Service) -> Result<Value> {
         }
     }
 }
+
 async fn status(s: &Service) -> Result<Value> {
     let directory = home(&s.config);
     private_dir(&directory).await?;
@@ -400,10 +476,15 @@ async fn status(s: &Service) -> Result<Value> {
         )
     })?;
     // Never return arbitrary CLI output: only documented, non-secret identity fields.
-    Ok(
-        json!({"connected":output.success && value["loggedIn"]==true,"email":value["email"].as_str(),"authMethod":value["authMethod"].as_str(),"subscriptionType":value["subscriptionType"].as_str(),"checkedAt":now()}),
-    )
+    Ok(json!({
+        "connected": output.success && value["loggedIn"] == true,
+        "email": value["email"].as_str(),
+        "authMethod": value["authMethod"].as_str(),
+        "subscriptionType": value["subscriptionType"].as_str(),
+        "checkedAt": now(),
+    }))
 }
+
 async fn active_count(s: &Service) -> Result<usize> {
     Ok(s.store
         .read(|db| db.active())
@@ -412,9 +493,11 @@ async fn active_count(s: &Service) -> Result<usize> {
         .filter(|r| is_claude(r) && (r["status"] == "running" || r["recoveryPending"] == true))
         .count())
 }
+
 async fn active(s: &Service) -> Result<bool> {
     Ok(active_count(s).await? > 0)
 }
+
 pub async fn max_concurrent(s: &Service) -> Result<usize> {
     Ok(s.store
         .kv("claude-concurrency")
@@ -422,6 +505,7 @@ pub async fn max_concurrent(s: &Service) -> Result<usize> {
         .and_then(|v| v.as_u64())
         .unwrap_or(4) as usize)
 }
+
 impl Claude {
     pub async fn available(&self, s: &Service, run_id: &str) -> Result<()> {
         if self
@@ -441,7 +525,8 @@ impl Claude {
             return Err(Error::new(
                 409,
                 format!(
-                    "Waiting for an available Claude Code slot ({limit} simultaneous executions)."
+                    "Waiting for an available Claude Code slot ({limit} simultaneous \
+                    executions)."
                 ),
             ));
         }
@@ -451,7 +536,8 @@ impl Claude {
         {
             return Err(Error::new(
                 409,
-                "Reconnect Claude Code after an interrupted credential synchronization.",
+                "Reconnect Claude Code after an interrupted credential \
+                synchronization.",
             ));
         }
         let view = status(s).await?;
@@ -463,6 +549,7 @@ impl Claude {
         }
         Ok(())
     }
+
     pub async fn cancel(&self) {
         let mut login = self.login.lock().await;
         if let Some(login) = login.as_mut() {
@@ -470,21 +557,24 @@ impl Claude {
             login.view["url"] = Value::Null;
         }
     }
+
     async fn view(&self, s: &Service) -> Result<Value> {
         let _gate = self.gate.lock().await;
         let busy = active(s).await?;
         let mut account = if busy {
-            s.store
-                .kv("claude-status")
-                .await?
-                .unwrap_or(json!({"connected":true}))
+            s.store.kv("claude-status").await?.unwrap_or(json!({
+                "connected": true,
+            }))
         } else {
             match status(s).await {
                 Ok(v) => {
                     s.store.set("claude-status", v.clone(), None).await?;
                     v
                 }
-                Err(e) => json!({"connected":false,"error":e.message}),
+                Err(e) => json!({
+                    "connected": false,
+                    "error": e.message,
+                }),
             }
         };
         account["busy"] = busy.into();
@@ -492,8 +582,9 @@ impl Claude {
         account["activeRuns"] = active_count(s).await?.into();
         account["serverConcurrency"] = s.config.concurrency.into();
         if home(&s.config).join("sync-required").exists() && !busy {
-            account["error"] =
-                "Reconnect Claude Code after the interrupted run to refresh its sign-in.".into();
+            account["error"] = "Reconnect Claude Code after the interrupted run to refresh its \
+            sign-in."
+                .into();
         }
         account["login"] = self
             .login
@@ -516,6 +607,7 @@ impl Claude {
         };
         Ok(account)
     }
+
     async fn start(self: &Arc<Self>, s: &Arc<Service>) -> Result<Value> {
         let _gate = self.gate.lock().await;
         if active(s).await? {
@@ -544,7 +636,8 @@ impl Claude {
         let mut child = cmd.spawn().map_err(|_| {
             Error::new(
                 503,
-                "Claude Code is not installed. Install the supported CLI on the server.",
+                "Claude Code is not installed. Install the supported CLI on the \
+                server.",
             )
         })?;
         let mut stdin = child.stdin.take().unwrap();
@@ -553,7 +646,13 @@ impl Claude {
         let (tx, mut rx) = mpsc::channel::<String>(1);
         let cancel = CancellationToken::new();
         let attempt = id();
-        let view = json!({"id":attempt,"state":"pending","url":null,"expiresAt":now()+900_000,"error":null});
+        let view = json!({
+            "id": attempt,
+            "state": "pending",
+            "url": null,
+            "expiresAt": now() + 900_000,
+            "error": null,
+        });
         *guard = Some(Login {
             view: view.clone(),
             cancel: cancel.clone(),
@@ -570,18 +669,50 @@ impl Claude {
             let mut stderr_open = true;
             let deadline = tokio::time::sleep(Duration::from_secs(900));
             tokio::pin!(deadline);
-            let result:Result<bool>=async {loop {tokio::select! {
-                _=cancel.cancelled()=>return Ok(false),
-                _=service.shutdown.cancelled()=>return Ok(false),
-                _=&mut deadline=>return Err(Error::new(408,"Sign-in expired. Start again to get a new link.")),
-                code=rx.recv()=>if let Some(code)=code {stdin.write_all(code.as_bytes()).await?;stdin.write_all(b"\n").await?;},
-                status=child.wait()=>return Ok(status?.success()),
-                n=stdout.read(&mut a),if stdout_open=>{let n=n?;stdout_open=n>0;output.push_str(&String::from_utf8_lossy(&a[..n]));},
-                n=stderr.read(&mut b),if stderr_open=>{let n=n?;stderr_open=n>0;output.push_str(&String::from_utf8_lossy(&b[..n]));}
+            let result: Result<bool> = async {
+                loop {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(false),
+                        _ = service.shutdown.cancelled() => return Ok(false),
+                        _ = &mut deadline => {
+                            return Err(Error::new(
+                                408,
+                                "Sign-in expired. Start again to get a new link.",
+                            ));
+                        }
+                        code = rx.recv() => {
+                            if let Some(code) = code {
+                                stdin.write_all(code.as_bytes()).await?;
+                                stdin.write_all(b"\n").await?;
+                            }
+                        }
+                        status = child.wait() => return Ok(status?.success()),
+                        n = stdout.read(&mut a) , if stdout_open => {
+                            let n = n?;
+                            stdout_open = n > 0;
+                            output.push_str(&String::from_utf8_lossy(&a[..n]));
+                        }
+                        n = stderr.read(&mut b) , if stderr_open => {
+                            let n = n?;
+                            stderr_open = n > 0;
+                            output.push_str(&String::from_utf8_lossy(&b[..n]));
+                        }
+                    }
+                    if output.len() > 64_000 {
+                        return Err(Error::new(
+                            502,
+                            "Claude Code sign-in returned too much output.",
+                        ));
+                    }
+                    if let Some(url) = login_url(&output) {
+                        let mut login = this.login.lock().await;
+                        if let Some(l) = login.as_mut().filter(|l| l.view["id"] == attempt) {
+                            l.view["url"] = url.into();
+                        }
+                    }
+                }
             }
-            if output.len()>64_000 {return Err(Error::new(502,"Claude Code sign-in returned too much output."));}
-            if let Some(url)=login_url(&output) {let mut login=this.login.lock().await;if let Some(l)=login.as_mut().filter(|l|l.view["id"]==attempt) {l.view["url"]=url.into();}}
-            }}.await;
+            .await;
             let _ = child.kill().await;
             let _ = child.wait().await;
             let connected = matches!(result, Ok(true))
@@ -615,6 +746,7 @@ impl Claude {
         Ok(view)
     }
 }
+
 fn login_url(output: &str) -> Option<String> {
     output
         .split_whitespace()
@@ -635,6 +767,7 @@ fn login_url(output: &str) -> Option<String> {
         })
         .map(|u| u.to_string())
 }
+
 pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
     match (input.method.as_str(), input.path.as_str()) {
         ("GET", "/api/claude/models") => model_catalog(s).await,
@@ -670,11 +803,15 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
             l.input
                 .try_send(code.into())
                 .map_err(|_| Error::new(409, "A code is already being checked."))?;
-            Ok(json!({"submitted":true}))
+            Ok(json!({
+                "submitted": true,
+            }))
         }
         ("DELETE", "/api/claude/login") => {
             s.claude.cancel().await;
-            Ok(json!({"cancelled":true}))
+            Ok(json!({
+                "cancelled": true,
+            }))
         }
         ("DELETE", "/api/claude/connection") => {
             let _gate = s.claude.gate.lock().await;
@@ -709,11 +846,19 @@ pub async fn routes(s: &Arc<Service>, input: &Input) -> Result<Value> {
                 return Err(Error::new(502, "Claude Code could not disconnect."));
             }
             s.store
-                .set("claude-status", json!({"connected":false}), None)
+                .set(
+                    "claude-status",
+                    json!({
+                        "connected": false,
+                    }),
+                    None,
+                )
                 .await?;
             s.store.delete("claude-models").await?;
             s.store.delete("claude-usage").await?;
-            Ok(json!({"disconnected":true}))
+            Ok(json!({
+                "disconnected": true,
+            }))
         }
         _ => Err(Error::new(404, "Unknown Claude operation.")),
     }

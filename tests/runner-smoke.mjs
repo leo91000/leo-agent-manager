@@ -2,7 +2,14 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -22,6 +29,7 @@ async function main() {
   let url
   let auth
   let claudeAuth
+
   async function until(operation, timeout = 180000) {
     const deadline = Date.now() + timeout
     while (Date.now() < deadline) {
@@ -30,13 +38,21 @@ async function main() {
         return result
       await setTimeout(100)
     }
+
     throw new Error('MicroVM test timed out')
   }
+
   async function api(endpoint, method = 'GET', body) {
-    const response = await fetch(url + endpoint, { method, headers: { ...headers, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(180000) })
+    const response = await fetch(url + endpoint, {
+      method,
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(180000),
+    })
     assert.equal(response.ok, true, `${method} ${endpoint}: ${response.status}`)
     return response
   }
+
   try {
     for (const dir of ['data/runner-plans', 'data/claude', 'state'])
       await mkdir(path.join(root, dir), { recursive: true })
@@ -168,10 +184,12 @@ console.log('probe.done');
         plan.claudeResumeState = mode === 'claude-resume'
         await writeFile(path.join(root, 'data/claude/sync-required'), runId)
       }
+
       if (mode === 'managed-claude') {
         plan.chat.provider = 'claude'
         plan.chat.claudeManagedAuth = true
       }
+
       await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
       const start = Date.now()
       await api(`/runs/${id}`, 'POST')
@@ -198,6 +216,7 @@ console.log('probe.done');
                   const denied = await fetch(`${url}/runs/${id}/artifact`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ runId, path: file }) })
                   assert.equal(denied.status, 400, file)
                 }
+
                 const wrongRun = await fetch(`${url}/runs/${id}/artifact`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ runId: randomUUID(), path: '/tmp/artifact-probe.bin' }) })
                 assert.equal(wrongRun.status, 403)
 
@@ -211,12 +230,14 @@ console.log('probe.done');
                 assert.deepEqual(opened, { ok: true, reused: false })
                 await writeFile(path.join(source, 'chat-input/messages.json'), '[{"text":"steered"}]')
               }
+
               if (data.includes('project.edited')) {
                 const body = { runId, source: `${runRoot}/workspace/${projectId}`, target: `${runRoot}/workspace/${projectId}` }
                 const opened = await (await api(`/runs/${id}/projects/${projectId}`, 'POST', body)).json()
                 assert.deepEqual(opened, { ok: true, reused: true })
                 await writeFile(path.join(source, 'chat-input/messages.json'), '[{"text":"reopened"}]')
               }
+
               if (text.includes('probe.pause') && mode === 'cancel')
                 await api(`/runs/${id}`, 'DELETE')
               if (text.includes('probe.pause') && mode === 'crash') {
@@ -239,6 +260,7 @@ console.log('probe.done');
           if (mode !== 'crash' || !text.includes('probe.pause'))
             throw error
         }
+
         return text
       })()
       const waiting = async () => (await api(`/runs/${id}/wait`, 'POST')).json()
@@ -253,7 +275,8 @@ console.log('probe.done');
       assert.equal(status.StatusCode, ['cancel', 'crash'].includes(mode) ? 143 : 0, text)
       if (['cancel', 'crash'].includes(mode))
         assert.ok(text.includes('probe.pause'))
-      else assert.equal(docker('exec', name, 'cat', `${runRoot}/output/result.md`), `guest test passed ${mode}`)
+      else
+        assert.equal(docker('exec', name, 'cat', `${runRoot}/output/result.md`), `guest test passed ${mode}`)
       if (mode.startsWith('claude')) {
         const state = JSON.parse(docker('exec', name, 'cat', '/data/claude/.credentials.json'))
         assert.equal(state.fixture, mode === 'claude' ? 'rotated' : 'retained')
@@ -261,10 +284,12 @@ console.log('probe.done');
         assert.equal(docker('exec', name, 'sh', '-c', 'test ! -e /data/claude/sync-required && echo cleared'), 'cleared')
         assert.ok(!text.includes('"fixture":"rotated"') && !text.includes('"fixture":"retained"'), 'credential transfer stays out of run logs')
       }
+
       if (mode === 'managed-claude') {
         assert.equal(JSON.parse(docker('exec', name, 'cat', '/data/claude/.credentials.json')).fixture, 'retained')
         assert.ok(!text.includes('fixture-claude-access'), 'access snapshot stays out of logs')
       }
+
       assert.equal(await readFile(path.join(source, 'workspace/preserved'), 'utf8').catch(() => null), null, 'guest edits must not affect host checkout')
       await api(`/runs/${id}`, 'DELETE')
       if (mode === 'first') {
@@ -280,8 +305,10 @@ console.log('probe.done');
         await rm(staging, { recursive: true })
         // The next real guest must find dirty files, session state and cached Docker images.
       }
+
       process.stdout.write(`${JSON.stringify({ mode, durationMs: Date.now() - start, status: 'passed' })}\n`)
     }
+
     // Independent disks must run concurrently and enforce each guest policy.
     const probes = []
     for (const sandbox of ['read-only', 'workspace-write']) {
@@ -314,12 +341,35 @@ console.log('probe.done');
         },100);
 
       `
-      const plan = { id, runId, expires: Date.now() + 60000, sandbox, cwd: workspace, command: ['/usr/local/bin/node', '-e', code], imports: [{ source: workspace, target: workspace, readOnly: sandbox === 'read-only' }] }
+      const plan = {
+        id,
+        runId,
+        expires: Date.now() + 60000,
+        sandbox,
+        cwd: workspace,
+        command: ['/usr/local/bin/node', '-e', code],
+        imports: [{ source: workspace, target: workspace, readOnly: sandbox === 'read-only' }],
+      }
       await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
       await api(`/runs/${id}`, 'POST')
-      probes.push({ id, runId, sandbox, directory, lazyId, lazy })
+      probes.push({
+        id,
+        runId,
+        sandbox,
+        directory,
+        lazyId,
+        lazy,
+      })
     }
-    const outcomes = await Promise.allSettled(probes.map(async ({ id, runId, sandbox, directory, lazyId, lazy }) => {
+
+    const outcomes = await Promise.allSettled(probes.map(async ({
+      id,
+      runId,
+      sandbox,
+      directory,
+      lazyId,
+      lazy,
+    }) => {
       await until(async () => {
         let logs
         try {
@@ -328,6 +378,7 @@ console.log('probe.done');
         catch {
           return false
         }
+
         return logs.split('\n').filter(Boolean).some((line) => {
           const row = JSON.parse(line)
           return row.type === 'output' && Buffer.from(row.data, 'base64').toString().includes('parallel.ready')
@@ -350,11 +401,17 @@ console.log('probe.done');
       if (outcome.status === 'rejected')
         throw outcome.reason
     }
+
     const restricted = probes.find(probe => probe.sandbox === 'read-only')
     const previous = JSON.parse(await readFile(path.join(root, 'data/runner-plans', `${restricted.id}.json`), 'utf8'))
     const resumedId = randomUUID()
     const code = `const fs=require('node:fs'),assert=require('node:assert/strict');assert.equal(fs.readFileSync(${JSON.stringify(`${restricted.lazy}/sentinel`)},'utf8'),'lazy');assert.throws(()=>fs.writeFileSync(${JSON.stringify(`${restricted.lazy}/changed`)},'no'),e=>e.code==='EROFS');console.log('policy.resumed');`
-    const resumed = { ...previous, id: resumedId, expires: Date.now() + 60000, command: ['/usr/local/bin/node', '-e', code] }
+    const resumed = {
+      ...previous,
+      id: resumedId,
+      expires: Date.now() + 60000,
+      command: ['/usr/local/bin/node', '-e', code],
+    }
     await writeFile(path.join(root, 'data/runner-plans', `${resumedId}.json`), JSON.stringify(resumed))
     await api(`/runs/${resumedId}`, 'POST')
     const status = await (await api(`/runs/${resumedId}/wait`, 'POST')).json()
@@ -375,7 +432,15 @@ console.log('probe.done');
       const cwd = `/data/runs/${runId}/workspace`
       const directory = path.join(root, 'data/runs', runId, 'workspace')
       await mkdir(directory, { recursive: true })
-      const plan = { id, runId, expires: Date.now() + 60000, sandbox: 'yolo', cwd, command: ['/usr/local/bin/node', '-e', 'console.log("slot.ready");setInterval(()=>{},1000)'], imports: [{ source: cwd, target: cwd }] }
+      const plan = {
+        id,
+        runId,
+        expires: Date.now() + 60000,
+        sandbox: 'yolo',
+        cwd,
+        command: ['/usr/local/bin/node', '-e', 'console.log("slot.ready");setInterval(()=>{},1000)'],
+        imports: [{ source: cwd, target: cwd }],
+      }
       await writeFile(path.join(root, 'data/runner-plans', `${id}.json`), JSON.stringify(plan))
       const response = await fetch(`${url}/runs/${id}`, { method: 'POST', headers })
       assert.equal(response.status, index < 5 ? 200 : 503)
@@ -388,6 +453,7 @@ console.log('probe.done');
         assert.equal(denied.status, 409, 'same disk cannot enter twice')
       }
     }
+
     assert.equal((await (await api('/health')).json()).pool.occupied, 5)
     await until(async () => {
       try {
@@ -415,6 +481,7 @@ console.log('probe.done');
     }
     catch {
     }
+
     process.exitCode = 1
   }
   finally {
@@ -424,6 +491,7 @@ console.log('probe.done');
       }
       catch {
       }
+
       try {
         docker('rm', '-fv', networkServer)
         docker('network', 'rm', networkName)
@@ -431,6 +499,7 @@ console.log('probe.done');
       catch {
       }
     }
+
     if (auth)
       await new Promise(resolve => auth.close(resolve))
     if (claudeAuth)
@@ -444,6 +513,7 @@ console.log('probe.done');
     }
   }
 }
+
 main().catch((error) => {
   console.error(error)
   process.exitCode = 1

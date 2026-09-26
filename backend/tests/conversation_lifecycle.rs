@@ -16,6 +16,7 @@ struct App {
     cookie: String,
     csrf: String,
 }
+
 impl App {
     async fn new() -> Self {
         let root = TempDir::new().unwrap();
@@ -47,6 +48,7 @@ impl App {
             csrf: session["csrf"].as_str().unwrap().into(),
         }
     }
+
     async fn request(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
         let response = self
             .router
@@ -104,7 +106,10 @@ async fn trash_requires_confirmation_for_pending_work_and_never_replays_cancelle
     let app = App::new().await;
     let (_, chat) = app.request("POST", "/api/chats", json!({})).await;
     let path = format!("/api/chats/{}", chat["id"].as_str().unwrap());
-    let message = json!({"id":leo_agent_manager::config::id(),"text":"Keep these instructions, do not execute them after recovery"});
+    let message = json!({
+        "id": leo_agent_manager::config::id(),
+        "text": "Keep these instructions, do not execute them after recovery",
+    });
     assert_eq!(
         app.request("POST", &format!("{path}/messages"), message)
             .await
@@ -113,25 +118,40 @@ async fn trash_requires_confirmation_for_pending_work_and_never_replays_cancelle
     );
     assert_eq!(app.request("DELETE", &path, json!({})).await.0, 409);
     assert_eq!(
-        app.request("DELETE", &path, json!({"confirm":true}))
-            .await
-            .0,
+        app.request(
+            "DELETE",
+            &path,
+            json!({
+                "confirm": true
+            })
+        )
+        .await
+        .0,
         200
     );
     assert_eq!(
         app.request(
             "POST",
             &format!("{path}/messages"),
-            json!({"id":leo_agent_manager::config::id(),"text":"Must not dispatch"})
+            json!({
+                "id": leo_agent_manager::config::id(),
+                "text": "Must not dispatch"
+            })
         )
         .await
         .0,
         409
     );
     assert_eq!(
-        app.request("POST", &format!("{path}/pause"), json!({"paused":false}))
-            .await
-            .0,
+        app.request(
+            "POST",
+            &format!("{path}/pause"),
+            json!({
+                "paused": false
+            })
+        )
+        .await
+        .0,
         409
     );
     let (_, hidden) = app.request("GET", &path, Value::Null).await;
@@ -164,7 +184,10 @@ async fn retention_policy_previews_old_conversations_but_protects_pending_work()
             app.request(
                 "POST",
                 &path,
-                json!({"id":leo_agent_manager::config::id(),"text":"Still waiting"}),
+                json!({
+                    "id": leo_agent_manager::config::id(),
+                    "text": "Still waiting",
+                }),
             )
             .await;
         }
@@ -172,7 +195,15 @@ async fn retention_policy_previews_old_conversations_but_protects_pending_work()
         let pause = format!("/api/chats/{}/pause", chat["id"].as_str().unwrap());
         app.service.store.put("chats", chat).await.unwrap();
         assert_eq!(
-            app.request("POST", &pause, json!({"paused":true})).await.0,
+            app.request(
+                "POST",
+                &pause,
+                json!({
+                    "paused": true
+                })
+            )
+            .await
+            .0,
             200
         );
     }
@@ -188,7 +219,11 @@ async fn retention_policy_previews_old_conversations_but_protects_pending_work()
         app.request(
             "PUT",
             "/api/conversation-retention",
-            json!({"enabled":false,"inactivityDays":0,"coldAfterDays":90})
+            json!({
+                "enabled": false,
+                "inactivityDays": 0,
+                "coldAfterDays": 90
+            })
         )
         .await
         .0,
@@ -198,7 +233,11 @@ async fn retention_policy_previews_old_conversations_but_protects_pending_work()
         app.request(
             "PUT",
             "/api/conversation-retention",
-            json!({"enabled":false,"inactivityDays":60,"coldAfterDays":180})
+            json!({
+                "enabled": false,
+                "inactivityDays": 60,
+                "coldAfterDays": 180
+            })
         )
         .await
         .0,
@@ -216,11 +255,26 @@ async fn trash_denies_direct_run_history_and_artifact_access() {
     let (_, mut chat) = app.request("POST", "/api/chats", json!({})).await;
     let run = leo_agent_manager::config::id();
     let owned = run.clone();
-    app.service.store.transaction(move |db| {
-        db.0.execute("INSERT INTO runs(id,task_id,project_id,status,created_at,data) VALUES(?1,?1,'','succeeded',0,?2)", rusqlite::params![owned,json!({"id":owned,"status":"succeeded"}).to_string()])?;
-        db.event(&owned, "chat.user", "Private transcript", None)?;
-        Ok(())
-    }).await.unwrap();
+    app.service
+        .store
+        .transaction(move |db| {
+            db.0.execute(
+                "INSERT INTO runs(id,task_id,project_id,status,created_at,data) \
+                VALUES(?1,?1,'','succeeded',0,?2)",
+                rusqlite::params![
+                    owned,
+                    json!({
+                        "id": owned,
+                        "status": "succeeded"
+                    })
+                    .to_string()
+                ],
+            )?;
+            db.event(&owned, "chat.user", "Private transcript", None)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
     chat["runId"] = run.clone().into();
     app.service.store.put("chats", chat.clone()).await.unwrap();
     let path = format!("/api/chats/{}", chat["id"].as_str().unwrap());
@@ -242,11 +296,28 @@ async fn complete_archive_round_trip_preserves_history_and_files_and_requires_ex
     let path = format!("/api/chats/{}", chat["id"].as_str().unwrap());
     let run = leo_agent_manager::config::id();
     let owned = run.clone();
-    app.service.store.transaction(move |db| {
-        db.0.execute("INSERT INTO runs(id,task_id,project_id,status,created_at,data) VALUES(?1,?1,'','succeeded',0,?2)",rusqlite::params![owned,json!({"id":owned,"status":"succeeded","summary":"Saved result","sessionId":"native-session"}).to_string()])?;
-        db.event(&owned,"chat.user","Original conversation",None)?;
-        Ok(())
-    }).await.unwrap();
+    app.service
+        .store
+        .transaction(move |db| {
+            db.0.execute(
+                "INSERT INTO runs(id,task_id,project_id,status,created_at,data) \
+                VALUES(?1,?1,'','succeeded',0,?2)",
+                rusqlite::params![
+                    owned,
+                    json!({
+                        "id": owned,
+                        "status": "succeeded",
+                        "summary": "Saved result",
+                        "sessionId": "native-session"
+                    })
+                    .to_string()
+                ],
+            )?;
+            db.event(&owned, "chat.user", "Original conversation", None)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
     chat["runId"] = run.clone().into();
     let workspace = app
         .service
@@ -262,7 +333,12 @@ async fn complete_archive_round_trip_preserves_history_and_files_and_requires_ex
         .request(
             "PUT",
             "/api/conversation-retention",
-            json!({"enabled":true,"inactivityDays":30,"coldAfterDays":90,"confirmExisting":true}),
+            json!({
+                "enabled": true,
+                "inactivityDays": 30,
+                "coldAfterDays": 90,
+                "confirmExisting": true,
+            }),
         )
         .await;
     assert_eq!(status, 200, "{response}");
@@ -278,7 +354,10 @@ async fn complete_archive_round_trip_preserves_history_and_files_and_requires_ex
         app.request(
             "POST",
             &format!("{path}/messages"),
-            json!({"id":leo_agent_manager::config::id(),"text":"No implicit restore"})
+            json!({
+                "id": leo_agent_manager::config::id(),
+                "text": "No implicit restore"
+            })
         )
         .await
         .0,
@@ -342,21 +421,62 @@ async fn incompatible_restored_session_requires_consent_and_never_restarts_on_it
     chat["paused"] = true.into();
     app.service.store.put("chats", chat.clone()).await.unwrap();
     let owned = run.clone();
-    app.service.store.transaction(move |db| {
-        db.0.execute("INSERT INTO runs(id,task_id,project_id,status,created_at,data) VALUES(?1,?1,'','failed',0,?2)",rusqlite::params![owned,json!({"id":owned,"status":"failed","sessionId":"old-native"}).to_string()])?;
-        db.set(&format!("run-checkpoint:{owned}"),&json!({"prepared":{"workspace":"preserved"},"launched":true}),None)?;
-        db.event(&owned,"chat.user","Context to preserve",None)?;
-        Ok(())
-    }).await.unwrap();
+    app.service
+        .store
+        .transaction(move |db| {
+            db.0.execute(
+                "INSERT INTO runs(id,task_id,project_id,status,created_at,data) \
+                VALUES(?1,?1,'','failed',0,?2)",
+                rusqlite::params![
+                    owned,
+                    json!({
+                        "id": owned,
+                        "status": "failed",
+                        "sessionId": "old-native"
+                    })
+                    .to_string()
+                ],
+            )?;
+            db.set(
+                &format!("run-checkpoint:{owned}"),
+                &json!({
+                    "prepared": {
+                        "workspace": "preserved",
+                    },
+                    "launched": true,
+                }),
+                None,
+            )?;
+            db.event(&owned, "chat.user", "Context to preserve", None)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
     let path = format!("/api/chats/{}/new-session", chat["id"].as_str().unwrap());
     assert_eq!(app.request("POST", &path, json!({})).await.0, 409);
     assert_eq!(
-        app.request("POST", &path, json!({"confirm":true})).await.0,
+        app.request(
+            "POST",
+            &path,
+            json!({
+                "confirm": true
+            })
+        )
+        .await
+        .0,
         200
     );
     let pause = format!("/api/chats/{}/pause", chat["id"].as_str().unwrap());
     assert_eq!(
-        app.request("POST", &pause, json!({"paused":false})).await.0,
+        app.request(
+            "POST",
+            &pause,
+            json!({
+                "paused": false
+            })
+        )
+        .await
+        .0,
         200
     );
     app.service.chat_tick(&Default::default()).await.unwrap();
@@ -401,7 +521,11 @@ elif args[:2]==['s3','rm']: shutil.rmtree(obj(args[2]),ignore_errors=True)
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::write(
         app.service.config.data_dir.join("archive-s3.json"),
-        json!({"bucket":"fixture-bucket","awsBinary":binary}).to_string(),
+        json!({
+            "bucket": "fixture-bucket",
+            "awsBinary": binary,
+        })
+        .to_string(),
     )
     .unwrap();
     objects
@@ -432,7 +556,12 @@ async fn corrupt_transfer_preserves_local_data_and_retries_after_restart() {
         app.request(
             "PUT",
             "/api/conversation-retention",
-            json!({"enabled":true,"inactivityDays":30,"coldAfterDays":90,"confirmExisting":true})
+            json!({
+                "enabled": true,
+                "inactivityDays": 30,
+                "coldAfterDays": 90,
+                "confirmExisting": true
+            })
         )
         .await
         .0,
@@ -479,7 +608,12 @@ async fn cold_restore_waits_and_trash_recovery_does_not_request_glacier_retrieva
         app.request(
             "PUT",
             "/api/conversation-retention",
-            json!({"enabled":true,"inactivityDays":30,"coldAfterDays":90,"confirmExisting":true})
+            json!({
+                "enabled": true,
+                "inactivityDays": 30,
+                "coldAfterDays": 90,
+                "confirmExisting": true
+            })
         )
         .await
         .0,
@@ -566,11 +700,37 @@ async fn public_deliverable_stays_warm_when_archived_and_trash_revocation_is_per
     app.service.store.put("chats", chat.clone()).await.unwrap();
     let owned = run.clone();
     let aid = artifact.clone();
-    app.service.store.transaction(move |db| {
-        db.0.execute("INSERT INTO runs(id,task_id,project_id,status,created_at,data) VALUES(?1,?1,'','succeeded',0,?2)",rusqlite::params![owned,json!({"id":owned,"status":"succeeded"}).to_string()])?;
-        db.set(&format!("artifact:{owned}:{aid}"),&json!({"id":aid,"runId":owned,"name":"result.txt","mediaType":"text/plain","size":13,"visibility":"private"}),None)?;
-        Ok(())
-    }).await.unwrap();
+    app.service
+        .store
+        .transaction(move |db| {
+            db.0.execute(
+                "INSERT INTO runs(id,task_id,project_id,status,created_at,data) \
+                VALUES(?1,?1,'','succeeded',0,?2)",
+                rusqlite::params![
+                    owned,
+                    json!({
+                        "id": owned,
+                        "status": "succeeded"
+                    })
+                    .to_string()
+                ],
+            )?;
+            db.set(
+                &format!("artifact:{owned}:{aid}"),
+                &json!({
+                    "id": aid,
+                    "runId": owned,
+                    "name": "result.txt",
+                    "mediaType": "text/plain",
+                    "size": 13,
+                    "visibility": "private",
+                }),
+                None,
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
     std::fs::create_dir_all(app.service.config.data_dir.join("artifacts")).unwrap();
     std::fs::write(
         app.service
@@ -583,7 +743,13 @@ async fn public_deliverable_stays_warm_when_archived_and_trash_revocation_is_per
     .unwrap();
     let visibility = format!("/api/runs/{run}/artifacts/{artifact}/visibility");
     let (status, shared) = app
-        .request("PUT", &visibility, json!({"visibility":"public"}))
+        .request(
+            "PUT",
+            &visibility,
+            json!({
+                "visibility": "public",
+            }),
+        )
         .await;
     assert_eq!(status, 200);
     let public_path = format!(
@@ -610,7 +776,12 @@ async fn public_deliverable_stays_warm_when_archived_and_trash_revocation_is_per
         app.request(
             "PUT",
             "/api/conversation-retention",
-            json!({"enabled":true,"inactivityDays":30,"coldAfterDays":90,"confirmExisting":true})
+            json!({
+                "enabled": true,
+                "inactivityDays": 30,
+                "coldAfterDays": 90,
+                "confirmExisting": true
+            })
         )
         .await
         .0,
@@ -622,9 +793,15 @@ async fn public_deliverable_stays_warm_when_archived_and_trash_revocation_is_per
     assert_eq!(app.request("DELETE", &path, json!({})).await.0, 200);
     assert_eq!(public_status(&app, &public_path).await, 404);
     assert_eq!(
-        app.request("PUT", &visibility, json!({"visibility":"public"}))
-            .await
-            .0,
+        app.request(
+            "PUT",
+            &visibility,
+            json!({
+                "visibility": "public"
+            })
+        )
+        .await
+        .0,
         409
     );
     assert_eq!(

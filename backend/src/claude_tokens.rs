@@ -25,12 +25,14 @@ const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const LIMIT: usize = 128_000;
 pub const SOCKET: &str = "leo-auth.sock";
+
 fn unavailable() -> Error {
     Error::new(
         503,
         "Claude authentication is unavailable. Check the connection in Connections.",
     )
 }
+
 async fn read(home: &Path) -> Result<Value> {
     let file = tokio::fs::OpenOptions::new()
         .read(true)
@@ -40,6 +42,7 @@ async fn read(home: &Path) -> Result<Value> {
         .map_err(|_| unavailable())?;
     serde_json::from_slice(&read_bounded(file, LIMIT).await?).map_err(|_| unavailable())
 }
+
 fn snapshot(value: &Value) -> Result<Value> {
     let oauth = &value["claudeAiOauth"];
     if text(oauth, "accessToken").is_empty()
@@ -59,8 +62,11 @@ fn snapshot(value: &Value) -> Result<Value> {
             safe[key] = value.clone();
         }
     }
-    Ok(json!({"claudeAiOauth":safe}))
+    Ok(json!({
+        "claudeAiOauth": safe
+    }))
 }
+
 // Caller holds the account gate, including through persistence after rotation.
 async fn access_at(home: &Path, endpoint: &str) -> Result<Value> {
     let mut value = read(home).await?;
@@ -74,7 +80,18 @@ async fn access_at(home: &Path, endpoint: &str) -> Result<Value> {
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|_| unavailable())?;
-        let body = json!({"grant_type":"refresh_token","refresh_token":oauth["refreshToken"],"client_id":oauth["clientId"].as_str().unwrap_or(CLIENT_ID),"scope":oauth["scopes"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")});
+        let body = json!({
+            "grant_type": "refresh_token",
+            "refresh_token": oauth["refreshToken"],
+            "client_id": oauth["clientId"].as_str().unwrap_or(CLIENT_ID),
+            "scope": oauth["scopes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
         let mut response = client
             .post(endpoint)
             .json(&body)
@@ -123,6 +140,7 @@ async fn access_at(home: &Path, endpoint: &str) -> Result<Value> {
     }
     snapshot(&value)
 }
+
 /// Metadata subprocesses also get access-only storage. Caller holds the account gate.
 pub async fn metadata_home(s: &Service) -> Result<tempfile::TempDir> {
     let home = claude::home(&s.config);
@@ -152,12 +170,14 @@ pub struct Broker {
     stop: CancellationToken,
     path: PathBuf,
 }
+
 impl Drop for Broker {
     fn drop(&mut self) {
         self.stop.cancel();
         let _ = std::fs::remove_file(&self.path);
     }
 }
+
 pub async fn serve(s: &Service, home: &Path) -> Result<Broker> {
     use std::os::unix::fs::PermissionsExt;
     private_dir(home).await?;
@@ -178,8 +198,14 @@ pub async fn serve(s: &Service, home: &Path) -> Result<Broker> {
                 accepted = listener.accept() => {
                     let Ok((mut stream, _)) = accepted else { break };
                     // Never cancel a rotation between the provider response and durable storage.
-                    let response = access(&service).await.unwrap_or(json!({"error":"Claude authentication unavailable"}));
-                    let _ = tokio::time::timeout(Duration::from_secs(3), stream.write_all(format!("{response}\n").as_bytes())).await;
+                    let response = access(&service).await.unwrap_or(json!({
+                        "error": "Claude authentication unavailable"
+                    }));
+                    let _ = tokio::time::timeout(
+                        Duration::from_secs(3),
+                        stream.write_all(format!("{response}\n").as_bytes()),
+                    )
+                    .await;
                 }
             }
         }
@@ -193,6 +219,7 @@ pub struct Client {
     expires: i64,
     previous: Vec<u8>,
 }
+
 impl Client {
     pub fn new(home: &Path) -> Self {
         Self {
@@ -204,6 +231,7 @@ impl Client {
             previous: Vec::new(),
         }
     }
+
     pub async fn sync(&mut self) -> Result<()> {
         let result = tokio::time::timeout(Duration::from_secs(40), async {
             let stream = UnixStream::connect(&self.socket)
@@ -260,9 +288,21 @@ mod tests {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
+
     fn credentials() -> Value {
-        json!({"claudeAiOauth":{"accessToken":"old-access","refreshToken":"private-refresh","expiresAt":now()-1000,"scopes":["user:profile","user:inference"],"subscriptionType":"max","clientId":"login-client"},"otherSecret":"must-stay-on-host"})
+        json!({
+            "claudeAiOauth": {
+                "accessToken": "old-access",
+                "refreshToken": "private-refresh",
+                "expiresAt": now() - 1000,
+                "scopes": ["user:profile", "user:inference"],
+                "subscriptionType": "max",
+                "clientId": "login-client"
+            },
+            "otherSecret": "must-stay-on-host"
+        })
     }
+
     #[tokio::test]
     async fn concurrent_requests_rotate_once_and_keep_refresh_state_on_host() {
         let root = tempfile::TempDir::new().unwrap();
@@ -274,12 +314,25 @@ mod tests {
         .unwrap();
         let requests = Arc::new(AtomicUsize::new(0));
         let count = requests.clone();
-        let router=axum::Router::new().route("/token",axum::routing::post(move |axum::Json(v):axum::Json<Value>| {let count=count.clone();async move {
-            assert_eq!(v["grant_type"],"refresh_token");assert_eq!(v["refresh_token"],"private-refresh");assert_eq!(v["client_id"],"login-client");
-            count.fetch_add(1,Ordering::SeqCst);
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            axum::Json(json!({"access_token":"new-access","refresh_token":"new-private-refresh","expires_in":3600,"scope":"user:profile user:inference"}))
-        }}));
+        let router = axum::Router::new().route(
+            "/token",
+            axum::routing::post(move |axum::Json(v): axum::Json<Value>| {
+                let count = count.clone();
+                async move {
+                    assert_eq!(v["grant_type"], "refresh_token");
+                    assert_eq!(v["refresh_token"], "private-refresh");
+                    assert_eq!(v["client_id"], "login-client");
+                    count.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    axum::Json(json!({
+                        "access_token": "new-access",
+                        "refresh_token": "new-private-refresh",
+                        "expires_in": 3600,
+                        "scope": "user:profile user:inference"
+                    }))
+                }
+            }),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/token", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -307,6 +360,7 @@ mod tests {
         );
         server.abort();
     }
+
     #[tokio::test]
     async fn failed_refresh_is_private_and_does_not_destroy_credentials() {
         let root = tempfile::TempDir::new().unwrap();
@@ -334,6 +388,7 @@ mod tests {
         assert_eq!(read(root.path()).await.unwrap(), original);
         server.abort();
     }
+
     #[tokio::test]
     async fn client_replaces_credentials_without_refresh_tokens_and_survives_transient_outage() {
         let root = tempfile::TempDir::new().unwrap();

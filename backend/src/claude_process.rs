@@ -24,19 +24,24 @@ async fn send(stdin: &mut tokio::process::ChildStdin, value: Value) -> Result<()
     stdin.write_all(format!("{value}\n").as_bytes()).await?;
     Ok(())
 }
+
 async fn emit(events: &mpsc::Sender<Value>, value: Value) -> Result<()> {
     events
         .send(value)
         .await
         .map_err(|_| Error::new(503, "Claude output stopped."))
 }
+
 async fn input(message: &Value, directory: &Path) -> Result<Value> {
     let blocks =
         crate::attachments::input(text(message, "text"), &message["attachments"], directory);
     let mut content = Vec::new();
     for block in blocks.as_array().unwrap() {
         if block["type"] == "text" {
-            content.push(json!({"type":"text","text":block["text"]}));
+            content.push(json!({
+                "type": "text",
+                "text": block["text"],
+            }));
         } else if block["type"] == "localImage" {
             let path = Path::new(text(block, "path"));
             let bytes = tokio::fs::read(path).await?;
@@ -55,13 +60,27 @@ async fn input(message: &Value, directory: &Path) -> Result<Value> {
                 "webp" => "image/webp",
                 _ => "image/png",
             };
-            content.push(json!({"type":"image","source":{"type":"base64","media_type":mime,"data":STANDARD.encode(bytes)}}));
+            content.push(json!({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime,
+                    "data": STANDARD.encode(bytes),
+                },
+            }));
         }
     }
-    Ok(
-        json!({"type":"user","uuid":message["id"],"message":{"role":"user","content":content},"parent_tool_use_id":null}),
-    )
+    Ok(json!({
+        "type": "user",
+        "uuid": message["id"],
+        "message": {
+            "role": "user",
+            "content": content,
+        },
+        "parent_tool_use_id": null,
+    }))
 }
+
 pub fn args(plan: &Value) -> Vec<String> {
     let mut args = [
         "-p",
@@ -97,11 +116,31 @@ pub fn args(plan: &Value) -> Vec<String> {
     if let Some(session) = plan["sessionId"].as_str() {
         args.extend(["--resume".into(), session.into()]);
     }
-    let mut settings = json!({"attribution":{"commit":""}});
+    let mut settings = json!({
+        "attribution": {
+            "commit": "",
+        },
+    });
     if plan["sandbox"] == "yolo" {
         args.push("--dangerously-skip-permissions".into());
     } else {
-        settings["sandbox"] = json!({"enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":["*"]},"filesystem":{"allowWrite":plan["writableRoots"],"denyWrite":if plan["sandbox"]=="read-only" {plan["writableRoots"].clone()}else{json!([])}}});
+        settings["sandbox"] = json!({
+            "enabled": true,
+            "failIfUnavailable": true,
+            "autoAllowBashIfSandboxed": true,
+            "allowUnsandboxedCommands": false,
+            "network": {
+                "allowedDomains": ["*"],
+            },
+            "filesystem": {
+                "allowWrite": plan["writableRoots"],
+                "denyWrite": if plan["sandbox"] == "read-only" {
+                    plan["writableRoots"].clone()
+                } else {
+                    json!([])
+                },
+            },
+        });
         args.extend(["--permission-mode".into(), "default".into()]);
     }
     args.extend(["--settings".into(), settings.to_string()]);
@@ -129,6 +168,7 @@ pub fn args(plan: &Value) -> Vec<String> {
 
     args
 }
+
 pub fn item(block: &Value, message: &str, index: usize) -> Option<Value> {
     let id = if block["type"] == "tool_use" {
         text(block, "id").to_owned()
@@ -136,20 +176,41 @@ pub fn item(block: &Value, message: &str, index: usize) -> Option<Value> {
         format!("{message}-{index}")
     };
     Some(match text(block, "type") {
-        "text" => json!({"id":id,"type":"agent_message","text":block["text"]}),
-        "thinking" => json!({"id":id,"type":"reasoning","text":block["thinking"]}),
+        "text" => json!({
+            "id": id,
+            "type": "agent_message",
+            "text": block["text"],
+        }),
+        "thinking" => json!({
+            "id": id,
+            "type": "reasoning",
+            "text": block["thinking"],
+        }),
         "tool_use" => {
             let name = text(block, "name");
             let input = &block["input"];
             if name == "Bash" {
-                json!({"id":id,"type":"command_execution","command":input["command"],"status":"in_progress"})
+                json!({
+                    "id": id,
+                    "type": "command_execution",
+                    "command": input["command"],
+                    "status": "in_progress",
+                })
             } else {
-                json!({"id":id,"type":"mcp_tool_call","server":"Claude Code","tool":name,"arguments":input,"status":"in_progress"})
+                json!({
+                    "id": id,
+                    "type": "mcp_tool_call",
+                    "server": "Claude Code",
+                    "tool": name,
+                    "arguments": input,
+                    "status": "in_progress",
+                })
             }
         }
         _ => return None,
     })
 }
+
 pub async fn run(
     config: &Config,
     plan: Value,
@@ -177,15 +238,42 @@ pub async fn run(
         && saved["delivered"].as_array().is_some_and(|ids| ids.iter().any(|id| id == initial_id))
     {
         for id in saved["delivered"].as_array().into_iter().flatten() {
-            emit(&events, json!({"type":"chat.delivered","messageId":id})).await?;
+            emit(
+                &events,
+                json!({
+                    "type": "chat.delivered",
+                    "messageId": id,
+                }),
+            )
+            .await?;
         }
         atomic_write(
             Path::new(text(&plan, "output")),
             text(&saved, "text").as_bytes(),
         )
         .await?;
-        emit(&events,json!({"type":"item.completed","item":{"id":saved["itemId"].as_str().map(str::to_owned).unwrap_or_else(||format!("{initial_id}-recovered")),"type":"agent_message","text":saved["text"]}})).await?;
-        return emit(&events, json!({"type":"turn.completed"})).await;
+        emit(
+            &events,
+            json!({
+                "type": "item.completed",
+                "item": {
+                    "id": saved["itemId"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("{initial_id}-recovered")),
+                    "type": "agent_message",
+                    "text": saved["text"],
+                },
+            }),
+        )
+        .await?;
+        return emit(
+            &events,
+            json!({
+                "type": "turn.completed",
+            }),
+        )
+        .await;
     }
     let auth_directory = std::env::var_os("LEO_CLAUDE_AUTH_HOME")
         .map(std::path::PathBuf::from)
@@ -222,7 +310,8 @@ pub async fn run(
     });
     let operation=async {
         let mut initial=json!({"id":wire_id,"text":crate::chats::execution_text(&plan),"attachments":plan["execution"]["attachments"]});
-        if plan["execution"]["recovery"]==true {initial["text"]=format!("Continue the interrupted request. Preserve completed work and verify external effects before repeating an action.\n{}",text(&initial,"text")).into();}
+        if plan["execution"]["recovery"]==true {initial["text"]=format!("Continue the interrupted request. Preserve completed work and verify external \
+        effects before repeating an action.\n{}",text(&initial,"text")).into();}
         send(&mut stdin,input(&initial,inbox).await?).await?;
         let mut submitted=HashSet::from([initial_id.to_owned()]);let mut delivered=HashSet::<String>::new();
         let mut questions=HashMap::<String,(Value,Value)>::new();
@@ -235,14 +324,14 @@ pub async fn run(
         loop {
             // read_until is cancellation safe. Bound allocation using fill_buf below.
             tokio::select! {
-                _=cancel.cancelled()=>return Err(Error::new(409,"Claude execution stopped.")),
-                _=auth_timer.tick(), if auth.is_some()=>{
+                _ = cancel.cancelled()=>return Err(Error::new(409,"Claude execution stopped.")),
+                _ = auth_timer.tick(), if auth.is_some()=>{
                     tokio::select! {
-                        _=cancel.cancelled()=>return Err(Error::new(409,"Claude execution stopped.")),
-                        result=auth.as_mut().unwrap().sync()=>result?,
+                        _ = cancel.cancelled()=>return Err(Error::new(409,"Claude execution stopped.")),
+                        result = auth.as_mut().unwrap().sync()=>result?,
                     }
                 },
-                _=timer.tick()=>{
+                _ = timer.tick()=>{
                     if let Ok(bytes)=tokio::fs::read(inbox.join("messages.json")).await {
                         if bytes.len()>2_000_000 {return Err(Error::bad("Chat inbox is too large."));}
                         if let Ok(messages)=serde_json::from_slice::<Vec<Value>>(&bytes){for message in messages {
@@ -260,8 +349,9 @@ pub async fn run(
                         }}
                     }
                 },
-                bytes=stdout.fill_buf()=>{
-                    let bytes=bytes?;if bytes.is_empty(){return Err(Error::new(502,"Claude Code disconnected before completing its response. Resume to continue."));}
+                bytes = stdout.fill_buf()=>{
+                    let bytes=bytes?;if bytes.is_empty(){return Err(Error::new(502,"Claude Code disconnected before completing its response. Resume \
+                    to continue."));}
                     let end=bytes.iter().position(|b|*b==b'\n').map(|i|i+1);let count=end.unwrap_or(bytes.len());
                     if buffer.len()+count>32_000_000 {return Err(Error::new(502,"Claude response exceeded the supported limit."));}
                     buffer.extend_from_slice(&bytes[..count]);stdout.consume(count);if end.is_none(){continue;}
@@ -305,11 +395,13 @@ pub async fn run(
                                 let fields=crate::validation::parse("questions",fields.into())?;questions.insert(qid.clone(),(request,req["input"].clone()));emit(&events,json!({"type":"chat.question","question":{"id":qid,"blocking":true,"fields":fields}})).await?;
                             }else{
                                 let allowed=req["subtype"]=="can_use_tool" && allowed_tool(&plan,text(req,"tool_name"),&req["input"]);
-                                send(&mut stdin,json!({"type":"control_response","response":{"subtype":"success","request_id":request,"response":if allowed{json!({"behavior":"allow","updatedInput":req["input"]})}else{json!({"behavior":"deny","message":"This tool is outside the agent's access policy. Ask the user in your response."})}}})).await?;
+                                send(&mut stdin,json!({"type":"control_response","response":{"subtype":"success","request_id":request,"response":if allowed{json!({"behavior":"allow","updatedInput":req["input"]})}else{json!({"behavior":"deny","message":"This tool is outside the agent's access policy. Ask the user in \
+                                your response."})}}})).await?;
                             }
                         },
                         "result"=>{
-                            if value["is_error"]==true||value["subtype"]!="success" {return Err(Error::new(502,if text(&value,"result").is_empty(){"Claude Code could not complete this turn. Check sign-in, model access, or usage limits."}else{text(&value,"result")}));}
+                            if value["is_error"]==true||value["subtype"]!="success" {return Err(Error::new(502,if text(&value,"result").is_empty(){"Claude Code could not complete this turn. Check sign-in, model access, or usage \
+                            limits."}else{text(&value,"result")}));}
                             if !text(&value,"result").is_empty(){last=text(&value,"result").into();}
                             // A result belongs to a turn, not one stdin message. Claude can
                             // merge prompts and emit unrelated results while resuming tasks.
@@ -348,6 +440,7 @@ pub async fn run(
     let _ = drain.await;
     operation
 }
+
 fn allowed_tool(plan: &Value, name: &str, input: &Value) -> bool {
     if plan["sandbox"] == "yolo" {
         return true;
