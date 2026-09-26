@@ -817,6 +817,7 @@ internal fun ChatPage(
                                 .testTag("conversation-history")
                                 .historyFollowGesture(followGesture),
                             state = listState,
+                            overscrollEffect = rememberHistoryOverscroll(),
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {

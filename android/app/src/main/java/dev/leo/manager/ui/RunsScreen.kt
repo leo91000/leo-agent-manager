@@ -367,6 +367,7 @@ fun RunScreen(
                             LazyColumn(
                                 Modifier.fillMaxSize().historyFollowGesture(followGesture),
                                 state = logState,
+                                overscrollEffect = rememberHistoryOverscroll(),
                                 contentPadding = PaddingValues(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
