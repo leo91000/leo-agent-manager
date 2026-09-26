@@ -21,6 +21,7 @@ pub mod mcps;
 pub mod microvm;
 pub mod models;
 pub mod network;
+pub mod nodes;
 pub mod notifications;
 pub mod process;
 pub mod recovery;

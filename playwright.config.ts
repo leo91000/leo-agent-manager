@@ -12,6 +12,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', ...devices['Desktop Chrome'] },
   projects: [
+    { name: 'journeys-nodes', testMatch: 'nodes.spec.ts' },
     { name: 'journeys-github-projects', testMatch: 'github-projects.spec.ts' },
     { name: 'layout-webkit-github-projects', testMatch: 'github-projects.spec.ts', use: { browserName: 'webkit', isMobile: true, hasTouch: true } },
     { name: 'journeys-claude', testMatch: 'claude.spec.ts' },
