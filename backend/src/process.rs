@@ -8,15 +8,15 @@ use tokio::{
     process::Command,
 };
 pub type Environment = HashMap<String, String>;
-pub fn archive_key(key: &str) -> bool {
-    key.starts_with("AWS_") || key.starts_with("ARCHIVE_")
+pub fn server_only_key(key: &str) -> bool {
+    key.starts_with("AWS_") || key.starts_with("ARCHIVE_") || key == "LEO_AVATAR_API_KEY"
 }
-pub fn remove_archive_environment(env: &mut Environment) {
-    env.retain(|key, _| !archive_key(key));
+pub fn remove_server_environment(env: &mut Environment) {
+    env.retain(|key, _| !server_only_key(key));
 }
 pub fn codex_environment(config: &Config, home: &Path) -> Environment {
     let mut env = std::env::vars().collect::<Environment>();
-    remove_archive_environment(&mut env);
+    remove_server_environment(&mut env);
     env.insert("HOME".into(), config.home.to_string_lossy().into_owned());
     env.insert("CODEX_HOME".into(), home.to_string_lossy().into_owned());
     for key in ["CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_THREAD_ID"] {
@@ -29,8 +29,8 @@ pub fn command(binary: &str, args: &[String], env: &Environment, cwd: Option<&Pa
     command
         .args(args)
         .env_clear()
-        // Archive credentials stay with the archive storage's own AWS CLI calls.
-        .envs(env.iter().filter(|(key, _)| !archive_key(key)))
+        // Server credentials never reach agent or utility subprocesses.
+        .envs(env.iter().filter(|(key, _)| !server_only_key(key)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -98,10 +98,11 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn spawned_processes_never_receive_archive_credentials() {
+    async fn spawned_processes_never_receive_server_credentials() {
         let env = Environment::from([
             ("AWS_SECRET_ACCESS_KEY".into(), "secret".into()),
             ("ARCHIVE_S3_BUCKET".into(), "bucket".into()),
+            ("LEO_AVATAR_API_KEY".into(), "portrait-secret".into()),
             ("KEPT".into(), "visible".into()),
         ]);
         let output = command("env", &[], &env, None).output().await.unwrap();
@@ -109,5 +110,6 @@ mod tests {
         assert!(printed.contains("KEPT=visible"));
         assert!(!printed.contains("AWS_"), "{printed}");
         assert!(!printed.contains("ARCHIVE_"), "{printed}");
+        assert!(!printed.contains("LEO_AVATAR_API_KEY"), "{printed}");
     }
 }

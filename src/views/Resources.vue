@@ -3,6 +3,8 @@ import type { GithubRepository } from '../../shared/contracts'
 import { computed, ref } from 'vue'
 import { MAIN_AGENT_ID } from '../../shared/constants'
 import { api, notify, refresh, state } from '../api'
+import AgentAvatar from '../components/AgentAvatar.vue'
+import AgentPortraitEditor from '../components/AgentPortraitEditor.vue'
 import AssistantPicker from '../components/AssistantPicker.vue'
 import Empty from '../components/Empty.vue'
 import GithubRepositoryPicker from '../components/GithubRepositoryPicker.vue'
@@ -11,7 +13,7 @@ import Modal from '../components/Modal.vue'
 import UiAlert from '../components/UiAlert.vue'
 import UiButton from '../components/UiButton.vue'
 import VirtualSelect from '../components/VirtualSelect.vue'
-import { Bot, FolderGit2, GitBranch, MessageCircle, Pencil, Plus, ShieldCheck, Trash2 } from '../icons'
+import { FolderGit2, GitBranch, MessageCircle, Pencil, Plus, ShieldCheck, Trash2 } from '../icons'
 import { iconButton } from '../ui'
 
 const props = defineProps<{
@@ -173,7 +175,8 @@ async function remove() {
   </UiAlert>
   <div v-if="items.length" class="resource-grid grid" :class="isAgent ? 'grid-cols-2 gap-4 tablet:grid-cols-1' : 'grid-cols-1 border-t border-line'">
     <article v-for="item in items" :key="item.id" class="resource-card grid min-w-0 gap-x-3" :class="isAgent ? 'grid-cols-[36px_minmax(0,1fr)] grid-rows-[1fr_auto] gap-y-4 rounded-xl border border-line/70 bg-surface/50 p-5 phone:p-4' : 'grid-cols-[36px_minmax(0,1fr)_auto] items-center border-b border-line py-4 phone:items-start phone:gap-y-2'">
-      <span class="grid size-9 place-items-center rounded-lg text-accent" :class="isAgent ? 'bg-accent/8' : 'bg-soft'"><Icon :name="isAgent ? Bot : FolderGit2" :size="20" /></span>
+      <AgentAvatar v-if="isAgent" :name="item.name" :identity="item.id" />
+      <span v-else class="grid size-9 place-items-center rounded-lg text-accent bg-soft"><Icon :name="FolderGit2" :size="20" /></span>
       <div class="min-w-0" :class="!isAgent ? 'flex items-center gap-5 phone:block' : ''">
         <div class="min-w-0 flex-1">
           <h2 class="text-sm font-semibold">
@@ -231,6 +234,7 @@ async function remove() {
   >
     <form @submit.prevent="save">
       <div class="modal-body form-grid grid grid-cols-[1fr_1fr] gap-5 phone:grid-cols-1 phone:gap-4.5 px-6.5 py-6 phone:p-5">
+        <AgentPortraitEditor v-if="isAgent" :key="editing || 'new'" :agent-id="editing" :name="form.name" :disabled="busy" />
         <div v-if="!isAgent && !editing" class="col-span-2 phone:col-span-1 grid gap-4">
           <VirtualSelect v-model="projectMode" label="Add from" :disabled="busy" :options="[{ value: 'local', label: 'Server directory' }, { value: 'github', label: 'GitHub' }]" />
           <GithubRepositoryPicker v-if="githubImport" :disabled="busy" :selected="repository" @select="selectRepository" />

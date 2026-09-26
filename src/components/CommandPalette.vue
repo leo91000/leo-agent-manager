@@ -7,8 +7,9 @@ import { chatList, refreshChats } from '../chat-list'
 import { Activity, BookOpen, CalendarClock, CornerDownLeft, FolderGit2, Inbox, Keyboard, Layers, Moon, Play, Plug, Plus, Search, Settings, X } from '../icons'
 import { refreshMissionRuns, useMissionRuns } from '../mission-runs'
 import { modifier } from '../shortcuts'
-import { filOf, identityColor, initial } from '../signal'
+import { filOf } from '../signal'
 import { setThemePreference, themePreference } from '../theme'
+import AgentAvatar from './AgentAvatar.vue'
 import Icon from './Icon.vue'
 
 // Universal search with direct actions: conversations, missions, agents, projects and skills.
@@ -192,7 +193,7 @@ function cancel() {
             @mousemove="active = index"
             @click="run(command)"
           >
-            <span v-if="command.avatar" class="grid size-6 shrink-0 place-items-center rounded-[7px] font-heading text-[11px] font-bold text-white" :style="{ background: identityColor(command.avatar.key || command.avatar.name) }">{{ initial(command.avatar.name) }}</span>
+            <AgentAvatar v-if="command.avatar" :name="command.avatar.name" :identity="command.avatar.key" :size="24" />
             <span v-else class="grid size-6 shrink-0 place-items-center rounded-[7px] bg-hover" :class="active === index ? 'text-accent' : 'text-muted'"><Icon v-if="command.icon" :name="command.icon" :size="14" /></span>
             <span class="min-w-0 flex-1 truncate text-sm" :class="active === index ? 'font-semibold text-accent' : 'text-ink'">{{ command.label }}</span>
             <span v-if="command.hint" class="max-w-[40%] shrink truncate text-xs text-muted phone:hidden">{{ command.hint }}</span>

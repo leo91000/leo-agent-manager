@@ -45,7 +45,7 @@ pub fn home(config: &Config) -> PathBuf {
 }
 pub fn environment(config: &Config, directory: &Path) -> Environment {
     let mut env = std::env::vars().collect::<Environment>();
-    crate::process::remove_archive_environment(&mut env);
+    crate::process::remove_server_environment(&mut env);
     for key in [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_BASE_URL",

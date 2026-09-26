@@ -41,6 +41,7 @@ fun ResourcesScreen(
                 .filter { "${it.name} ${it.description}".contains(query, true) }
                 .forEach { agent ->
                     Panel {
+                        AgentAvatar(agent.name, agent.id)
                         Text(agent.name, style = MaterialTheme.typography.titleMedium)
                         if (agent.description.isNotBlank()) Text(agent.description)
                         Text(
@@ -177,6 +178,7 @@ private fun AgentEditor(vm: LeoViewModel, state: Workspace, initial: Agent, clos
                 form.reasoning.length <= 40 &&
                 Regex("(?:[a-z][a-z0-9_-]*)?").matches(form.reasoning),
     ) {
+        AgentPortraitEditor(vm, state, initial)
         Field("Nom", form.name, { form = form.copy(name = it) })
         Field("Description", form.description, { form = form.copy(description = it) }, 3)
         ModelPicker(

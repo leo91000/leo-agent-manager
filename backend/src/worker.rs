@@ -739,7 +739,7 @@ impl Worker {
         } else {
             crate::toolkit::environment(&s.config.home, std::env::vars().collect()).await?
         };
-        crate::process::remove_archive_environment(&mut env);
+        crate::process::remove_server_environment(&mut env);
         env.insert("HOME".into(), s.config.home.to_string_lossy().into_owned());
         env.insert(
             "CODEX_HOME".into(),

@@ -9,12 +9,13 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { latestArtifacts } from '../../shared/artifacts'
 import { activityEntries } from '../activity'
 import { deliveryEntries } from '../deliverables'
-import { ArrowDown, ChevronDown, Layers, LoaderCircle, Maximize2, Minimize2, Zap } from '../icons'
+import { ArrowDown, ChevronDown, Layers, LoaderCircle, Maximize2, Minimize2 } from '../icons'
 import { workingStep } from '../signal'
 import { mentionSegments } from '../skill-mentions'
 import { iconButton } from '../ui'
 import ActivityArtifactCard from './ActivityArtifactCard.vue'
 import ActivityContent from './ActivityContent.vue'
+import AgentAvatar from './AgentAvatar.vue'
 import ArtifactGallery from './ArtifactGallery.vue'
 import ArtifactViewer from './ArtifactViewer.vue'
 import ChatAttachments from './ChatAttachments.vue'
@@ -24,7 +25,7 @@ import Icon from './Icon.vue'
 import UiButton from './UiButton.vue'
 import WorkingIndicator from './WorkingIndicator.vue'
 
-const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, compactToolbar?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], sending?: SendingMessage[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string, skills?: string[] }>()
+const props = defineProps<{ events: RunEvent[], active: boolean, agent: string, agentId?: string, task: string, more: boolean, loading: boolean, trimmed: number, preview?: boolean, compactToolbar?: boolean, chat?: boolean, outcome?: TaskOutcome | null, deliverables?: Deliverable[], sending?: SendingMessage[], cacheKey?: string, position?: ReadingPosition, loadingOlder?: boolean, olderError?: string, skills?: string[] }>()
 const emit = defineEmits<{ load: [], position: [value: ReadingPosition, key?: string] }>()
 const skillNames = computed(() => new Set(props.skills ?? []))
 const entries = computed(() => {
@@ -215,7 +216,7 @@ defineExpose({
           </UiButton>
           <div class="activity-conversation max-w-205 pt-5 pb-7 px-9 mx-auto my-0 phone:px-4 phone:py-6">
             <div v-if="!chat" class="activity-intro flex items-center gap-3 mb-7 phone:gap-2.5">
-              <span class="activity-avatar bg-surface text-ink grid place-items-center w-[39px] h-[39px] rounded-card border border-line shrink-0"><Icon :name="Zap" :size="19" /></span><div><strong>{{ agent }}</strong></div>
+              <AgentAvatar :name="agent" :identity="agentId" :size="39" /><div><strong>{{ agent }}</strong></div>
             </div>
             <p v-if="trimmed" class="activity-retention text-2xs text-muted leading-[1.8]">
               Showing the latest {{ events.length.toLocaleString() }} events. {{ trimmed.toLocaleString() }} earlier events are outside this view.

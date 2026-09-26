@@ -1,5 +1,6 @@
 pub mod account_tokens;
 pub mod accounts;
+pub mod agent_avatars;
 pub mod api;
 pub mod artifacts;
 pub mod attachments;
