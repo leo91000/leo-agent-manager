@@ -110,6 +110,13 @@ pub async fn router_with_oauth(
                 include_str!("../migrations/202610030152_removed_methods.sql").into(),
                 false,
             ),
+            Migration::new(
+                202610030250,
+                "reclaim installations".into(),
+                MigrationType::Simple,
+                include_str!("../migrations/202610030250_reclaim.sql").into(),
+                false,
+            ),
         ]),
         ..Migrator::DEFAULT
     };
@@ -154,6 +161,10 @@ pub async fn router_with_oauth(
         .route(
             "/api/installations/claim-code",
             post(installations::claim_code),
+        )
+        .route(
+            "/api/installations/{installation}/detach",
+            post(installations::detach),
         )
         .route(
             "/api/installations/{installation}/api/{*path}",
