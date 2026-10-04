@@ -37,6 +37,9 @@ const challenge = ref('')
 const busy = ref(false)
 const error = ref('')
 const claimCode = ref('')
+const deviceCode = ref('')
+const claimStatus = ref('')
+const confirmDetach = ref(false)
 const installation = ref<{ id: string, name: string } | null>(null)
 
 watch(session, (value) => {
@@ -112,6 +115,9 @@ async function signOut() {
     showMethods.value = false
     installation.value = null
     claimCode.value = ''
+    deviceCode.value = ''
+    claimStatus.value = ''
+    confirmDetach.value = false
     state.installationId = ''
     state.csrf = ''
     state.authenticated = false
@@ -195,18 +201,65 @@ async function passkey(register: boolean) {
   }
 }
 
+async function installationRequest(route: string, body?: unknown) {
+  const response = await fetch(`/api/installations/${route}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': session.value?.csrf || '' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (response.status === 204)
+    return
+  const value = await response.json()
+  if (!response.ok)
+    throw new Error(value.error || 'Unable to update the installation.')
+  return value
+}
+
+async function approveDevice() {
+  busy.value = true
+  error.value = ''
+  claimStatus.value = ''
+  try {
+    await installationRequest('device-claim', { code: deviceCode.value })
+    deviceCode.value = ''
+    claimStatus.value = 'Installation approved. Finish leo claim, then restart your manager and refresh installations.'
+  }
+  catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Unable to claim the installation.'
+  }
+  finally {
+    busy.value = false
+  }
+}
+
+async function detachInstallation() {
+  if (!installation.value)
+    return
+  busy.value = true
+  error.value = ''
+  try {
+    await installationRequest(`${installation.value.id}/detach`)
+    installation.value = null
+    state.installationId = ''
+    state.authenticated = false
+    confirmDetach.value = false
+    session.value = await accountRequest('session')
+  }
+  catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Unable to detach the installation.'
+  }
+  finally {
+    busy.value = false
+  }
+}
+
 async function addInstallation() {
   busy.value = true
   error.value = ''
   claimCode.value = ''
   try {
-    const response = await fetch('/api/installations/claim-code', {
-      method: 'POST',
-      headers: { 'X-CSRF-Token': session.value?.csrf || '' },
-    })
-    const value = await response.json()
-    if (!response.ok)
-      throw new Error(value.error || 'Unable to add an installation.')
+    const value = await installationRequest('claim-code')
     claimCode.value = value.code
   }
   catch (cause) {
@@ -259,6 +312,8 @@ function openInstallation(value: { id: string, name: string }) {
   state.authenticated = true
   installation.value = value
   claimCode.value = ''
+  claimStatus.value = ''
+  confirmDetach.value = false
 }
 
 function changeEmail() {
@@ -365,6 +420,20 @@ onMounted(async () => {
           You’re signed in as {{ session.account?.email }}.
         </p>
         <OfficialConversations v-if="installation" :key="installation.id" />
+        <div v-if="installation" class="grid gap-3 mb-6">
+          <template v-if="confirmDetach">
+            <p>Detach this installation? Access through Leo will stop. Its data stays on the machine, which can be claimed again.</p>
+            <UiButton :disabled="busy" @click="detachInstallation">
+              Confirm detachment
+            </UiButton>
+            <UiButton :disabled="busy" @click="confirmDetach = false">
+              Cancel detachment
+            </UiButton>
+          </template>
+          <UiButton v-else :disabled="busy" @click="confirmDetach = true">
+            Detach installation
+          </UiButton>
+        </div>
         <template v-else>
           <p v-if="!session.installations.length" class="text-muted mb-8">
             Your Leo account is ready. Your installations will appear here when you add one.
@@ -380,6 +449,24 @@ onMounted(async () => {
               Refresh installations
             </UiButton>
           </div>
+          <form class="grid gap-3 mb-6" @submit.prevent="approveDevice">
+            <label>Device claim code<input
+              v-model="deviceCode"
+              required
+              maxlength="30"
+              autocomplete="off"
+              :disabled="busy"
+            ></label>
+            <p class="text-muted">
+              Only approve a code displayed by a machine you control.
+            </p>
+            <UiButton type="submit" :disabled="busy">
+              Claim this installation
+            </UiButton>
+            <p v-if="claimStatus" role="status">
+              {{ claimStatus }}
+            </p>
+          </form>
           <div v-if="claimCode" class="grid gap-3 mb-6">
             <label>Installation claim code<input :value="claimCode" readonly autocomplete="off"></label>
             <p class="text-muted">

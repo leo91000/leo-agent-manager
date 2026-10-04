@@ -42,6 +42,14 @@ struct Tunnel {
 #[derive(Clone, Default)]
 pub(super) struct Relay(Arc<Mutex<HashMap<String, Arc<Tunnel>>>>);
 
+impl Relay {
+    pub(super) fn disconnect(&self, installation: &str) {
+        if let Some(tunnel) = self.0.lock().unwrap().remove(installation) {
+            let _ = tunnel.stop.send(true);
+        }
+    }
+}
+
 pub(super) async fn upgrade(
     State(service): State<Service>,
     Path(installation): Path<String>,
@@ -53,12 +61,13 @@ pub(super) async fn upgrade(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .unwrap_or("");
-    let row: Option<(String,)> =
-        query_as("SELECT id FROM installations WHERE id = $1 AND token_digest = $2")
-            .bind(&installation)
-            .bind(digest(token))
-            .fetch_optional(&service.pool)
-            .await?;
+    let row: Option<(String,)> = query_as(
+        "SELECT id FROM installations WHERE id = $1 AND token_digest = $2 AND owner_id IS NOT NULL",
+    )
+    .bind(&installation)
+    .bind(digest(token))
+    .fetch_optional(&service.pool)
+    .await?;
     if row.is_none() {
         return Err(ApiError(
             StatusCode::UNAUTHORIZED,
@@ -66,14 +75,21 @@ pub(super) async fn upgrade(
         ));
     }
 
+    let token_digest = digest(token);
     Ok(ws
         .max_message_size(MAX_FRAME)
         .max_frame_size(MAX_FRAME)
-        .on_upgrade(move |socket| serve_socket(service.relay, installation, socket))
+        .on_upgrade(move |socket| serve_socket(service, installation, token_digest, socket))
         .into_response())
 }
 
-async fn serve_socket(relay: Relay, installation: String, mut socket: WebSocket) {
+async fn serve_socket(
+    service: Service,
+    installation: String,
+    token_digest: String,
+    mut socket: WebSocket,
+) {
+    let relay = &service.relay;
     let hello = tokio::time::timeout(Duration::from_secs(5), socket.next()).await;
     let Ok(Some(Ok(Message::Text(hello)))) = hello else {
         return;
@@ -109,13 +125,46 @@ async fn serve_socket(relay: Relay, installation: String, mut socket: WebSocket)
         let _ = previous.stop.send(true);
     }
 
+    // Register before rechecking the persisted identity: detach may have raced
+    // the HTTP upgrade/negotiation. Either it removes this generation or this
+    // check stops it. An old generation never removes a replacement.
+    let current: Result<Option<(String,)>, _> = query_as(
+        "SELECT id FROM installations WHERE id = $1 AND token_digest = $2 AND owner_id IS NOT NULL",
+    )
+    .bind(&installation)
+    .bind(&token_digest)
+    .fetch_optional(&service.pool)
+    .await;
+    if !matches!(current, Ok(Some(_))) {
+        let _ = tunnel.stop.send(true);
+    }
+
+    let mut revocation = tokio::time::interval(Duration::from_secs(1));
+    revocation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut pending = HashMap::<String, Pending>::new();
     let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut received = tokio::time::Instant::now();
     loop {
         tokio::select! {
+            biased;
+
             _ = stopped.changed() => break,
+            _ = revocation.tick() => {
+                // Owner deletion can originate in account management (#59),
+                // another process, or an operator's transaction. The database
+                // remains authoritative even for an already open connection.
+                let current: Result<Option<(String,)>, _> = query_as(
+                    "SELECT id FROM installations WHERE id = $1 AND token_digest = $2 AND owner_id IS NOT NULL",
+                )
+                .bind(&installation)
+                .bind(&token_digest)
+                .fetch_optional(&service.pool)
+                .await;
+                if !matches!(current, Ok(Some(_))) {
+                    break;
+                }
+            }
             _ = heartbeat.tick() => {
                 if received.elapsed() > Duration::from_secs(45) {
                     break;
