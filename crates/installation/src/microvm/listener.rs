@@ -3,7 +3,7 @@ use std::{future::Future, io, time::Duration};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-pub(super) async fn serve<T, A, F, H, R>(
+pub(crate) async fn serve<T, A, F, H, R>(
     mut accept: A,
     handle: H,
     limit: usize,

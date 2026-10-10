@@ -1204,6 +1204,8 @@ dependencies = [
  "futures-util",
  "hex",
  "http-body-util",
+ "hyper 1.11.1",
+ "hyper-util",
  "image",
  "jsonschema",
  "libc",
