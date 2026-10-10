@@ -4,7 +4,7 @@ mod codex_state;
 pub mod guest;
 pub mod host;
 pub(crate) mod images;
-mod listener;
+pub(crate) mod listener;
 pub mod mcp;
 mod network;
 pub mod plan;

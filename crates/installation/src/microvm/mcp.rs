@@ -14,7 +14,7 @@ pub const ORIGIN: &str = "http://127.0.0.1:5202";
 pub const SOCKET: &str = "cairn-mcp.sock";
 /// Concurrent MCP connections of one VM. Tool calls can last as long as their
 /// attempt, so connections are bounded in number rather than in duration.
-const CONNECTIONS: usize = 32;
+pub(crate) const CONNECTIONS: usize = 32;
 
 /// Guest side: relays loopback connections to the host for the VM's lifetime.
 pub(super) async fn serve_guest(stop: CancellationToken) {

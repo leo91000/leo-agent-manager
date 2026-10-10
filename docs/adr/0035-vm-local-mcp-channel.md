@@ -27,6 +27,9 @@ Dans une VM, l’agent joint le MCP de son exécution à `http://127.0.0.1:5202`
   MCP au manager par sa session authentifiée existante
   (`/internal/node-workspace/{attempt}/mcp`). Le manager vérifie que la tentative
   appartient à cette node et que le jeton appartient à son exécution.
+- Le socket n’existe que pendant la tentative. Son arrêt ferme ses connexions
+  MCP, même avec un appel d’outil en cours. Une reprise lie le même chemin, et
+  une tentative arrêtée ne supprime jamais un socket lié après le sien.
 
 Les jetons restent liés à l’exécution et vérifiés par le manager. Le pare-feu
 des VM est inchangé, aucun port n’est publié, et le manager n’est pas exposé

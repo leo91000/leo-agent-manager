@@ -164,6 +164,11 @@ authenticated session. The manager checks that the node still owns the attempt,
 then applies the same rules. The manager's origin, its DNS name and the VM
 firewall play no part. A host execution without a VM keeps `PUBLIC_URL`.
 
+The socket exists only during its attempt and serves at most 32 connections at
+once, like the controller's relay. Stopping the attempt closes its open MCP
+connections, including tool calls still in progress. A resume binds the same
+path; a stopped attempt never removes a socket bound after its own.
+
 A conversation whose disk keeps an image from before this channel has no guest
 listener, and therefore no MCP. See [the decision](adr/0035-vm-local-mcp-channel.md).
 

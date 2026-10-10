@@ -14,13 +14,18 @@ use axum::{
     extract::{Request, State},
     response::{IntoResponse, Response},
 };
+use hyper::server::conn::http1;
+use hyper_util::{rt::TokioIo, service::TowerToHyperService};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use tokio::net::UnixListener;
 use tokio_util::sync::CancellationToken;
@@ -48,60 +53,108 @@ struct Forwarded {
     body: String,
 }
 
+/// Run sockets bound by this process, each with the generation of its binder.
+/// A resume binds the same path as the attempt it replaces, possibly before that
+/// attempt has stopped: only the latest binder removes it. The file's identity
+/// would not do, as the resume's socket can reuse a freed inode number.
+static OWNERS: Mutex<BTreeMap<PathBuf, u64>> = Mutex::new(BTreeMap::new());
+static GENERATIONS: AtomicU64 = AtomicU64::new(0);
+
+/// A run socket bound by this process, removed on drop unless rebound since.
+struct Socket {
+    path: PathBuf,
+    generation: u64,
+}
+
+impl Drop for Socket {
+    fn drop(&mut self) {
+        let mut owners = OWNERS.lock().unwrap_or_else(PoisonError::into_inner);
+        if owners.get(&self.path) == Some(&self.generation) {
+            owners.remove(&self.path);
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Serves the run's channel until dropped.
 pub struct Channel {
     stop: CancellationToken,
-    path: PathBuf,
+    _socket: Socket,
 }
 
 impl Drop for Channel {
     fn drop(&mut self) {
         self.stop.cancel();
-        let _ = std::fs::remove_file(&self.path);
     }
 }
 
-async fn bind(path: &Path) -> Result<UnixListener> {
+async fn bind(path: &Path) -> Result<(UnixListener, Socket)> {
     if let Some(home) = path.parent() {
         private_dir(home).await?;
     }
-    match tokio::fs::remove_file(path).await {
+    let generation = GENERATIONS.fetch_add(1, Ordering::Relaxed);
+
+    let mut owners = OWNERS.lock().unwrap_or_else(PoisonError::into_inner);
+    match std::fs::remove_file(path) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-
     let listener = UnixListener::bind(path)?;
-    tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await?;
-    Ok(listener)
+    owners.insert(path.to_owned(), generation);
+    drop(owners);
+
+    let socket = Socket {
+        path: path.to_owned(),
+        generation,
+    };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok((listener, socket))
+}
+
+/// Answers HTTP on the run socket until `stop`. Connections are bounded like the
+/// VM relay's, and end with the attempt rather than with their last request.
+async fn serve_connections(
+    listener: UnixListener,
+    app: Router,
+    stop: CancellationToken,
+) -> std::io::Result<()> {
+    let service = TowerToHyperService::new(app);
+    crate::microvm::listener::serve(
+        || listener.accept(),
+        |(stream, _)| {
+            let connection =
+                http1::Builder::new().serve_connection(TokioIo::new(stream), service.clone());
+            async move {
+                if let Err(error) = connection.await {
+                    tracing::debug!(%error, "Run MCP connection closed");
+                }
+            }
+        },
+        crate::microvm::mcp::CONNECTIONS,
+        stop,
+    )
+    .await
 }
 
 /// The manager side: answers run-scoped MCP for `run` in `home`.
 pub async fn serve(s: &Arc<Service>, home: &Path, run: &str) -> Result<Channel> {
-    let path = home.join(crate::microvm::mcp::SOCKET);
-    let listener = bind(&path).await?;
+    let (listener, socket) = bind(&home.join(crate::microvm::mcp::SOCKET)).await?;
 
-    let stop = CancellationToken::new();
+    let stop = s.shutdown.child_token();
     let app = Router::new()
         .fallback(answer)
         .with_state((s.clone(), run.to_owned()));
     let stopping = stop.clone();
-    let shutdown = s.shutdown.clone();
     tokio::spawn(async move {
-        let stopped = async move {
-            tokio::select! {
-                () = stopping.cancelled() => {},
-                () = shutdown.cancelled() => {},
-            }
-        };
-        if let Err(error) = axum::serve(listener, app)
-            .with_graceful_shutdown(stopped)
-            .await
-        {
+        if let Err(error) = serve_connections(listener, app, stopping).await {
             tracing::warn!(%error, "Run MCP channel stopped");
         }
     });
-    Ok(Channel { stop, path })
+    Ok(Channel {
+        stop,
+        _socket: socket,
+    })
 }
 
 async fn answer(State((s, run)): State<(Arc<Service>, String)>, request: Request) -> Response {
@@ -134,14 +187,12 @@ pub(crate) async fn relayed(s: &Arc<Service>, run: &str, forwarded: &Value) -> R
 /// The node side: forwards the attempt's MCP requests to the manager over the
 /// node's authenticated session until `stop`. No other network path is opened.
 pub async fn forward(path: PathBuf, session: Session, stop: CancellationToken) -> Result<()> {
-    let listener = bind(&path).await?;
+    let (listener, _socket) = bind(&path).await?;
     let app = Router::new().fallback(send).with_state(Arc::new(session));
 
-    let result = axum::serve(listener, app)
-        .with_graceful_shutdown(stop.cancelled_owned())
-        .await;
-    let _ = tokio::fs::remove_file(path).await;
-    result.map_err(Error::from)
+    serve_connections(listener, app, stop)
+        .await
+        .map_err(Error::from)
 }
 
 async fn send(State(session): State<Arc<Session>>, request: Request) -> Response {

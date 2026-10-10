@@ -129,13 +129,15 @@ enum Endpoint {
 }
 
 impl Endpoint {
-    fn of(path: &str) -> Self {
-        if path == "/mcp-workspace" {
-            return Self::Workspace;
-        }
-        match path.strip_prefix("/mcp-gateway/") {
-            Some(id) => Self::Gateway(id.to_owned()),
-            None => Self::Management,
+    /// The endpoint at exactly `path`: no other path is an MCP endpoint.
+    fn of(path: &str) -> Option<Self> {
+        match path {
+            "/api/mcp" => Some(Self::Management),
+            "/mcp-workspace" => Some(Self::Workspace),
+            _ => path
+                .strip_prefix("/mcp-gateway/")
+                .filter(|id| !id.is_empty() && !id.contains('/'))
+                .map(|id| Self::Gateway(id.to_owned())),
         }
     }
 }
@@ -208,7 +210,8 @@ pub async fn handle(State(app): State<App>, request: Request) -> Result<Response
 /// Run-scoped MCP received on the channel of `run`: a VM reaches only the
 /// workspace and gateway endpoints, with a token granted to that same run.
 pub(crate) async fn run_scoped(s: &Arc<Service>, run: &str, request: Request) -> Result<Response> {
-    if matches!(Endpoint::of(request.uri().path()), Endpoint::Management) {
+    let endpoint = Endpoint::of(request.uri().path());
+    if !matches!(endpoint, Some(Endpoint::Workspace | Endpoint::Gateway(_))) {
         return Err(Error::not_found("Not found."));
     }
     let granted = crate::mcps::granted_run(s, &bearer(&request)).await?;
@@ -223,7 +226,8 @@ pub(crate) async fn run_scoped(s: &Arc<Service>, run: &str, request: Request) ->
 async fn respond(s: &Arc<Service>, request: Request) -> Result<Response> {
     let started = std::time::Instant::now();
     let bearer = bearer(&request);
-    let endpoint = Endpoint::of(request.uri().path());
+    let endpoint =
+        Endpoint::of(request.uri().path()).ok_or_else(|| Error::not_found("Not found."))?;
     let scopes = request
         .extensions()
         .get::<crate::auth::InstallationIdentity>()
