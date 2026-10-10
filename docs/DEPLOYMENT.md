@@ -361,6 +361,52 @@ OAuth/session records are removed hourly. Run summaries and preserved worktrees
 are not automatically deleted. Review worktree storage in the run's Task brief;
 cleanup refuses changes, including ignored/untracked files, and keeps Git branches.
 
+## Direct connection
+
+Browsers and the Android app connect to the installation directly (WebRTC)
+when the network allows it, and through the beacon relay otherwise. The relay
+is always available; direct is an optimisation, never a requirement. The
+header of the web workspace shows the current route (**direct** or **relay**).
+Design and security model: [DIRECT-CONNECTION.md](DIRECT-CONNECTION.md).
+
+**Network requirements**
+
+- The installation host needs **outbound UDP**: to the beacon STUN server
+  (`stun:<beacon host>:3478`, UDP 3478) and to the clients' ephemeral ports.
+  Replies return through the host's NAT/conntrack state.
+- **No inbound port** is opened or forwarded on the installation. Nothing listens
+  for anonymous local access; every direct peer is authorised by the beacon for
+  one signed-in session and closes when that session's access ends.
+- The beacon publishes UDP 3478 for its built-in STUN responder (Binding only,
+  no TURN). No third-party STUN server is contacted by default.
+- Clients also need outbound UDP. Strict UDP filtering or symmetric NAT on both
+  sides (common on mobile networks) falls back to the relay.
+
+**Settings** (installation manager environment)
+
+| Variable | Default | Effect |
+|---|---|---|
+| `CAIRN_DIRECT_ENABLED` | `true` | `false` disables direct authorisation and peers; everything uses the relay. |
+| `CAIRN_DIRECT_STUN_URLS` | beacon STUN | Up to four `stun:host:port` URLs replacing the beacon source. TURN URLs are rejected. |
+| `CAIRN_DIRECT_PUBLIC_IP` | unset | Public address of the host, only when the installation runs **on the same server as the beacon** behind a verified port-preserving NAT (avoids the STUN hairpin trap). |
+
+Direct is **enabled by default**: it needs no inbound exposure, every session
+keeps the relay as a fallback, and revoking a session closes its direct peer
+immediately (about 20 ms in production qualification, #105). Disable it only
+when outbound UDP is forbidden by policy or to rule it out while troubleshooting.
+
+After changing a setting, recreate the manager container. Invalid values disable
+direct and log the name of the faulty setting; the relay keeps working.
+
+**Checks**
+
+- Beacon `/health` reports `stun.status` (`running`, `retrying` or `stopped`)
+  and STUN error counters.
+- Sign in, open an installation and check that the header shows **direct**
+  after a few seconds. If it stays on **relay**, first verify outbound UDP from
+  the installation host and from the client network; a mobile network staying
+  on relay is expected.
+
 ## Troubleshooting
 
 - **Unexpected host/origin:** check the internal manager origin for node traffic, and the beacon origin for browser access.
@@ -369,6 +415,7 @@ cleanup refuses changes, including ignored/untracked files, and keeps Git branch
 - **Recovering:** active conversations resume after the previous process/container stops. If the runner is unavailable, recovery waits and retains project/account locks. **Interrupted:** older runs without a checkpoint need review and an explicit retry. See [restart recovery](RESTART-RECOVERY.md).
 - **No CLI installed/signed in:** use Connections and the commands above; provider account credentials are separate from the manager password.
 - **MCP rejects initialization:** verify the client uses Streamable HTTP and the deployed image includes stateless compatibility. Both 2026-07-28 and older 2025 clients are supported; standalone HTTP+SSE and stateful sessions are not.
+- **Always on relay:** see [Direct connection](#direct-connection) checks. Outbound UDP must be allowed from the installation host and the client network.
 - **Installation detached or owner account deleted:** run `cairn claim` on the machine, approve its device code on the beacon site, then restart the manager. Old local passwords and sessions cannot restore access.
 
 See [Docker's volume documentation](https://docs.docker.com/engine/storage/volumes/)
