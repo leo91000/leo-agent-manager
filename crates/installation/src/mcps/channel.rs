@@ -194,3 +194,170 @@ async fn send_request(session: &Session, request: Request) -> Result<Response> {
         .map_err(|_| Error::unavailable("Workspace connection interrupted."))?;
     answer.body(Body::from(bytes)).map_err(Error::internal)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{Json, routing::post};
+    use serde_json::json;
+    use std::{
+        net::SocketAddr,
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+    use tokio::sync::{Notify, mpsc};
+
+    /// A manager whose first forwarded MCP call stays in flight until released,
+    /// as a long tool call does.
+    struct Master {
+        calls: AtomicUsize,
+        received: mpsc::UnboundedSender<()>,
+        release: Notify,
+    }
+
+    async fn answer_forwarded(State(master): State<Arc<Master>>) -> Json<Value> {
+        let first = master.calls.fetch_add(1, Ordering::SeqCst) == 0;
+        let _ = master.received.send(());
+        if first {
+            master.release.notified().await;
+        }
+        Json(json!({ "jsonrpc": "2.0", "id": 1, "result": {} }))
+    }
+
+    async fn master() -> (SocketAddr, Arc<Master>, mpsc::UnboundedReceiver<()>) {
+        let (received, calls) = mpsc::unbounded_channel();
+        let master = Arc::new(Master {
+            calls: AtomicUsize::new(0),
+            received,
+            release: Notify::new(),
+        });
+        let app = Router::new()
+            .route(
+                "/internal/node-workspace/{attempt}/mcp",
+                post(answer_forwarded),
+            )
+            .with_state(master.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        (address, master, calls)
+    }
+
+    fn session(master: SocketAddr) -> Session {
+        Session {
+            client: reqwest::Client::new(),
+            master: format!("http://{master}").parse().unwrap(),
+            token: "node-token".into(),
+            attempt: "attempt".into(),
+        }
+    }
+
+    /// An agent's MCP call through the run socket, on a fresh connection.
+    async fn call(socket: &Path) -> reqwest::Result<reqwest::Response> {
+        let client = reqwest::Client::builder()
+            .unix_socket(socket)
+            .timeout(Duration::from_secs(10))
+            .build()?;
+        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+        client
+            .post("http://127.0.0.1:5202/mcp-workspace")
+            .json(&body)
+            .send()
+            .await
+    }
+
+    /// The first call of a channel being bound: the master holds it in flight.
+    async fn in_flight(socket: PathBuf) -> reqwest::Result<reqwest::Response> {
+        for _ in 0..100 {
+            if tokio::net::UnixStream::connect(&socket).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        call(&socket).await
+    }
+
+    async fn answered(socket: &Path) {
+        for _ in 0..100 {
+            if let Ok(response) = call(socket).await
+                && response.status().is_success()
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("{} never answered", socket.display());
+    }
+
+    #[tokio::test]
+    async fn stopping_a_channel_ends_its_open_connections() {
+        let (address, _master, mut received) = master().await;
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory
+            .path()
+            .join("home")
+            .join(crate::microvm::mcp::SOCKET);
+        let stop = CancellationToken::new();
+        let channel = tokio::spawn(forward(socket.clone(), session(address), stop.clone()));
+        let pending = tokio::spawn(in_flight(socket.clone()));
+        received.recv().await.unwrap();
+
+        stop.cancel();
+        let ended = tokio::time::timeout(Duration::from_secs(2), channel).await;
+
+        assert!(ended.is_ok(), "an open connection kept the stopped channel");
+        ended.unwrap().unwrap().unwrap();
+        let interrupted = tokio::time::timeout(Duration::from_secs(2), pending)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(interrupted.is_err(), "{interrupted:?}");
+        assert!(!socket.exists());
+    }
+
+    #[tokio::test]
+    async fn a_stopped_attempt_never_removes_the_socket_of_its_resume() {
+        let (address, master, mut received) = master().await;
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory
+            .path()
+            .join("home")
+            .join(crate::microvm::mcp::SOCKET);
+        let first_stop = CancellationToken::new();
+        let first = tokio::spawn(forward(
+            socket.clone(),
+            session(address),
+            first_stop.clone(),
+        ));
+        let pending = tokio::spawn(in_flight(socket.clone()));
+        received.recv().await.unwrap();
+
+        // The attempt is cancelled with that call in flight, and resumed in
+        // the same run home.
+        first_stop.cancel();
+        let resume_stop = CancellationToken::new();
+        let resume = tokio::spawn(forward(
+            socket.clone(),
+            session(address),
+            resume_stop.clone(),
+        ));
+        answered(&socket).await;
+        master.release.notify_one();
+        let _ = pending.await;
+        tokio::time::timeout(Duration::from_secs(5), first)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            socket.exists(),
+            "the stopped attempt removed its resume's socket"
+        );
+        let response = call(&socket).await.unwrap();
+        assert!(response.status().is_success(), "{}", response.status());
+        resume_stop.cancel();
+        resume.await.unwrap().unwrap();
+        assert!(!socket.exists());
+    }
+}

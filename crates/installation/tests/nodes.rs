@@ -2118,8 +2118,14 @@ async fn remote_vm_agents_reach_workspace_tools_only_through_their_node_session(
     )
     .await;
     assert_eq!(status, 401);
-    for path in ["/api/mcp", "/internal/nodes/heartbeat", "/api/agents"] {
-        let (status, _) = mcp_through(&socket, path, run_token, "tools/list", json!({})).await;
+    for path in [
+        "/api/mcp".to_owned(),
+        "/internal/nodes/heartbeat".to_owned(),
+        "/api/agents".to_owned(),
+        format!("/mcp-gateway/{connection}/extra"),
+        "/mcp-gateway/".to_owned(),
+    ] {
+        let (status, _) = mcp_through(&socket, &path, run_token, "tools/list", json!({})).await;
         assert_eq!(status, 404, "{path}");
     }
     owner.grant_nodes(MAIN_AGENT_ID, json!([])).await;

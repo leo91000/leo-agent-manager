@@ -1169,17 +1169,24 @@ impl WorkspaceProbe {
         let status = response.status().as_u16();
         let reply: Value = response.json().await.unwrap_or_default();
         let other_run = request(&url, &self.other_run_token).await.unwrap().status();
-        let management = request("http://127.0.0.1:5202/api/mcp", token)
-            .await
-            .unwrap()
-            .status();
+        // Only `/mcp-workspace` and `/mcp-gateway/{id}` exist on the channel.
+        let mut outside = Vec::new();
+        for path in [
+            "/api/mcp".to_owned(),
+            format!("/mcp-gateway/{}/extra", id()),
+            "/mcp-gateway/".to_owned(),
+        ] {
+            let url = format!("http://127.0.0.1:5202{path}");
+            let status = request(&url, token).await.unwrap().status();
+            outside.push(json!([path, status.as_u16()]));
+        }
         json!({
             "url": url,
             "reachable": true,
             "status": status,
             "reply": reply,
             "otherRun": other_run.as_u16(),
-            "management": management.as_u16(),
+            "outside": outside,
         })
     }
 }
@@ -1267,7 +1274,9 @@ async fn vm_agents_call_workspace_tools_through_their_run_channel_without_a_publ
     assert!(call["reply"]["error"].is_null(), "{call}");
     assert_ne!(call["reply"]["result"]["isError"], true, "{call}");
     assert_eq!(call["otherRun"], 401, "{call}");
-    assert_eq!(call["management"], 404, "{call}");
+    for outside in call["outside"].as_array().unwrap() {
+        assert_eq!(outside[1], 404, "{outside}");
+    }
     // Disk reads still use the private origin; the agent never does.
     let args = controller.plans.lock().await[0]["args"].to_string();
     assert!(!args.contains("manager:4310"), "{args}");
